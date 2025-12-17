@@ -54,26 +54,14 @@ class CorticalColumn(Container):
                 clc.connect_dst(self.layers[dst_str])
 
     def __repr__(self) -> str:
-        result = (
-            self.__class__.__name__
-            + str(self.tags)
-            + f"(SubStructures({len(self.sub_structures)}):"
-            + f"CorticalLayers({sum([isinstance(x, CorticalLayer) for x in self.sub_structures])}):"
-            + str(
-                [x.tags[0] for x in self.sub_structures if isinstance(x, CorticalLayer)]
-            )
-            + f"CorticalLayerConnections({sum([isinstance(x, CorticalLayerConnection) for x in self.sub_structures])}):"
-            + str(
-                [
-                    x.tags[0]
-                    for x in self.sub_structures
-                    if isinstance(x, CorticalLayerConnection)
-                ]
-            )
-            + "){"
-        )
-        for k in sorted(list(self.behavior.keys())):
-            result += str(k) + ":" + str(self.behavior[k])
+        tag_str = self.tags[0] if self.tags else "untagged"
+        layers = [x for x in self.sub_structures if isinstance(x, CorticalLayer)]
+        connections = [x for x in self.sub_structures if isinstance(x, CorticalLayerConnection)]
+        layer_tags = [x.tags[0] if x.tags else "?" for x in layers]
+        conn_tags = [x.tags[0] if x.tags else "?" for x in connections]
+        result = f"{self.__class__.__name__}[{tag_str}](layers={layer_tags}, connections={conn_tags}){{"
+        behaviors = [f"{k}:{self.behavior[k].__class__.__name__}" for k in sorted(self.behavior.keys())]
+        result += ", ".join(behaviors)
         return result + "}"
 
     def required_helper(self) -> List[NetworkObject]:

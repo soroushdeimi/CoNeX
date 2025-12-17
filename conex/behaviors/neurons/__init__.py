@@ -4,3 +4,19 @@ from .homeostasis import *
 from .specs import *
 from .neuron_types import *
 from .setters import *
+from .grid_cells import GridCellModule, DisplacementCellModule, LocationEncoder
+from .active_dendrites import (
+    DendriticSegment,
+    DendriticSegmentConfig,
+    ActiveDendriteComputation,
+    ContextualPrediction,
+)
+from .sequence_memory import TemporalMemory, TemporalMemoryConfig, SegmentStorage
+from .spatial_pooler import SpatialPooler, SpatialPoolerConfig
+from .sdr import (
+    SDR,
+    SDRConfig,
+    SDREncoder,
+    SDRClassifier,
+    UnionSDR,
+)

@@ -18,6 +18,9 @@ The framework is designed for researchers and developers in computational neuros
 
   * **Modular Architecture:** Build complex networks from reusable components like `Layers`, `CorticalColumns`, and `Synapses`.
   * **Biologically Plausible Models:** Includes built-in neuron models such as Leaky Integrate-and-Fire (LIF), Exponential LIF (ELIF), and Adaptive ELIF (AELIF). 
+  * **Thousand Brains Theory Support:** Implements key components from Numenta's Thousand Brains Theory including Grid Cells, Displacement Cells, Active Dendrites, Temporal Memory, Spatial Pooler, and inter-column Voting mechanisms.
+  * **HTM Algorithms:** Full implementations of Hierarchical Temporal Memory (HTM) algorithms for sequence learning, prediction, and anomaly detection.
+  * **Sparse Distributed Representations (SDR):** Native support for SDR operations including overlap, union, intersection, and similarity metrics.
   * **Advanced Learning Rules:** Implement various forms of STDP, including Reward-modulated STDP (RSTDP) and inhibitory STDP (iSTDP), for different connection types (dense, sparse, convolutional). 
   * **Flexible Connectivity:** Supports numerous connection styles, including one-to-one, sparse, convolutional, and local connections. 
   * **Structured Network Building:** Easily define hierarchical structures like `CorticalLayer` and `CorticalColumn` to model brain-like architectures. 
@@ -65,12 +68,20 @@ This module contains the building blocks for defining the dynamics of the networ
   * **`network`**: Defines network-wide dynamics.
       * `TimeResolution`: Sets the simulation time step (`dt`). 
       * `Payoff`: A base class for defining reward/punishment signals. 
-      * `Dopamine`: Models the effect of dopamine as a neuromodulator, influenced by the payoff signal. 
+      * `Dopamine`: Models the effect of dopamine as a neuromodulator, influenced by the payoff signal.
+      * `ColumnVoting`: Inter-column voting mechanism for consensus in Thousand Brains Theory.
+      * `ConsensusNetwork`: Network-level coordination for voting across cortical columns.
+      * `SDROverlap`: Utility for computing SDR similarity metrics. 
   * **`neurons`**: Defines the behavior of individual neurons.
       * `neuron_types`: Includes LIF, ELIF, and AELIF neuron models.  These models define the fundamental voltage dynamics of a neuron.
       * `dendrite`: Models dendritic compartments (proximal, distal, apical) and computes the input current `I` by summing their contributions. 
       * `axon`: Propagates spikes from a neuron to its connected synapses, handling transmission delays. 
-      * `homeostasis`: Implements mechanisms to maintain stable network activity, either by regulating firing rates or membrane voltage. 
+      * `homeostasis`: Implements mechanisms to maintain stable network activity, either by regulating firing rates or membrane voltage.
+      * `grid_cells`: Grid cell module implementing hexagonal firing patterns for allocentric reference frames, plus displacement cells for movement encoding.
+      * `active_dendrites`: NMDA-based dendritic computation with segment-based learning, contextual prediction, and dendritic spikes.
+      * `sequence_memory`: HTM Temporal Memory algorithm for learning and predicting sequences of sparse patterns.
+      * `spatial_pooler`: HTM Spatial Pooler for encoding inputs as stable sparse distributed representations with homeostatic boosting.
+      * `sdr`: Sparse Distributed Representation operations including overlap, union, intersection, encoding, and classification. 
   * **`synapses`**: Defines the behavior of synapses.
       * `dendrites`: Determines how pre-synaptic spikes are converted into post-synaptic current for various connection types (e.g., `SimpleDendriticInput`, `Conv2dDendriticInput`). 
       * `learning`: Implements synaptic plasticity rules like STDP and RSTDP.  These rules modify synaptic weights based on the timing of pre- and post-synaptic spikes, and in the case of RSTDP, a global reward signal (dopamine).
@@ -99,6 +110,76 @@ This module contains utilities to assist with data preparation and processing.
       * `encoders`: Functions to convert raw data (like images) into spike trains, such as `Poisson` and `Intensity2Latency` encoding. 
       * `masks`: Transformers that can occlude or isolate parts of an input, useful for attention experiments. 
   * **`filters`**: Implementations of common visual filters like Difference of Gaussians (`DoGFilter`) and `GaborFilter`. 
+
+-----
+
+## Thousand Brains Theory Support
+
+CoNeX implements key components from Jeff Hawkins' **Thousand Brains Theory** and Numenta's **Hierarchical Temporal Memory (HTM)** research. These components enable building brain-like systems that learn through movement, use reference frames, and reach consensus across multiple models.
+
+### Key Components
+
+| Component | Module | Description |
+|-----------|--------|-------------|
+| **Grid Cells** | `neurons.grid_cells` | Hexagonal firing patterns for allocentric (world-centered) reference frames |
+| **Displacement Cells** | `neurons.grid_cells` | Encode movements between locations for learning object structure |
+| **Active Dendrites** | `neurons.active_dendrites` | NMDA-based dendritic segments with nonlinear integration and contextual prediction |
+| **Temporal Memory** | `neurons.sequence_memory` | HTM sequence learning algorithm with predictive cells and burst detection |
+| **Spatial Pooler** | `neurons.spatial_pooler` | SDR encoding with competitive learning and homeostatic boosting |
+| **SDR Operations** | `neurons.sdr` | Overlap, union, intersection, encoding, and classification for sparse patterns |
+| **Column Voting** | `network.voting` | Inter-column consensus mechanism for object recognition |
+
+### Example: Using Grid Cells
+
+```python
+from conex.behaviors.neurons import GridCellModule
+from pymonntorch import Network, NeuronGroup
+
+net = Network(behavior={}, dtype=torch.float32, device="cpu")
+
+# Create a grid cell population with 4 modules
+neurons = NeuronGroup(
+    net=net,
+    size=400,
+    behavior={
+        1: GridCellModule(
+            n_modules=4,
+            cells_per_module=100,
+            scales=[40.0, 50.0, 70.0, 100.0],
+        )
+    },
+    tag="grid_cells"
+)
+net.initialize()
+
+# Encode a position
+position = torch.tensor([50.0, 50.0])
+activation = neurons.grid_cell_module.encode_position(neurons, position)
+```
+
+### Example: Using Temporal Memory
+
+```python
+from conex.behaviors.neurons import TemporalMemory, TemporalMemoryConfig
+
+config = TemporalMemoryConfig(
+    n_columns=2048,
+    cells_per_column=32,
+    activation_threshold=13,
+)
+
+neurons = NeuronGroup(
+    net=net,
+    size=2048 * 32,
+    behavior={1: TemporalMemory(config=config)},
+    tag="temporal_memory"
+)
+net.initialize()
+
+# Process a sequence of sparse column activations
+for active_columns in sequence:
+    neurons.temporal_memory.compute(neurons, active_columns, learn=True)
+```
 
 -----
 

@@ -3,6 +3,14 @@
 from .specs import *
 from .learning import *
 from .dendrites import *
+from .predictive import (
+    PredictiveSynapseInit,
+    FeedbackPredictionSynapse,
+    FeedforwardErrorSynapse,
+    LateralPredictionSynapse,
+    PredictiveSynapseLearning,
+    PredictiveConnection,
+)
 
 __all__ = [
     # Specs
@@ -37,4 +45,11 @@ __all__ = [
     "LateralDendriticInput",
     "Conv2dDendriticInput",
     "Local2dDendriticInput",
+    # Predictive Coding
+    "PredictiveSynapseInit",
+    "FeedbackPredictionSynapse",
+    "FeedforwardErrorSynapse",
+    "LateralPredictionSynapse",
+    "PredictiveSynapseLearning",
+    "PredictiveConnection",
 ]

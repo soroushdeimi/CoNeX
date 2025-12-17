@@ -22,6 +22,18 @@ from .sdr import (
     SDRClassifier,
     UnionSDR,
 )
+from .predictive_coding import (
+    PredictionType,
+    PredictiveCodingConfig,
+    PredictionUnit,
+    ErrorUnit,
+    PrecisionWeighting,
+    TopDownPrediction,
+    PredictiveCodingLearning,
+    FreeEnergyMinimization,
+    HierarchicalPredictiveCoding,
+    create_predictive_layer,
+)
 
 __all__ = [
     # Axon
@@ -57,4 +69,15 @@ __all__ = [
     "SDREncoder",
     "SDRClassifier",
     "UnionSDR",
+    # Predictive Coding
+    "PredictionType",
+    "PredictiveCodingConfig",
+    "PredictionUnit",
+    "ErrorUnit",
+    "PrecisionWeighting",
+    "TopDownPrediction",
+    "PredictiveCodingLearning",
+    "FreeEnergyMinimization",
+    "HierarchicalPredictiveCoding",
+    "create_predictive_layer",
 ]

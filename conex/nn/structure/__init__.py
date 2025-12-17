@@ -8,6 +8,11 @@ from .cortical_column import *
 from .synapsis import *
 from .cortical_layer_connection import *
 from .neocortex import *
+from .predictive_hierarchy import (
+    HierarchyLevel,
+    PredictiveHierarchy,
+    PredictiveCorticalColumn,
+)
 
 __all__ = [
     "Container",
@@ -20,4 +25,8 @@ __all__ = [
     "Synapsis",
     "CorticalLayerConnection",
     "Neocortex",
+    # Predictive Coding
+    "HierarchyLevel",
+    "PredictiveHierarchy",
+    "PredictiveCorticalColumn",
 ]

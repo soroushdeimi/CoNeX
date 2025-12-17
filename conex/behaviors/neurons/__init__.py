@@ -1,3 +1,5 @@
+"""Neuron behaviors for CoNeX."""
+
 from .axon import *
 from .dendrite import *
 from .homeostasis import *
@@ -20,3 +22,39 @@ from .sdr import (
     SDRClassifier,
     UnionSDR,
 )
+
+__all__ = [
+    # Axon
+    "NeuronAxon",
+    # Dendrite
+    "SimpleDendriteStructure",
+    "SimpleDendriteComputation",
+    # Homeostasis
+    "ActivityBaseHomeostasis",
+    "VoltageBaseHomeostasis",
+    # Setters
+    "SensorySetter",
+    "LocationSetter",
+    # Grid Cells
+    "GridCellModule",
+    "DisplacementCellModule",
+    "LocationEncoder",
+    # Active Dendrites
+    "DendriticSegment",
+    "DendriticSegmentConfig",
+    "ActiveDendriteComputation",
+    "ContextualPrediction",
+    # Sequence Memory
+    "TemporalMemory",
+    "TemporalMemoryConfig",
+    "SegmentStorage",
+    # Spatial Pooler
+    "SpatialPooler",
+    "SpatialPoolerConfig",
+    # SDR
+    "SDR",
+    "SDRConfig",
+    "SDREncoder",
+    "SDRClassifier",
+    "UnionSDR",
+]

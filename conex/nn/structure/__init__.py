@@ -1,3 +1,5 @@
+"""Neural network structures for CoNeX."""
+
 from .container import *
 from .layer import *
 from .port import *
@@ -6,3 +8,16 @@ from .cortical_column import *
 from .synapsis import *
 from .cortical_layer_connection import *
 from .neocortex import *
+
+__all__ = [
+    "Container",
+    "Layer",
+    "CorticalLayer",
+    "Port",
+    "InputLayer",
+    "OutputLayer",
+    "CorticalColumn",
+    "Synapsis",
+    "CorticalLayerConnection",
+    "Neocortex",
+]

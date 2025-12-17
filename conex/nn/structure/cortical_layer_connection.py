@@ -49,7 +49,7 @@ class CorticalLayerConnection(Container):
     def connect_dst(self, dst: NetworkObject):
         if self.dst is None and dst is not None:
             self.dst = dst
-        if self.dst is not None and self.dst is not None:
+        if self.src is not None and self.dst is not None:
             self.create_synapses()
 
     def create_synapses(self):

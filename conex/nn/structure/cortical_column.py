@@ -95,10 +95,10 @@ class CorticalColumn(Container):
         result_parameters = {
             "input_ports": Container.ports_helper(self.input_ports, all_structures),
             "output_ports": Container.ports_helper(self.output_ports, all_structures),
+            "layer_tags": list(self.layers.keys()),
             "layers": [
-                all_structures.index(struc)
-                for struc in self.sub_structures
-                if isinstance(struc, CorticalLayer)
+                all_structures.index(self.layers[layer_tag])
+                for layer_tag in self.layers.keys()
             ],
             "layers_connections": [
                 (x[0], x[1], all_structures.index(x[2])) for x in self.layer_connections
@@ -114,11 +114,16 @@ class CorticalColumn(Container):
 
         Note: behavior can also be edited in this function as thay later will be constructed.
         """
-        parameter_dic["layer"] = [
-            built_structures[idx] for idx in parameter_dic["sub_structures"]
-        ]
+        parameter_dic["layers"] = {
+            layer_tag: built_structures[idx]
+            for layer_tag, idx in zip(
+                parameter_dic.get("layer_tags", []),
+                parameter_dic["layers"]
+            )
+        }
         parameter_dic["layer_connections"] = [
-            built_structures[idx] for idx in parameter_dic["sub_structures"]
+            (conn[0], conn[1], built_structures[conn[2]])
+            for conn in parameter_dic["layers_connections"]
         ]
         parameter_dic["input_ports"] = Container.ports_helper(
             parameter_dic["input_ports"], built_structures

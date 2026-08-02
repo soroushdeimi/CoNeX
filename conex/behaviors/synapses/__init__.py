@@ -24,6 +24,11 @@ __all__ = [
     "PostSpikeCatcher",
     "PreTrace",
     "PostTrace",
+    # Weight bounds
+    "soft_bound",
+    "hard_bound",
+    "no_bound",
+    "BOUNDS",
     # Learning
     "BaseLearning",
     "SimpleSTDP",
@@ -36,6 +41,9 @@ __all__ = [
     "Local2dSTDP",
     "SimpleRSTDP",
     "One2OneRSTDP",
+    "SparseRSTDP",
+    "Conv2dRSTDP",
+    "Local2dRSTDP",
     # Dendrites
     "BaseDendriticInput",
     "SparseDendriticInput",

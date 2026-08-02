@@ -1,22 +1,8 @@
 """Neural network module for CoNeX."""
 
+from . import structure, utils, priority
 from .structure import *
 from .utils import *
-
 from .priority import *
 
-__all__ = [
-    "Container",
-    "Layer",
-    "CorticalLayer",
-    "Port",
-    "InputLayer",
-    "OutputLayer",
-    "CorticalColumn",
-    "Synapsis",
-    "CorticalLayerConnection",
-    "Neocortex",
-    "prioritize_behaviors",
-    "NEURON_PRIORITIES",
-    "SYNAPSE_PRIORITIES",
-]
+__all__ = [*structure.__all__, *utils.__all__, *priority.__all__]

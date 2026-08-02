@@ -44,6 +44,14 @@ __all__ = [
     # Homeostasis
     "ActivityBaseHomeostasis",
     "VoltageBaseHomeostasis",
+    # Specs
+    "InherentNoise",
+    "Fire",
+    "KWTA",
+    # Neuron types
+    "LIF",
+    "ELIF",
+    "AELIF",
     # Setters
     "SensorySetter",
     "LocationSetter",

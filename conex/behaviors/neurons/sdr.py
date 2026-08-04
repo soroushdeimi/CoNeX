@@ -30,7 +30,7 @@ import torch
 from pymonntorch import Behavior
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class SDRConfig:
     """Configuration for SDR operations."""
     

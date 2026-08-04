@@ -29,7 +29,7 @@ import torch
 from pymonntorch import Behavior
 
 
-@dataclass(slots=True)
+@dataclass
 class DendriticSegmentConfig:
     """Configuration for a dendritic segment."""
     

@@ -12,6 +12,8 @@ Based on:
 In the Thousand Brains Theory, each cortical column builds its own model of
 objects. Columns communicate laterally to reach consensus on object identity
 through a voting mechanism using sparse distributed representations (SDRs).
+
+Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
 """
 
 from __future__ import annotations

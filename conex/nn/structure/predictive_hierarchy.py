@@ -2,6 +2,8 @@
 
 Provides high-level structures for building complete predictive
 coding networks with multiple hierarchical levels.
+
+Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
 """
 
 from __future__ import annotations

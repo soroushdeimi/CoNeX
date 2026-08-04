@@ -19,6 +19,8 @@ Key concepts:
 - Minicolumns: Groups of cells that share feedforward receptive fields
 - Cells within a column: Represent the same input in different contexts
 - Predictive state: Cells depolarized by context predict next input
+
+Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
 """
 
 from __future__ import annotations

@@ -16,6 +16,8 @@ Active dendrites are fundamental to the Thousand Brains Theory because:
 
 This module implements biologically realistic active dendrite models
 including NMDA spikes, calcium dynamics, and segment-based learning.
+
+Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
 """
 
 from __future__ import annotations

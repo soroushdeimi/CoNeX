@@ -3,6 +3,8 @@
 This module provides utilities for mixed precision training, allowing networks
 to use lower precision (float16/bfloat16) for certain operations to improve
 performance while maintaining accuracy where needed.
+
+Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
 """
 
 from __future__ import annotations

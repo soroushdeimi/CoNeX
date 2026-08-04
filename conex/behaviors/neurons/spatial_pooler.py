@@ -14,6 +14,8 @@ The Spatial Pooler:
 4. Implements competitive learning with homeostatic boosting
 
 This is the input layer that feeds into Temporal Memory.
+
+Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
 """
 
 from __future__ import annotations

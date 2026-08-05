@@ -1,4 +1,8 @@
-"""Predictive Coding Engine for CoNeX.
+"""
+Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
+
+
+Predictive Coding Engine for CoNeX.
 
 Implements predictive processing based on Karl Friston's Free Energy Principle
 and hierarchical predictive coding theory. Key concepts:
@@ -12,8 +16,6 @@ References:
 - Rao & Ballard (1999): Predictive coding in visual cortex
 - Friston (2005): Free Energy Principle
 - Bastos et al. (2012): Canonical microcircuits for predictive coding
-
-Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
 """
 
 from __future__ import annotations

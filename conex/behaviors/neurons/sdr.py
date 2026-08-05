@@ -1,4 +1,7 @@
 """
+Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
+
+
 Sparse Distributed Representation (SDR) Operations.
 
 Based on:
@@ -17,8 +20,6 @@ Key properties:
 2. Capacity: Can store huge number of unique patterns
 3. Union: Can represent multiple items simultaneously
 4. Comparison: Simple overlap measure for similarity
-
-Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
 """
 
 from __future__ import annotations

@@ -7,8 +7,6 @@ from .precision import (
     MixedPrecisionManager,
     PrecisionContext,
     convert_to_precision,
-    check_precision_support,
-    get_optimal_precision,
 )
 
 __all__ = [
@@ -32,6 +30,4 @@ __all__ = [
     "MixedPrecisionManager",
     "PrecisionContext",
     "convert_to_precision",
-    "check_precision_support",
-    "get_optimal_precision",
 ]

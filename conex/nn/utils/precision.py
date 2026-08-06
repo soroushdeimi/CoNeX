@@ -79,7 +79,7 @@ class MixedPrecisionManager:
 
     Example:
         >>> config = PrecisionConfig(mode=PrecisionMode.MIXED)
-        >>> manager = MixedPrecisionManager(config)
+        >>> manager = MixedPrecisionManager(config, torch.device("cuda"), torch.amp.GradScaler("cuda"))
         >>> with manager.autocast():
         ...     output = model(input)
         >>> manager.scale_loss(loss).backward()
@@ -90,26 +90,17 @@ class MixedPrecisionManager:
         self,
         config: Optional[PrecisionConfig] = None,
         device: Optional[torch.device] = None,
+        scaler: Optional[torch.amp.GradScaler] = None,
     ) -> None:
         """Initialize the mixed precision manager.
 
         Args:
             config: Precision configuration. Defaults to full precision.
-            device: Target device. Auto-detected if not provided.
+            device: Target device. cpu if not provided.
         """
         self.config = config or PrecisionConfig()
         self.device = device or torch.device("cpu")
-        self._scaler: Optional[torch.amp.GradScaler] = None
-        self._setup_scaler()
-
-    def _setup_scaler(self) -> None:
-        """Set up gradient scaler if needed."""
-        if (
-            self.config.mode in (PrecisionMode.HALF, PrecisionMode.MIXED)
-            and self.config.scaler_enabled
-            and self.device.type == "cuda"
-        ):
-            self._scaler = torch.amp.GradScaler("cuda")
+        self._scaler= scaler or None
 
     @property
     def scaler(self) -> Optional[torch.amp.GradScaler]:

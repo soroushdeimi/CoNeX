@@ -83,6 +83,14 @@ class PredictiveSynapseInit(Behavior):
                 dst_size, dtype=dtype, device=device
             )
 
+            # FeedforwardErrorSynapse deposits into dst.bottom_up_error and
+            # otherwise falls back to dst.I, which only exists when a dendrite
+            # behavior built it. Make sure the destination has the buffer.
+            if not hasattr(synapses.dst, "bottom_up_error"):
+                synapses.dst.bottom_up_error = torch.zeros(
+                    dst_size, dtype=dtype, device=device
+                )
+
 
 class FeedbackPredictionSynapse(Behavior):
     """Synapse that transmits predictions from higher to lower layers.

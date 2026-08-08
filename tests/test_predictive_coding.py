@@ -13,6 +13,7 @@ from conex import (
     PrecisionWeighting,
     PredictionUnit,
     PredictiveCodingConfig,
+    PredictiveCodingLearning,
     TopDownPrediction,
 )
 
@@ -169,6 +170,60 @@ class TestTopDownPrediction:
         unit.forward(neurons)
         assert torch.all(neurons.top_down_prediction > 0.5)
         assert torch.all(neurons.top_down_prediction <= 1.0)
+
+
+class TestPredictiveCodingLearning:
+    """The top-down update must follow prediction = top_down_weights.T @ top_down.
+
+    An update built from outer(error, top_down) rather than outer(top_down, error)
+    is transposed: it stalls at a non-zero error instead of converging.
+    """
+
+    def learning_chain(self, make_group, config):
+        neurons = make_group(SIZE, TopDownPrediction(config=config), tag="pc")
+        neurons.activity = torch.zeros(SIZE)
+        error_unit = ErrorUnit(config=config, precision_weighted=False)
+        learning = PredictiveCodingLearning(config=config, use_hebbian=False)
+        for behavior in (error_unit, learning):
+            behavior.initialize(neurons)
+        return neurons, [neurons.behavior[100], error_unit, learning]
+
+    def test_error_converges_to_zero(self, make_group):
+        torch.manual_seed(3)
+        config = linear_config(learning_rate=0.05)
+        neurons, chain = self.learning_chain(make_group, config)
+        neurons.activity = torch.rand(SIZE)
+        neurons.top_down_input = torch.rand(SIZE)
+
+        for _ in range(60):
+            for behavior in chain:
+                behavior.forward(neurons)
+
+        assert neurons.error_magnitude.mean().item() < 1e-4
+
+    def test_error_decreases_monotonically(self, make_group):
+        torch.manual_seed(3)
+        config = linear_config(learning_rate=0.05)
+        neurons, chain = self.learning_chain(make_group, config)
+        neurons.activity = torch.rand(SIZE)
+        neurons.top_down_input = torch.rand(SIZE)
+
+        errors = []
+        for _ in range(10):
+            for behavior in chain:
+                behavior.forward(neurons)
+            errors.append(neurons.error_magnitude.mean().item())
+
+        assert all(b < a for a, b in zip(errors, errors[1:]))
+
+    def test_no_update_without_error_state(self, make_group):
+        config = linear_config()
+        neurons = make_group(SIZE, TopDownPrediction(config=config), tag="pc")
+        learning = PredictiveCodingLearning(config=config)
+        learning.initialize(neurons)
+        before = neurons.top_down_weights.clone()
+        learning.forward(neurons)
+        assert torch.equal(before, neurons.top_down_weights)
 
 
 class TestFreeEnergy:

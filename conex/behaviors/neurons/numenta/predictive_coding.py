@@ -524,10 +524,12 @@ class PredictiveCodingLearning(Behavior):
             # Apply update
             neurons.prediction_weights = neurons.prediction_weights + lr * delta_w
         
-        # Update top-down weights
+        # Update top-down weights.
+        # TopDownPrediction computes prediction = top_down_weights.T @ top_down,
+        # so descending 0.5*||activity - prediction||^2 gives outer(top_down, error).
         if hasattr(neurons, "top_down_weights"):
             top_down = neurons.top_down_input
-            delta_td = torch.outer(error, top_down)
+            delta_td = torch.outer(top_down, error)
             neurons.top_down_weights = (
                 neurons.top_down_weights + lr * delta_td
             )

@@ -75,8 +75,10 @@ class SDR:
         self.device = device
         self.dtype = dtype
         
+        # An SDR is a set of active bits. Duplicates would inflate n_active and
+        # break overlap(), which counts repeats in the sorted concatenation.
         if indices is not None:
-            self._indices = indices.to(device=device, dtype=torch.long)
+            self._indices = torch.unique(indices.to(device=device, dtype=torch.long))
         elif dense is not None:
             self._indices = (dense > 0).nonzero(as_tuple=True)[0].to(device)
         else:

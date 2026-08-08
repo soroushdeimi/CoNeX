@@ -69,21 +69,22 @@ class TemporalMemory(Behavior):
     
     def __init__(self, config: TemporalMemoryConfig | None = None, **kwargs):
         config = config or TemporalMemoryConfig()
-        super().__init__(
-            n_columns=config.n_columns,
-            cells_per_column=config.cells_per_column,
-            activation_threshold=config.activation_threshold,
-            learning_threshold=config.learning_threshold,
-            initial_permanence=config.initial_permanence,
-            connected_permanence=config.connected_permanence,
-            permanence_increment=config.permanence_increment,
-            permanence_decrement=config.permanence_decrement,
-            predicted_decrement=config.predicted_decrement,
-            max_segments=config.max_segments_per_cell,
-            max_synapses=config.max_synapses_per_segment,
-            max_new_synapses=config.max_new_synapses,
-            **kwargs,
-        )
+        params = {
+            "n_columns": config.n_columns,
+            "cells_per_column": config.cells_per_column,
+            "activation_threshold": config.activation_threshold,
+            "learning_threshold": config.learning_threshold,
+            "initial_permanence": config.initial_permanence,
+            "connected_permanence": config.connected_permanence,
+            "permanence_increment": config.permanence_increment,
+            "permanence_decrement": config.permanence_decrement,
+            "predicted_decrement": config.predicted_decrement,
+            "max_segments": config.max_segments_per_cell,
+            "max_synapses": config.max_synapses_per_segment,
+            "max_new_synapses": config.max_new_synapses,
+        }
+        params.update(kwargs)
+        super().__init__(**params)
     
     def initialize(self, neurons):
         """Initialize Temporal Memory state."""

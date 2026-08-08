@@ -74,19 +74,20 @@ class DendriticSegment(Behavior):
         **kwargs,
     ):
         config = config or DendriticSegmentConfig()
-        super().__init__(
-            n_segments=n_segments,
-            n_cells=n_cells,
-            n_synapses_per_segment=config.n_synapses_per_segment,
-            activation_threshold=config.activation_threshold,
-            learning_threshold=config.learning_threshold,
-            permanence_increment=config.permanence_increment,
-            permanence_decrement=config.permanence_decrement,
-            initial_permanence=config.initial_permanence,
-            connected_permanence=config.connected_permanence,
-            max_new_synapses=config.max_new_synapses,
-            **kwargs,
-        )
+        params = {
+            "n_segments": n_segments,
+            "n_cells": n_cells,
+            "n_synapses_per_segment": config.n_synapses_per_segment,
+            "activation_threshold": config.activation_threshold,
+            "learning_threshold": config.learning_threshold,
+            "permanence_increment": config.permanence_increment,
+            "permanence_decrement": config.permanence_decrement,
+            "initial_permanence": config.initial_permanence,
+            "connected_permanence": config.connected_permanence,
+            "max_new_synapses": config.max_new_synapses,
+        }
+        params.update(kwargs)
+        super().__init__(**params)
     
     def initialize(self, neurons):
         """Initialize dendritic segment structures."""

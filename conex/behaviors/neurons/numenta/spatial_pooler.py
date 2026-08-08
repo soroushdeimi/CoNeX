@@ -65,23 +65,24 @@ class SpatialPooler(Behavior):
     
     def __init__(self, config: SpatialPoolerConfig | None = None, **kwargs):
         config = config or SpatialPoolerConfig()
-        super().__init__(
-            input_size=config.input_size,
-            n_columns=config.n_columns,
-            potential_radius=config.potential_radius,
-            potential_pct=config.potential_pct,
-            global_inhibition=config.global_inhibition,
-            local_area_density=config.local_area_density,
-            stimulus_threshold=config.stimulus_threshold,
-            syn_perm_inactive_dec=config.syn_perm_inactive_dec,
-            syn_perm_active_inc=config.syn_perm_active_inc,
-            syn_perm_connected=config.syn_perm_connected,
-            min_pct_overlap_duty=config.min_pct_overlap_duty_cycles,
-            duty_cycle_period=config.duty_cycle_period,
-            boost_strength=config.boost_strength,
-            seed=config.seed,
-            **kwargs,
-        )
+        params = {
+            "input_size": config.input_size,
+            "n_columns": config.n_columns,
+            "potential_radius": config.potential_radius,
+            "potential_pct": config.potential_pct,
+            "global_inhibition": config.global_inhibition,
+            "local_area_density": config.local_area_density,
+            "stimulus_threshold": config.stimulus_threshold,
+            "syn_perm_inactive_dec": config.syn_perm_inactive_dec,
+            "syn_perm_active_inc": config.syn_perm_active_inc,
+            "syn_perm_connected": config.syn_perm_connected,
+            "min_pct_overlap_duty": config.min_pct_overlap_duty_cycles,
+            "duty_cycle_period": config.duty_cycle_period,
+            "boost_strength": config.boost_strength,
+            "seed": config.seed,
+        }
+        params.update(kwargs)
+        super().__init__(**params)
     
     def initialize(self, neurons):
         """Initialize Spatial Pooler state."""

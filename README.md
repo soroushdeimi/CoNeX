@@ -69,23 +69,24 @@ This module contains the building blocks for defining the dynamics of the networ
       * `TimeResolution`: Sets the simulation time step (`dt`). 
       * `Payoff`: A base class for defining reward/punishment signals. 
       * `Dopamine`: Models the effect of dopamine as a neuromodulator, influenced by the payoff signal.
-      * `ColumnVoting`: Inter-column voting mechanism for consensus in Thousand Brains Theory.
-      * `ConsensusNetwork`: Network-level coordination for voting across cortical columns.
-      * `SDROverlap`: Utility for computing SDR similarity metrics. 
+      * `numenta.voting`: Inter-column voting and consensus for the Thousand Brains Theory (`ColumnVoting`, `ConsensusNetwork`, `SDROverlap`). 
   * **`neurons`**: Defines the behavior of individual neurons.
       * `neuron_types`: Includes LIF, ELIF, and AELIF neuron models.  These models define the fundamental voltage dynamics of a neuron.
       * `dendrite`: Models dendritic compartments (proximal, distal, apical) and computes the input current `I` by summing their contributions. 
       * `axon`: Propagates spikes from a neuron to its connected synapses, handling transmission delays. 
       * `homeostasis`: Implements mechanisms to maintain stable network activity, either by regulating firing rates or membrane voltage.
-      * `grid_cells`: Grid cell module implementing hexagonal firing patterns for allocentric reference frames, plus displacement cells for movement encoding.
-      * `active_dendrites`: NMDA-based dendritic computation with segment-based learning, contextual prediction, and dendritic spikes.
-      * `sequence_memory`: HTM Temporal Memory algorithm for learning and predicting sequences of sparse patterns.
-      * `spatial_pooler`: HTM Spatial Pooler for encoding inputs as stable sparse distributed representations with homeostatic boosting.
-      * `sdr`: Sparse Distributed Representation operations including overlap, union, intersection, encoding, and classification. 
+      * **`numenta`**: Components from Numenta's Thousand Brains Theory and HTM research.
+          * `grid_cells`: Hexagonal firing patterns for allocentric reference frames, plus displacement cells for movement encoding.
+          * `active_dendrites`: NMDA-based dendritic computation with segment-based learning, contextual prediction, and dendritic spikes.
+          * `sequence_memory`: HTM Temporal Memory for learning and predicting sequences of sparse patterns.
+          * `spatial_pooler`: HTM Spatial Pooler for encoding inputs as stable sparse distributed representations with homeostatic boosting.
+          * `sdr`: Sparse Distributed Representation operations including overlap, union, intersection, encoding, and classification.
+          * `predictive_coding`: Prediction and error units, precision weighting, and free energy tracking. 
   * **`synapses`**: Defines the behavior of synapses.
       * `dendrites`: Determines how pre-synaptic spikes are converted into post-synaptic current for various connection types (e.g., `SimpleDendriticInput`, `Conv2dDendriticInput`). 
       * `learning`: Implements synaptic plasticity rules like STDP and RSTDP.  These rules modify synaptic weights based on the timing of pre- and post-synaptic spikes, and in the case of RSTDP, a global reward signal (dopamine).
-      * `specs`: Includes essential synaptic mechanisms like weight initialization, spike catching, and calculating spike traces used in learning rules. 
+      * `specs`: Includes essential synaptic mechanisms like weight initialization, spike catching, and calculating spike traces used in learning rules.
+      * **`numenta.predictive`**: Feedback prediction, feedforward error, and lateral context connections for predictive coding. 
 
 ### `conex.nn`
 
@@ -98,9 +99,11 @@ This module provides the tools to construct and manage the network architecture.
       * `Layer` / `CorticalLayer`: A container for neuron groups (e.g., excitatory and inhibitory populations) and their local connections. 
       * `CorticalColumn`: A container that groups multiple `CorticalLayer` objects to form a column-like structure. 
       * `Synapsis`: A structure that connects two `Ports`, automatically creating the required `SynapseGroup` objects between them. 
-      * `InputLayer` / `OutputLayer`: Specialized layers for interfacing with data. 
+      * `InputLayer` / `OutputLayer`: Specialized layers for interfacing with data.
+      * **`numenta.predictive_hierarchy`**: `PredictiveHierarchy` for multi-level predictive coding networks and `PredictiveCorticalColumn` for the canonical L4/L2-3/L5/L6 microcircuit. 
   * **`utils`**: Provides utilities for network management.
-      * `replication`: Functions to save, load, and replicate network structures, enabling easy reuse of complex architectures. 
+      * `replication`: Functions to save, load, and replicate network structures, enabling easy reuse of complex architectures.
+      * `precision`: Mixed precision helpers for running parts of a network in float16 or bfloat16. 
 
 ### `conex.helpers`
 
@@ -121,13 +124,23 @@ CoNeX implements key components from Jeff Hawkins' **Thousand Brains Theory** an
 
 | Component | Module | Description |
 |-----------|--------|-------------|
-| **Grid Cells** | `neurons.grid_cells` | Hexagonal firing patterns for allocentric (world-centered) reference frames |
-| **Displacement Cells** | `neurons.grid_cells` | Encode movements between locations for learning object structure |
-| **Active Dendrites** | `neurons.active_dendrites` | NMDA-based dendritic segments with nonlinear integration and contextual prediction |
-| **Temporal Memory** | `neurons.sequence_memory` | HTM sequence learning algorithm with predictive cells and burst detection |
-| **Spatial Pooler** | `neurons.spatial_pooler` | SDR encoding with competitive learning and homeostatic boosting |
-| **SDR Operations** | `neurons.sdr` | Overlap, union, intersection, encoding, and classification for sparse patterns |
-| **Column Voting** | `network.voting` | Inter-column consensus mechanism for object recognition |
+All of these live under a `numenta` subpackage, so they stay grouped and clearly
+separated from CoNeX's core behaviors.
+
+| Component | Module | Description |
+|-----------|--------|-------------|
+| **Grid Cells** | `neurons.numenta.grid_cells` | Hexagonal firing patterns for allocentric (world-centered) reference frames |
+| **Displacement Cells** | `neurons.numenta.grid_cells` | Encode movements between locations for learning object structure |
+| **Active Dendrites** | `neurons.numenta.active_dendrites` | NMDA-based dendritic segments with nonlinear integration and contextual prediction |
+| **Temporal Memory** | `neurons.numenta.sequence_memory` | HTM sequence learning algorithm with predictive cells and burst detection |
+| **Spatial Pooler** | `neurons.numenta.spatial_pooler` | SDR encoding with competitive learning and homeostatic boosting |
+| **SDR Operations** | `neurons.numenta.sdr` | Overlap, union, intersection, encoding, and classification for sparse patterns |
+| **Column Voting** | `network.numenta.voting` | Inter-column consensus mechanism for object recognition |
+| **Predictive Coding** | `neurons.numenta.predictive_coding` | Prediction and error units, precision weighting, free energy tracking |
+| **Predictive Synapses** | `synapses.numenta.predictive` | Feedback prediction, feedforward error and lateral context connections |
+| **Predictive Hierarchy** | `nn.structure.numenta.predictive_hierarchy` | Multi-level hierarchy builder and canonical cortical microcircuit |
+
+Runnable examples are in [`Example/numenta/`](Example/numenta/).
 
 ### Example: Using Grid Cells
 

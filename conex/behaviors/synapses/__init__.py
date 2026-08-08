@@ -1,16 +1,10 @@
 """Synapse behaviors for CoNeX."""
 
+from . import numenta
 from .specs import *
 from .learning import *
 from .dendrites import *
-from .predictive import (
-    PredictiveSynapseInit,
-    FeedbackPredictionSynapse,
-    FeedforwardErrorSynapse,
-    LateralPredictionSynapse,
-    PredictiveSynapseLearning,
-    PredictiveConnection,
-)
+from .numenta import *
 
 __all__ = [
     # Specs
@@ -53,11 +47,6 @@ __all__ = [
     "LateralDendriticInput",
     "Conv2dDendriticInput",
     "Local2dDendriticInput",
-    # Predictive Coding
-    "PredictiveSynapseInit",
-    "FeedbackPredictionSynapse",
-    "FeedforwardErrorSynapse",
-    "LateralPredictionSynapse",
-    "PredictiveSynapseLearning",
-    "PredictiveConnection",
+    # Numenta
+    *numenta.__all__,
 ]

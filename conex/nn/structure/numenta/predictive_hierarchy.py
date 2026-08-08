@@ -14,9 +14,9 @@ import torch
 from torch import Tensor
 from pymonntorch import Network, Behavior
 
-from ..structure.layer import CorticalLayer
-from ..structure.synapsis import Synapsis
-from ...behaviors.neurons.predictive_coding import (
+from ..layer import CorticalLayer
+from ..synapsis import Synapsis
+from ....behaviors.neurons.numenta.predictive_coding import (
     PredictiveCodingConfig,
     PredictionUnit,
     ErrorUnit,
@@ -25,7 +25,7 @@ from ...behaviors.neurons.predictive_coding import (
     FreeEnergyMinimization,
     create_predictive_layer,
 )
-from ...behaviors.synapses.predictive import (
+from ....behaviors.synapses.numenta.predictive import (
     PredictiveSynapseInit,
     FeedbackPredictionSynapse,
     FeedforwardErrorSynapse,

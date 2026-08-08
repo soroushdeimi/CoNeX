@@ -17,7 +17,7 @@ from torch import Tensor
 import torch.nn.functional as F
 from pymonntorch import Behavior, SynapseGroup
 
-from ..neurons.predictive_coding import PredictiveCodingConfig
+from ...neurons.numenta.predictive_coding import PredictiveCodingConfig
 
 
 class PredictiveSynapseInit(Behavior):

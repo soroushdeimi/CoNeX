@@ -1,15 +1,15 @@
 """Network-level behaviors for CoNeX."""
 
+from . import numenta
 from .payoff import Payoff
 from .time_resolution import TimeResolution
 from .neuromodulators import Dopamine
-from .voting import ColumnVoting, ConsensusNetwork, SDROverlap
+from .numenta import *
 
 __all__ = [
     "Payoff",
     "TimeResolution",
     "Dopamine",
-    "ColumnVoting",
-    "ConsensusNetwork",
-    "SDROverlap",
+    # Numenta
+    *numenta.__all__,
 ]

@@ -113,6 +113,11 @@ class PredictionUnit(Behavior):
         device = neurons.network.device
         dtype = neurons.network.def_dtype
         
+        # Activity is the level's own representation. It is set by the caller
+        # or by an incoming synapse, so allocate it if nothing has yet.
+        if not hasattr(neurons, "activity"):
+            neurons.activity = torch.zeros(n_neurons, dtype=dtype, device=device)
+
         # Initialize prediction state
         neurons.prediction = torch.zeros(n_neurons, dtype=dtype, device=device)
         neurons.prediction_target = torch.zeros(n_neurons, dtype=dtype, device=device)
@@ -210,10 +215,18 @@ class ErrorUnit(Behavior):
         device = neurons.network.device
         dtype = neurons.network.def_dtype
         
+        if not hasattr(neurons, "activity"):
+            neurons.activity = torch.zeros(n_neurons, dtype=dtype, device=device)
+
         # Error state
         neurons.prediction_error = torch.zeros(n_neurons, dtype=dtype, device=device)
         neurons.error_magnitude = torch.zeros(n_neurons, dtype=dtype, device=device)
         neurons.signed_error = torch.zeros(n_neurons, dtype=dtype, device=device)
+
+        # Where a feedforward synapse from the level below deposits its error.
+        # Without it FeedforwardErrorSynapse falls back to neurons.I, which
+        # only exists when a dendrite behavior has built it.
+        neurons.bottom_up_error = torch.zeros(n_neurons, dtype=dtype, device=device)
         
         # Precision (inverse variance) - initialized to 1
         neurons.precision = torch.ones(n_neurons, dtype=dtype, device=device)
@@ -505,14 +518,18 @@ class PredictiveCodingLearning(Behavior):
         
         error = neurons.prediction_error
         
-        # Update prediction weights
+        # Update prediction weights.
+        # PredictionUnit computes prediction = prediction_weights.T @ source,
+        # where source is the top-down input when one is present. Descending
+        # 0.5*||activity - prediction||^2 therefore gives outer(source, error).
         if hasattr(neurons, "prediction_weights"):
-            # Error-driven update: minimize prediction error
             activity = neurons.activity
-            
-            # Outer product learning (error x activity)
-            delta_w = torch.outer(error, activity)
-            
+            source = getattr(neurons, "top_down_input", None)
+            if source is None:
+                source = activity
+
+            delta_w = torch.outer(source, error)
+
             # Hebbian component (activity correlation)
             if self.use_hebbian:
                 hebbian = torch.outer(activity, activity) * 0.1

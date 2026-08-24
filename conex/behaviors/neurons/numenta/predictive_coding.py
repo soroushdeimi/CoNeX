@@ -553,17 +553,31 @@ class PredictiveCodingLearning(Behavior):
 
 
 class FreeEnergyMinimization(Behavior):
-    """Implements Free Energy Principle optimization.
-    
-    The Free Energy Principle states that biological systems minimize
-    a quantity called "free energy" which bounds surprise. This behavior
-    computes and tracks free energy for the network.
-    
-    Free Energy ≈ Prediction Error weighted by Precision
-    
+    """Tracks the Gaussian surprise of a predictive coding level.
+
+    The Free Energy Principle states that biological systems minimize a
+    quantity that bounds surprise. This behavior computes the Gaussian form
+    of that bound for a single level:
+
+        F = 0.5 * sum(precision * error^2) - 0.5 * sum(log(precision))
+
+    Up to an additive constant this is the negative log likelihood of the
+    prediction error under a Gaussian with the given precision, i.e. surprise
+    itself. It is not the full variational decomposition into an accuracy term
+    and a KL complexity term, because there is no prior over the precision to
+    diverge from. `accuracy_term` and `complexity_term` name the two halves of
+    the expression above for convenience, not those quantities in the
+    variational sense.
+
+    One consequence is worth knowing: with the error at zero the second term
+    is all that is left, and since the precision update is a maximum-likelihood
+    estimate with fixed point `precision = 1 / error^2`, precision keeps
+    climbing to `max_precision` and F keeps falling. A prior over the precision
+    would give it a finite resting point.
+
     Args:
         config: PredictiveCodingConfig.
-        track_components: Whether to track individual FE components.
+        track_components: Whether to track the two halves separately.
     """
     
     def __init__(
@@ -602,11 +616,13 @@ class FreeEnergyMinimization(Behavior):
         error = neurons.signed_error
         precision = getattr(neurons, "precision", torch.ones_like(error))
         
-        # Free energy = 0.5 * (precision * error^2 - log(precision))
-        # Accuracy term: precision-weighted prediction error
+        # F = 0.5 * sum(precision * error^2) - 0.5 * sum(log(precision))
+
+        # Precision-weighted squared error: the data-fit half.
         accuracy = 0.5 * torch.sum(precision * error ** 2)
-        
-        # Complexity term: -log(precision) (KL divergence from prior)
+
+        # Log-normaliser of the Gaussian likelihood. Not a KL divergence --
+        # nothing here places a prior over the precision to diverge from.
         complexity = -0.5 * torch.sum(torch.log(precision + 1e-8))
         
         # Total free energy

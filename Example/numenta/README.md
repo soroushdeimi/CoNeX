@@ -60,8 +60,7 @@ TopDownPrediction -> ErrorUnit -> PrecisionWeighting
 ```
 
 The higher level carries an unrelated random pattern, so the top-down weights
-have to learn the mapping onto the sensory input. Error and free energy fall
-together:
+have to learn the mapping onto the sensory input:
 
 ```
  step   mean |error|   mean precision   free energy
@@ -70,6 +69,28 @@ together:
    16       0.00000           1.0762       -1.1754
    39       0.00000           1.1784       -2.6270
 ```
+
+Read that in two phases. Up to about step 16 the error falls because the
+weights are learning, and the free energy falls with it. After that the error
+is already zero and the free energy keeps dropping for a different reason.
+
+The quantity being tracked is
+
+```
+F = 0.5 * sum(precision * error^2)  -  0.5 * sum(log(precision))
+```
+
+Once the error is zero the first term vanishes and `F` is nothing but the
+precision term. The numbers bear this out: `-0.5 * 32 * log(1.1784) = -2.6265`,
+which is the free energy reported at step 39.
+
+That second phase is a known degeneracy rather than better prediction. The
+precision update is a maximum-likelihood estimate whose fixed point is
+`precision = 1 / error^2`, so with zero error there is no finite fixed point and
+precision climbs until it hits `max_precision`. With the default clamp of 100
+the free energy bottoms out at `-0.5 * 32 * log(100)`, roughly -73.7. Putting a
+prior on the precision would give it somewhere to settle; the current
+implementation has none.
 
 Perturbing the sensory input makes the error jump again, which is the surprise
 signal a full hierarchy would propagate upwards.

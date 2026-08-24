@@ -122,8 +122,6 @@ CoNeX implements key components from Jeff Hawkins' **Thousand Brains Theory** an
 
 ### Key Components
 
-| Component | Module | Description |
-|-----------|--------|-------------|
 All of these live under a `numenta` subpackage, so they stay grouped and clearly
 separated from CoNeX's core behaviors.
 

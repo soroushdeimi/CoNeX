@@ -1,11 +1,13 @@
-"""Predictive synapses for top-down and bottom-up connections.
+"""
+Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
+
+
+Predictive synapses for top-down and bottom-up connections.
 
 Implements specialized synapse behaviors for predictive coding:
 - Top-down prediction synapses (feedback connections)
 - Bottom-up error synapses (feedforward connections)
 - Lateral prediction synapses (same-level context)
-
-Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
 """
 
 from __future__ import annotations

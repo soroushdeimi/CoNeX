@@ -1,8 +1,8 @@
 """Tests for the mixed precision utilities.
 
 These helpers operate on torch modules and tensors rather than on CoNeX
-behaviors, so the tests exercise them directly. Everything here runs on CPU;
-the CUDA-only paths are covered by asserting the CPU fallbacks.
+behaviors, so the tests exercise them directly. Everything here runs on CPU,
+with the CUDA-only paths covered by asserting the CPU fallbacks.
 """
 
 import pytest
@@ -13,9 +13,7 @@ from conex import (
     PrecisionConfig,
     PrecisionContext,
     PrecisionMode,
-    check_precision_support,
     convert_to_precision,
-    get_optimal_precision,
 )
 
 
@@ -141,16 +139,3 @@ class TestPrecisionContext:
             with PrecisionContext(torch.float64):
                 raise RuntimeError("boom")
         assert torch.get_default_dtype() is original
-
-
-class TestHardwareQueries:
-    def test_float32_is_always_supported(self):
-        assert check_precision_support()["float32"] is True
-
-    def test_support_report_covers_every_mode(self):
-        support = check_precision_support()
-        assert set(support) == {"float32", "float16", "bfloat16", "mixed_precision"}
-
-    def test_cpu_gets_full_precision(self):
-        config = get_optimal_precision(torch.device("cpu"))
-        assert config.mode is PrecisionMode.FULL

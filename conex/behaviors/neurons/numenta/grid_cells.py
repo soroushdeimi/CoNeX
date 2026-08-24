@@ -1,4 +1,7 @@
 """
+Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
+
+
 Grid Cell and Location Signal Modules.
 
 Based on:
@@ -9,8 +12,6 @@ Based on:
 
 Grid cells provide allocentric (world-centered) reference frames that allow
 cortical columns to learn complete models of objects through movement.
-
-Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
 """
 
 from __future__ import annotations

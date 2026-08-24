@@ -1,9 +1,24 @@
-# Numenta component examples
+# Thousand Brains Theory Support
 
-Runnable examples for the Thousand Brains Theory and predictive coding
-behaviors in `conex.behaviors.*.numenta`.
+CoNeX implements key components from Jeff Hawkins' **Thousand Brains Theory** and Numenta's **Hierarchical Temporal Memory (HTM)** research. These components enable building brain-like systems that learn through movement, use reference frames, and reach consensus across multiple models.
 
-Both scripts are CPU-only and finish in a few seconds.
+They all live under a `numenta` subpackage, so they stay grouped and clearly
+separated from CoNeX's core behaviors.
+
+## Key Components
+
+| Component | Module | Description |
+|-----------|--------|-------------|
+| **Grid Cells** | `neurons.numenta.grid_cells` | Hexagonal firing patterns for allocentric (world-centered) reference frames |
+| **Displacement Cells** | `neurons.numenta.grid_cells` | Encode movements between locations for learning object structure |
+| **Active Dendrites** | `neurons.numenta.active_dendrites` | NMDA-based dendritic segments with nonlinear integration and contextual prediction |
+| **Temporal Memory** | `neurons.numenta.sequence_memory` | HTM sequence learning algorithm with predictive cells and burst detection |
+| **Spatial Pooler** | `neurons.numenta.spatial_pooler` | SDR encoding with competitive learning and homeostatic boosting |
+| **SDR Operations** | `neurons.numenta.sdr` | Overlap, union, intersection, encoding, and classification for sparse patterns |
+| **Column Voting** | `network.numenta.voting` | Inter-column consensus mechanism for object recognition |
+| **Predictive Coding** | `neurons.numenta.predictive_coding` | Prediction and error units, precision weighting, free energy tracking |
+| **Predictive Synapses** | `synapses.numenta.predictive` | Feedback prediction, feedforward error and lateral context connections |
+| **Predictive Hierarchy** | `nn.structure.numenta.predictive_hierarchy` | Multi-level hierarchy builder and canonical cortical microcircuit |
 
 ## Running
 
@@ -94,6 +109,62 @@ implementation has none.
 
 Perturbing the sensory input makes the error jump again, which is the surprise
 signal a full hierarchy would propagate upwards.
+
+## Quick reference
+
+### Grid cells
+
+```python
+import torch
+from pymonntorch import Network, NeuronGroup
+
+from conex import GridCellModule, TimeResolution
+
+net = Network(behavior={1: TimeResolution(dt=1.0)}, dtype=torch.float32, device="cpu")
+
+# Create a grid cell population with 4 modules
+neurons = NeuronGroup(
+    net=net,
+    size=400,
+    behavior={
+        215: GridCellModule(
+            n_modules=4,
+            cells_per_module=100,
+            scales=[40.0, 50.0, 70.0, 100.0],
+        )
+    },
+    tag="grid_cells",
+)
+net.initialize()
+
+# Encode a position
+position = torch.tensor([50.0, 50.0])
+activation = neurons.grid_cell_module.encode_position(neurons, position)
+```
+
+### Temporal memory
+
+```python
+from conex import TemporalMemory, TemporalMemoryConfig
+
+config = TemporalMemoryConfig(
+    n_columns=2048,
+    cells_per_column=32,
+    activation_threshold=13,
+)
+
+neurons = NeuronGroup(
+    net=net,
+    size=2048 * 32,
+    behavior={210: TemporalMemory(config=config)},
+    tag="temporal_memory",
+)
+net.initialize()
+
+# Process a sequence of sparse column activations
+for active_columns in sequence:
+    neurons.temporal_memory.compute(neurons, active_columns, learn=True)
+```
 
 ## A note on the API
 

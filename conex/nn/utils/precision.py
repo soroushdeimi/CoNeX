@@ -1,10 +1,12 @@
-"""Mixed precision utilities for CoNeX.
+"""
+Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
+
+
+Mixed precision utilities for CoNeX.
 
 This module provides utilities for mixed precision training, allowing networks
 to use lower precision (float16/bfloat16) for certain operations to improve
 performance while maintaining accuracy where needed.
-
-Author: Soroush Mohammaddeimi <soroushdeimi@gmail.com>
 """
 
 from __future__ import annotations
@@ -77,7 +79,7 @@ class MixedPrecisionManager:
 
     Example:
         >>> config = PrecisionConfig(mode=PrecisionMode.MIXED)
-        >>> manager = MixedPrecisionManager(config)
+        >>> manager = MixedPrecisionManager(config, torch.device("cuda"), torch.amp.GradScaler("cuda"))
         >>> with manager.autocast():
         ...     output = model(input)
         >>> manager.scale_loss(loss).backward()
@@ -88,34 +90,17 @@ class MixedPrecisionManager:
         self,
         config: Optional[PrecisionConfig] = None,
         device: Optional[torch.device] = None,
+        scaler: Optional[torch.amp.GradScaler] = None,
     ) -> None:
         """Initialize the mixed precision manager.
 
         Args:
             config: Precision configuration. Defaults to full precision.
-            device: Target device. Auto-detected if not provided.
+            device: Target device. cpu if not provided.
         """
         self.config = config or PrecisionConfig()
-        self.device = device or self._detect_device()
-        self._scaler: Optional[torch.amp.GradScaler] = None
-        self._setup_scaler()
-
-    def _detect_device(self) -> torch.device:
-        """Detect the best available device."""
-        if torch.cuda.is_available():
-            return torch.device("cuda")
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            return torch.device("mps")
-        return torch.device("cpu")
-
-    def _setup_scaler(self) -> None:
-        """Set up gradient scaler if needed."""
-        if (
-            self.config.mode in (PrecisionMode.HALF, PrecisionMode.MIXED)
-            and self.config.scaler_enabled
-            and self.device.type == "cuda"
-        ):
-            self._scaler = torch.amp.GradScaler("cuda")
+        self.device = device or torch.device("cpu")
+        self._scaler= scaler or None
 
     @property
     def scaler(self) -> Optional[torch.amp.GradScaler]:
@@ -191,39 +176,6 @@ class MixedPrecisionManager:
             self._scaler.unscale_(optimizer)
 
 
-def convert_to_precision(
-    module: T,
-    config: PrecisionConfig,
-    keep_fp32_layers: Optional[Set[str]] = None,
-) -> T:
-    """Convert a module to the specified precision.
-
-    Args:
-        module: The module to convert.
-        config: Precision configuration.
-        keep_fp32_layers: Set of layer names to keep in float32.
-
-    Returns:
-        The module with converted precision.
-    """
-    if config.mode == PrecisionMode.FULL:
-        return module.float()
-
-    keep_fp32 = keep_fp32_layers or set()
-    dtype = config.dtype
-
-    def convert_layer(name: str, layer: torch.nn.Module) -> None:
-        if name in keep_fp32:
-            layer.float()
-        else:
-            layer.to(dtype)
-
-    for name, layer in module.named_modules():
-        convert_layer(name, layer)
-
-    return module
-
-
 class PrecisionContext:
     """Context manager for precision-sensitive operations.
 
@@ -256,66 +208,34 @@ class PrecisionContext:
             torch.set_default_dtype(self._prev_dtype)
 
 
-def check_precision_support() -> Dict[str, bool]:
-    """Check what precision modes are supported on the current hardware.
-
-    Returns:
-        Dictionary mapping precision modes to support status.
-    """
-    support = {
-        "float32": True,  # Always supported
-        "float16": False,
-        "bfloat16": False,
-        "mixed_precision": False,
-    }
-
-    if torch.cuda.is_available():
-        # Check CUDA capabilities
-        props = torch.cuda.get_device_properties(0)
-        # float16 supported on compute capability >= 5.3
-        support["float16"] = props.major > 5 or (props.major == 5 and props.minor >= 3)
-        # bfloat16 supported on Ampere+ (compute capability >= 8.0)
-        support["bfloat16"] = props.major >= 8
-        support["mixed_precision"] = support["float16"]
-    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        # Apple Silicon supports float16
-        support["float16"] = True
-        support["mixed_precision"] = True
-
-    return support
-
-
-def get_optimal_precision(device: Optional[torch.device] = None) -> PrecisionConfig:
-    """Get the optimal precision configuration for the current hardware.
+def convert_to_precision(
+    module: T,
+    config: PrecisionConfig,
+    keep_fp32_layers: Optional[Set[str]] = None,
+) -> T:
+    """Convert a module to the specified precision.
 
     Args:
-        device: Target device. Auto-detected if not provided.
+        module: The module to convert.
+        config: Precision configuration.
+        keep_fp32_layers: Set of layer names to keep in float32.
 
     Returns:
-        Optimal precision configuration.
+        The module with converted precision.
     """
-    if device is None:
-        if torch.cuda.is_available():
-            device = torch.device("cuda")
+    if config.mode == PrecisionMode.FULL:
+        return module.float()
+
+    keep_fp32 = keep_fp32_layers or set()
+    dtype = config.dtype
+
+    def convert_layer(name: str, layer: torch.nn.Module) -> None:
+        if name in keep_fp32:
+            layer.float()
         else:
-            device = torch.device("cpu")
+            layer.to(dtype)
 
-    support = check_precision_support()
+    for name, layer in module.named_modules():
+        convert_layer(name, layer)
 
-    if device.type == "cuda":
-        if support["bfloat16"]:
-            # bfloat16 is preferred on Ampere+ GPUs
-            return PrecisionConfig(
-                mode=PrecisionMode.MIXED,
-                autocast_dtype=torch.bfloat16,
-                scaler_enabled=False,
-            )
-        elif support["float16"]:
-            return PrecisionConfig(
-                mode=PrecisionMode.MIXED,
-                autocast_dtype=torch.float16,
-                scaler_enabled=True,
-            )
-
-    # Fall back to full precision
-    return PrecisionConfig(mode=PrecisionMode.FULL)
+    return module

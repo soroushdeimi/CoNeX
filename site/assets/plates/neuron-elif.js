@@ -1,4 +1,5 @@
 import { DEFAULTS, elifStep, elifExpTerm, elifPhaseLine, elifFixedPoints, elifNarration, dropletCount } from '../js/models/neurons.js';
+import { computeTicks } from '../js/core.js';
 
 export const meta = {
   id: 'neuron-elif',
@@ -175,10 +176,14 @@ tryThis.style.fontStyle = 'italic';
     // frame
     ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
     ctx.strokeRect(M.left, M.top, split - M.left - M.right, H - M.bottom - M.top);
-    // x tick labels (v, mV)
+    // x tick labels (v, mV): pick the count from the available width so labels
+    // are at least 40 px apart (a fixed step of 10 collides at 390 px).
+    const axisW = split - M.left - M.right;
+    const xTarget = Math.max(2, Math.floor(axisW / 40) + 1);
+    const xTicks = computeTicks(phase.vMin, phase.vMax, xTarget);
     ctx.fillStyle = pal.muted; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    for (let xv = Math.ceil(phase.vMin / 10) * 10; xv <= phase.vMax; xv += 10) {
+    for (const xv of xTicks.ticks) {
       ctx.fillText(String(xv), sx(xv), H - M.bottom + 3);
     }
     // y tick labels (dv/dt, mV/ms)

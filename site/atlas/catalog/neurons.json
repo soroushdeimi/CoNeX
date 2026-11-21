@@ -8,21 +8,24 @@
       "title": "Leaky integrate-and-fire",
       "summary": "A single LIF neuron's membrane voltage under a current input, with the rheobase marked.",
       "level": "intro",
-      "conex": ["conex.behaviors.neurons.neuron_types.lif_neurons.LIF"]
+      "conex": ["conex.behaviors.neurons.neuron_types.lif_neurons.LIF"],
+      "learning_rules": []
     },
     {
       "id": "neuron-elif",
       "title": "Exponential integrate-and-fire",
       "summary": "ELIF with the exponential spike-initiation term, its phase line, and a voltage trace.",
       "level": "core",
-      "conex": ["conex.behaviors.neurons.neuron_types.lif_neurons.ELIF"]
+      "conex": ["conex.behaviors.neurons.neuron_types.lif_neurons.ELIF"],
+      "learning_rules": []
     },
     {
       "id": "neuron-aelif",
       "title": "Adaptive exponential integrate-and-fire",
       "summary": "AELIF with the adaptation current w, and how alpha and beta shape firing.",
       "level": "core",
-      "conex": ["conex.behaviors.neurons.neuron_types.lif_neurons.AELIF"]
+      "conex": ["conex.behaviors.neurons.neuron_types.lif_neurons.AELIF"],
+      "learning_rules": []
     },
     {
       "id": "neuron-fi",
@@ -33,7 +36,8 @@
         "conex.behaviors.neurons.neuron_types.lif_neurons.LIF",
         "conex.behaviors.neurons.neuron_types.lif_neurons.ELIF",
         "conex.behaviors.neurons.neuron_types.lif_neurons.AELIF"
-      ]
+      ],
+      "learning_rules": []
     },
     {
       "id": "neuron-homeostasis",
@@ -43,7 +47,8 @@
       "conex": [
         "conex.behaviors.neurons.homeostasis.ActivityBaseHomeostasis",
         "conex.behaviors.neurons.homeostasis.VoltageBaseHomeostasis"
-      ]
+      ],
+      "learning_rules": ["ActivityBaseHomeostasis", "VoltageBaseHomeostasis"]
     },
     {
       "id": "neuron-kwta",
@@ -53,7 +58,8 @@
       "conex": [
         "conex.behaviors.neurons.specs.KWTA",
         "conex.behaviors.neurons.specs.InherentNoise"
-      ]
+      ],
+      "learning_rules": []
     }
   ]
 }

@@ -157,8 +157,10 @@ export function mount(root, ui) {
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillText('STDP window: dw vs Δt = t_post − t_pre (ms)', (wx0 + wx1) / 2, wy1 + 2);
     ctx.textAlign = 'center';
-    ctx.fillText('post first (depression)', (wx0 + sx(0)) / 2, wy1 + 14);
-    ctx.fillText('pre first (potentiation)', (sx(0) + wx1) / 2, wy1 + 14);
+    // Shorten the captions on narrow screens so the two halves do not overlap.
+    const narrow = W < 600;
+    ctx.fillText(narrow ? 'post first: LTD' : 'post first (depression)', (wx0 + sx(0)) / 2, wy1 + 14);
+    ctx.fillText(narrow ? 'pre first: LTP' : 'pre first (potentiation)', (sx(0) + wx1) / 2, wy1 + 14);
   }
 
   function drawPlots() {

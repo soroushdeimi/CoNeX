@@ -277,11 +277,10 @@ export function mount(root, ui) {
 
   function rebuildFigures() {
     figBox.innerHTML = '';
-    permHeat = ui.heatmap(figBox, {
-      rows: run.n,
-      cols: run.nPotential,
-      label: `permanence 0–1 a.u. (rows=columns, cols=potential inputs); connected ≥ syn_perm_connected = ${connectedCtl.get()}`,
-    });
+    permHeat = ui.heatmap(figBox, { rows: run.n, cols: run.nPotential });
+    // The permanence caption is HTML below the figure (not drawn in the canvas),
+    // so it wraps instead of clipping at 390px.
+    caption(`permanence 0–1 a.u. (rows=columns, cols=potential inputs); connected ≥ syn_perm_connected = ${connectedCtl.get()}`);
     usagePlot = ui.plot(figBox, { height: 200, xLabel: 'column', yLabel: 'usage', xUnit: 'index', yUnit: 'a.u.' });
     inputCanvas = ui.canvas(figBox, { height: 60 });
     caption('input bits at this step (green = active)');

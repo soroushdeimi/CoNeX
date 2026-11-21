@@ -134,10 +134,11 @@ export function mount(root, ui) {
       ctx.setLineDash([3, 3]);
     }
     ctx.setLineDash([]);
+    // v readout to the left of the bar at the current level (the right side holds the markers).
     ctx.fillStyle = pal.ink;
     ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, x, bot + 4);
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, x - bw / 2 - 8, yTop);
   }
 
   function codeSnippet() {

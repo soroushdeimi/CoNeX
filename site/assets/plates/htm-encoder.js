@@ -18,6 +18,12 @@ export function mount(root, ui) {
   const deltaCtl = ui.slider(controls, { key: 'delta', label: 'distance Δ', unit: 'a.u.', min: 0, max: 0.5, step: 0.01, value: 0.02, onInput: () => recompute() });
 
   const bitsCanvas = ui.canvas(figures, { height: 90 });
+  // ui.canvas does not expose its <figure>, and site.css is shell-owned, so the
+  // caption is styled inline to match the .ui-figure figcaption look.
+  const bitsCap = document.createElement('div');
+  bitsCap.style.cssText = 'font-style:italic;color:var(--muted);font-size:0.85rem;margin-top:0.3rem;';
+  bitsCap.textContent = 'active bits (teal = reference block, coral = sweeping block)';
+  figures.appendChild(bitsCap);
   const overlapPlot = ui.plot(figures, { height: 220, xLabel: 'input value', yLabel: 'overlap', xUnit: 'a.u.', yUnit: 'bits' });
 
   function opts() {

@@ -38,6 +38,12 @@ export function mount(root, ui) {
   const resetBtn = ui.button(controls, { label: 'Reset', onClick: () => recompute() });
 
   const gridCanvas = ui.canvas(figures, { height: 220 });
+  // ui.canvas does not expose its <figure>, and site.css is shell-owned, so the
+  // caption is styled inline to match the .ui-figure figcaption look.
+  const gridCap = document.createElement('div');
+  gridCap.style.cssText = 'font-style:italic;color:var(--muted);font-size:0.85rem;margin-top:0.3rem;';
+  gridCap.textContent = 'cells (teal = active, ochre = predictive, coral outline = bursting column)';
+  figures.appendChild(gridCap);
   const anomalyPlot = ui.plot(figures, { height: 180, xLabel: 'step', yLabel: 'anomaly score', xUnit: 'steps', yUnit: 'a.u.' });
   // Register the redraw on resize when the ui supports it (the real ui.js does);
   // the direct drawGrid() call in frame() covers the no-onResize case.

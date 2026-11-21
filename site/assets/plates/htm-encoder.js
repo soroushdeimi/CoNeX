@@ -46,6 +46,9 @@ export function mount(root, ui) {
   const hero = ui.hero(figures, { height: 150 });
   const heroCap = { set(text) { hero.narration(text); } };
   const overlapPlot = ui.plot(figures, { height: 220, xLabel: 'input value', yLabel: 'overlap', xUnit: 'a.u.', yUnit: 'bits' });
+  const readout = document.createElement('div');
+  readout.className = 'ui-note';
+  figures.appendChild(readout);
 
   function opts() {
     return { size: sizeCtl.get(), n_active: Math.min(nActiveCtl.get(), sizeCtl.get()), min_val: minCtl.get(), max_val: maxCtl.get() };
@@ -69,8 +72,14 @@ export function mount(root, ui) {
       xRange: [o.min_val, o.max_val],
       yRange: [0, o.n_active],
       revealX: v,
-      vlines: [{ x: ref, label: 'reference' }, { x: ref + delta, label: `ref+Δ` }],
+      // The reference and ref+Δ values live in the caption below (the two
+      // labels overprint near the staircase peak); the lines stay as guides.
+      vlines: [{ x: ref, label: '' }, { x: ref + delta, label: '' }],
     });
+    const ov = run.base.overlap(encodeScalar(ref + delta, o));
+    readout.textContent =
+      `reference ${ref.toFixed(2)} a.u. · ref+Δ ${(ref + delta).toFixed(2)} a.u. · ` +
+      `overlap(ref, ref+Δ) = ${ov} bits`;
   }
 
   // Hero: a value dial (needle at the normalized sweep value) above two rows

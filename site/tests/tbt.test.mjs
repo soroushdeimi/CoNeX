@@ -738,3 +738,41 @@ test('predictive hero: narration reports the error trend and values', () => {
   const large = predictiveNarration({ meanAbs: 0.4, freeEnergy: 3.2, meanPrec: 1 });
   assert.match(large, /error is large/);
 });
+
+// ---------------------------------------------------------------------------
+// struct-column hero mappings
+// ---------------------------------------------------------------------------
+
+import {
+  pulsePosition,
+  columnNarration,
+} from '../assets/plates/struct-column.js';
+
+const CONN_ORDER = ['L4_to_L23', 'L23_to_L4', 'L23_to_L5', 'L6_to_L4'];
+
+test('column hero: pulse position walks the connections in CoNeX order', () => {
+  // cycle 0 -> first connection, fraction 0
+  assert.deepEqual(pulsePosition(0, CONN_ORDER), { key: 'L4_to_L23', fraction: 0 });
+  // a quarter of the way -> second connection, fraction 0
+  assert.deepEqual(pulsePosition(0.25, CONN_ORDER), { key: 'L23_to_L4', fraction: 0 });
+  // halfway through the second connection
+  const mid = pulsePosition(0.375, CONN_ORDER);
+  assert.equal(mid.key, 'L23_to_L4');
+  assert.equal(mid.fraction, 0.5);
+  // just before the end -> last connection, fraction near 1
+  const end = pulsePosition(0.999, CONN_ORDER);
+  assert.equal(end.key, 'L6_to_L4');
+  assert.ok(end.fraction > 0.9);
+});
+
+test('column hero: pulse position wraps the cycle', () => {
+  // cycle 1.0 wraps back to the first connection
+  assert.deepEqual(pulsePosition(1.0, CONN_ORDER), { key: 'L4_to_L23', fraction: 0 });
+  // cycle 1.25 wraps to the second connection
+  assert.equal(pulsePosition(1.25, CONN_ORDER).key, 'L23_to_L4');
+});
+
+test('column hero: narration names the pulse and its connection', () => {
+  assert.equal(columnNarration({ conn: 'L4_to_L23', connOrder: CONN_ORDER }), 'pulse 1 of 4: L4 → L23');
+  assert.equal(columnNarration({ conn: 'L6_to_L4', connOrder: CONN_ORDER }), 'pulse 4 of 4: L6 → L4');
+});

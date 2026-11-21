@@ -2,6 +2,7 @@ import {
   HH_DEFAULTS,
   hhStep,
   hhInitialState,
+  hhCurrents,
   flapAngle,
   particleRate,
   membranePolarity,
@@ -20,6 +21,7 @@ const WINDOW = 50;       // ms of model time kept on screen
 const PULSE_STEPS = Math.round(2.0 / DT); // 2 ms pulse
 const PULSE_AMP = 10.0;  // uA/cm2, added on top of the constant I
 const V_MIN = -90, V_MAX = 60; // physiological v range, fixed on the v plot
+const ION_LIFE = 0.5;    // s of real time an ion particle lives (fade-out)
 
 const P = { ...HH_DEFAULTS };
 
@@ -56,6 +58,9 @@ export function mount(root, ui) {
   let naAcc = 0, kAcc = 0;
   let lastNow = 0;
   let spikeGlow = 0; // 1 on a spike, decays each frame
+  // Smoothed gate values, used ONLY for the drawn flap angles (the numbers
+  // shown are always the raw model sample).
+  const sm = { m: 0, h: 0, n: 0 };
   const rng = ui.rng(1234);
 
   function reset() {
@@ -68,6 +73,7 @@ export function mount(root, ui) {
     kParticles.length = 0;
     naAcc = 0; kAcc = 0;
     spikeGlow = 0;
+    sm.m = state.m; sm.h = state.h; sm.n = state.n;
   }
 
   // One dt of the model: advance HH, keep a 50 ms rolling window.
@@ -78,14 +84,14 @@ export function mount(root, ui) {
     const r = hhStep(state, p, I, DT);
     state = { v: r.v, m: r.m, h: r.h, n: r.n };
     t += DT;
-    last = { t, v: r.v, m: r.m, h: r.h, n: r.n, i_Na: r.i_Na, i_K: r.i_K, spike: r.spike };
+    last = { t, v: r.v, m: r.m, h: r.h, n: r.n, spike: r.spike };
     if (r.spike) spikeGlow = 1;
     ring.push(last);
     while (ring.length && ring[0].t < t - WINDOW) ring.shift();
   }
 
   // --- hero (membrane patch) ---
-  const hero = ui.hero(figures, { height: 420 });
+  const hero = ui.hero(figures, { height: 340 });
 
   // --- rolling plots (below the hero, linked by the shared xRange) ---
   const figV = ui.plot(figures, { height: 220, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
@@ -105,19 +111,22 @@ export function mount(root, ui) {
     ], { xRange, yRange: [0, 1] });
     // symmetric auto range with a minimum span of 20 uA/cm2
     let cmax = 0;
-    for (const s of ring) cmax = Math.max(cmax, Math.abs(s.i_Na), Math.abs(s.i_K));
+    for (const s of ring) {
+      const c = hhCurrents(s, params());
+      cmax = Math.max(cmax, Math.abs(c.i_Na), Math.abs(c.i_K));
+    }
     const cspan = Math.max(10, cmax * 1.1);
     figI.draw([
-      { x, y: ring.map((s) => s.i_Na), label: 'I_Na', color: 'c2', style: 'line' },
-      { x, y: ring.map((s) => s.i_K), label: 'I_K', color: 'c4', style: 'line' },
+      { x, y: ring.map((s) => hhCurrents(s, params()).i_Na), label: 'I_Na', color: 'c2', style: 'line' },
+      { x, y: ring.map((s) => hhCurrents(s, params()).i_K), label: 'I_K', color: 'c4', style: 'line' },
     ], { xRange, yRange: [-cspan, cspan] });
     drawHero();
   }
 
-  // --- hero: a thick lipid bilayer with two large Na+ pores and two large K+
-  // pores. Each pore's flaps open by its gate variable; ions flow through at a
-  // rate proportional to the real current; the cytoplasm tints with v; a
-  // voltmeter needle shows v; a spike glows the membrane.
+  // --- hero: a lipid bilayer centred vertically, with two large Na+ pores and
+  // two large K+ pores drawn as filled proteins. Flaps open by their gate
+  // variable; ions flow through and disperse; the cytoplasm tints with v; a
+  // voltmeter shows v; a spike glows the membrane.
   function drawHero() {
     if (!last) return;
     const { ctx } = hero;
@@ -129,12 +138,18 @@ export function mount(root, ui) {
     };
     const mono = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
 
-    const yTop = H * 0.42, yBot = H * 0.58; // bilayer band
-    const bandMid = (yTop + yBot) / 2;
+    // membrane centred vertically: equal outside (top) and inside (bottom) bands
+    const bandMid = H * 0.5;
+    const yTop = bandMid - 20, yBot = bandMid + 20;
+
+    // ease only the drawn flap angles (never the displayed numbers)
+    sm.m += (last.m - sm.m) * 0.25;
+    sm.h += (last.h - sm.h) * 0.25;
+    sm.n += (last.n - sm.n) * 0.25;
 
     // cytoplasm (inside, below the band) tints with v: indigo -> neutral -> coral
     const pol = membranePolarity(last.v);
-    ctx.fillStyle = tintColor(pol, pal);
+    ctx.fillStyle = pol < 0 ? pal.k : pal.na;
     ctx.globalAlpha = 0.10 + 0.28 * Math.abs(pol);
     ctx.fillRect(0, yBot, W, H - yBot);
     ctx.globalAlpha = 1;
@@ -153,14 +168,15 @@ export function mount(root, ui) {
     ctx.strokeStyle = pal.rule;
     ctx.lineWidth = 1;
     for (let x = 4; x < W; x += 11) {
-      ctx.beginPath(); ctx.arc(x, yTop, 3.5, 0, Math.PI * 2); ctx.fillStyle = pal.rule; ctx.fill();
+      ctx.fillStyle = pal.rule;
+      ctx.beginPath(); ctx.arc(x, yTop, 3.5, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.arc(x, yBot, 3.5, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.moveTo(x, yTop + 3); ctx.lineTo(x, bandMid); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(x, yBot - 3); ctx.lineTo(x, bandMid); ctx.stroke();
     }
 
     // two Na pores (left half) and two K pores (right half), large
-    const poreW = Math.min(70, W * 0.14), poreH = Math.min(110, (yBot - yTop) + 60);
+    const poreW = Math.min(70, W * 0.16), poreH = Math.min(110, H * 0.32);
     const naX = [W * 0.16, W * 0.34], kX = [W * 0.66, W * 0.84];
     const poreY = bandMid - poreH / 2;
 
@@ -168,132 +184,166 @@ export function mount(root, ui) {
     const now = typeof performance !== 'undefined' ? performance.now() : 0;
     const dtReal = lastNow ? Math.min(0.05, (now - lastNow) / 1000) : 0.016;
     lastNow = now;
-    const speed = (yBot - yTop + 80) / 0.4; // px per second to cross the band
-    stepParticles(naParticles, dtReal, speed, 1, yTop - 20, yBot + 20);
-    stepParticles(kParticles, dtReal, speed, -1, yTop - 20, yBot + 20);
-    spawn(naParticles, naX, particleRate(last.i_Na, 3.0) * dtReal, yTop - 20, 60);
-    spawn(kParticles, kX, particleRate(last.i_K, 3.0) * dtReal, yBot + 20, 60);
+    const speed = (yBot - yTop + 60) / 0.15; // px per second to cross the band
+    const curNow = hhCurrents(last, params());
+    stepParticles(naParticles, dtReal, speed, 1, yTop, yBot, rng);
+    stepParticles(kParticles, dtReal, speed, -1, yTop, yBot, rng);
+    spawn(naParticles, naX, particleRate(curNow.i_Na, 3.0) * dtReal, yTop - 24, 60, rng);
+    spawn(kParticles, kX, particleRate(curNow.i_K, 3.0) * dtReal, yBot + 24, 60, rng);
 
     // draw pores
-    for (const x of naX) drawNaPore(ctx, x, poreY, poreW, poreH, last, pal, mono);
-    for (const x of kX) drawKPore(ctx, x, poreY, poreW, poreH, last, pal, mono);
+    for (const x of naX) drawNaPore(ctx, x, poreY, poreW, poreH, sm, pal, mono);
+    for (const x of kX) drawKPore(ctx, x, poreY, poreW, poreH, sm, pal, mono);
 
-    // draw particles
-    for (const p of naParticles) { ctx.fillStyle = pal.na; dot(ctx, p.x, p.y, 3); }
-    for (const p of kParticles) { ctx.fillStyle = pal.k; dot(ctx, p.x, p.y, 3); }
+    // draw particles (fading)
+    for (const p of naParticles) { ctx.fillStyle = pal.na; ctx.globalAlpha = p.alpha; dot(ctx, p.x, p.y, 3); }
+    for (const p of kParticles) { ctx.fillStyle = pal.k; ctx.globalAlpha = p.alpha; dot(ctx, p.x, p.y, 3); }
+    ctx.globalAlpha = 1;
 
-    // faint ion clouds in each compartment
-    drawCloud(ctx, W, yTop - 20, yTop, pal.na, 0.12);
-    drawCloud(ctx, W, yBot, H - 20, pal.k, 0.12);
+    // faint ion clouds: Na+ mostly outside, K+ mostly inside (concentration gradient)
+    drawCloud(ctx, W, 6, yTop - 8, pal.na, 0.25, rng);
+    drawCloud(ctx, W, yBot + 8, H - 6, pal.k, 0.25, rng);
 
     // voltmeter: a small gauge on the right showing v
-    drawVoltmeter(ctx, W - 46, H * 0.12, 34, last.v, pal, mono);
+    drawVoltmeter(ctx, W - 46, H * 0.14, 30, last.v, pal, mono);
 
-    // readouts
+    // readouts: gate labels and currents from the SAME model sample (last)
+    const cur = hhCurrents(last, params());
     ctx.fillStyle = pal.ink; ctx.font = mono; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillText(`v = ${last.v.toFixed(1)} mV`, 8, 8);
-    ctx.fillText(`I_Na = ${last.i_Na.toFixed(2)} uA/cm2`, 8, 22);
-    ctx.fillText(`I_K = ${last.i_K.toFixed(2)} uA/cm2`, 8, 36);
+    ctx.fillText(`I_Na = ${cur.i_Na.toFixed(2)} uA/cm2`, 8, 22);
+    ctx.fillText(`I_K = ${cur.i_K.toFixed(2)} uA/cm2`, 8, 36);
     ctx.textAlign = 'right';
     ctx.fillText('outside (extracellular)', W - 8, 8);
     ctx.fillText('inside (cytoplasm)', W - 8, H - 18);
 
-    hero.narration(hhNarration({ v: last.v, v_rest: P.init_v, i_Na: last.i_Na, i_K: last.i_K, h: last.h }));
+    hero.narration(hhNarration({ v: last.v, v_rest: P.init_v, i_Na: cur.i_Na, i_K: cur.i_K, h: last.h }));
   }
 
-  // A Na+ pore: 3 m flaps at the outer (top) mouth, 1 h ball-and-chain at the
-  // inner (bottom) mouth. Flap opening angle = its gate variable.
+  // A Na+ pore: filled protein (two rounded half-cylinders) with 3 m flaps at
+  // the outer (top) mouth and an h ball-and-chain at the inner (bottom) mouth.
   function drawNaPore(ctx, cx, y0, w, h, s, pal, mono) {
-    const half = w / 2;
-    // pore walls
-    ctx.strokeStyle = pal.ink; ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx - half, y0); ctx.lineTo(cx - half, y0 + h);
-    ctx.moveTo(cx + half, y0); ctx.lineTo(cx + half, y0 + h);
-    ctx.stroke();
-    // 3 m flaps at the outer mouth (top)
+    const half = w / 2, wallW = Math.max(14, w * 0.26);
+    drawProtein(ctx, cx, y0, w, h, wallW, pal.na);
+    // 3 m flaps at the outer mouth (top), hinged at the pore gap
     const mAngle = flapAngle(s.m);
+    const gapL = cx - half + wallW, gapR = cx + half - wallW;
     for (let i = 0; i < 3; i++) {
-      const fx = cx - half + (i + 0.5) * (w / 3);
-      drawFlap(ctx, fx, y0, mAngle, pal.na);
+      const fx = gapL + (i + 0.5) * ((gapR - gapL) / 3);
+      drawFlap(ctx, fx, y0 + 4, mAngle, pal.na);
     }
-    // 1 h ball-and-chain at the inner mouth (bottom): the ball plugs as h -> 0
-    const hOpen = s.h; // 1 open (ball retracted), 0 closed (ball in pore)
-    const ballY = y0 + h - (1 - hOpen) * 14;
-    ctx.fillStyle = pal.na;
-    ctx.beginPath(); ctx.arc(cx, ballY, 6, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = pal.na; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(cx, y0 + h); ctx.lineTo(cx, ballY); ctx.stroke();
-    // labels
+    // h ball-and-chain at the inner mouth (bottom): the ball swings into the
+    // pore as h -> 0 (closed) and retracts as h -> 1 (open)
+    const swing = (1 - s.h) * (Math.PI / 2); // 0 (open) .. 90 deg (plugged)
+    const chainLen = 16;
+    const bx = cx + Math.sin(swing) * chainLen;
+    const by = y0 + h - 4 - Math.cos(swing) * chainLen;
+    ctx.strokeStyle = pal.na; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx, y0 + h - 4); ctx.lineTo(bx, by); ctx.stroke();
+    ctx.fillStyle = pal.na; ctx.beginPath(); ctx.arc(bx, by, 5, 0, Math.PI * 2); ctx.fill();
+    // labels (raw gate values)
     ctx.fillStyle = pal.na; ctx.font = mono; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`m=${s.m.toFixed(2)}`, cx - half, y0 - 4);
+    ctx.fillText(`m=${s.m.toFixed(2)}`, cx - half, y0 - 6);
     ctx.textBaseline = 'top';
-    ctx.fillText(`h=${s.h.toFixed(2)}`, cx + half, y0 + h + 4);
-    ctx.fillText('Na+', cx, y0 - 18);
+    ctx.fillText(`h=${s.h.toFixed(2)}`, cx + half, y0 + h + 6);
+    ctx.fillText('Na+', cx, y0 - 20);
   }
 
-  // A K+ pore: 4 n flaps. Flap opening angle = the n gate variable.
+  // A K+ pore: filled protein with 4 n flaps at the outer mouth.
   function drawKPore(ctx, cx, y0, w, h, s, pal, mono) {
-    const half = w / 2;
-    ctx.strokeStyle = pal.ink; ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx - half, y0); ctx.lineTo(cx - half, y0 + h);
-    ctx.moveTo(cx + half, y0); ctx.lineTo(cx + half, y0 + h);
-    ctx.stroke();
+    const half = w / 2, wallW = Math.max(14, w * 0.26);
+    drawProtein(ctx, cx, y0, w, h, wallW, pal.k);
     const nAngle = flapAngle(s.n);
+    const gapL = cx - half + wallW, gapR = cx + half - wallW;
     for (let i = 0; i < 4; i++) {
-      const fx = cx - half + (i + 0.5) * (w / 4);
-      drawFlap(ctx, fx, y0, nAngle, pal.k);
+      const fx = gapL + (i + 0.5) * ((gapR - gapL) / 4);
+      drawFlap(ctx, fx, y0 + 4, nAngle, pal.k);
     }
     ctx.fillStyle = pal.k; ctx.font = mono; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`n=${s.n.toFixed(2)}`, cx, y0 - 4);
-    ctx.fillText('K+', cx, y0 - 18);
+    ctx.fillText(`n=${s.n.toFixed(2)}`, cx, y0 - 6);
+    ctx.fillText('K+', cx, y0 - 20);
   }
 
-  // A flap hinged at (x, y), closed pointing down (blocking), opening by `angle`
-  // degrees.
+  // A filled protein channel: two rounded half-cylinders (left and right walls)
+  // in a muted tint of `color`, with the pore gap between them.
+  function drawProtein(ctx, cx, y0, w, h, wallW, color) {
+    const half = w / 2;
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.28;
+    roundRect(ctx, cx - half, y0, wallW, h, 6); ctx.fill();
+    roundRect(ctx, cx + half - wallW, y0, wallW, h, 6); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+    roundRect(ctx, cx - half, y0, wallW, h, 6); ctx.stroke();
+    roundRect(ctx, cx + half - wallW, y0, wallW, h, 6); ctx.stroke();
+  }
+
+  // A flap: a thick rounded paddle hinged at (x, y), closed pointing down into
+  // the pore, opening by `angle` degrees to the side.
   function drawFlap(ctx, x, y, angle, color) {
-    const len = 12;
+    const len = 14;
     const a = (angle * Math.PI) / 180;
-    ctx.strokeStyle = color; ctx.lineWidth = 2.5;
+    ctx.strokeStyle = color; ctx.lineWidth = 6; ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(x, y);
-    ctx.lineTo(x - Math.sin(a) * len, y + Math.cos(a) * len);
+    ctx.lineTo(x + Math.sin(a) * len, y + Math.cos(a) * len);
     ctx.stroke();
+    ctx.lineCap = 'butt';
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
   }
 
   function dot(ctx, x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
 
-  function stepParticles(arr, dtReal, speed, dir, yMin, yMax) {
+  // Advance particles: transit straight through the band, then disperse (random
+  // walk) and fade over ION_LIFE seconds. dir +1 = outside->inside (Na), -1 =
+  // inside->outside (K).
+  function stepParticles(arr, dtReal, speed, dir, yTop, yBot, rng) {
     for (let i = arr.length - 1; i >= 0; i--) {
-      arr[i].y += dir * speed * dtReal;
-      if (dir > 0 && arr[i].y > yMax) arr.splice(i, 1);
-      if (dir < 0 && arr[i].y < yMin) arr.splice(i, 1);
-    }
-  }
-
-  // Spawn floor(acc) particles at the given pore x positions, keep the fraction.
-  function spawn(arr, xs, expected, yStart, cap) {
-    if (expected > 0) {
-      arr._acc = (arr._acc || 0) + expected;
-      const count = Math.floor(arr._acc);
-      arr._acc -= count;
-      for (let i = 0; i < count && arr.length < cap * xs.length; i++) {
-        const x = xs[Math.floor(rng.next() * xs.length)] + (rng.next() - 0.5) * 10;
-        arr.push({ x, y: yStart });
+      const p = arr[i];
+      p.age += dtReal;
+      p.alpha = Math.max(0, 1 - p.age / ION_LIFE);
+      if (p.alpha <= 0) { arr.splice(i, 1); continue; }
+      const crossed = dir > 0 ? p.y > yBot : p.y < yTop;
+      if (!crossed) {
+        p.y += dir * speed * dtReal;
+      } else {
+        // disperse into the compartment
+        p.x += (rng.next() - 0.5) * 6;
+        p.y += (rng.next() - 0.5) * 6;
       }
     }
   }
 
+  // Spawn floor(acc) particles at the given pore x positions, keep the fraction.
+  function spawn(arr, xs, expected, yStart, cap, rng) {
+    if (expected <= 0) return;
+    arr._acc = (arr._acc || 0) + expected;
+    const count = Math.floor(arr._acc);
+    arr._acc -= count;
+    for (let i = 0; i < count && arr.length < cap * xs.length; i++) {
+      const x = xs[Math.floor(rng.next() * xs.length)] + (rng.next() - 0.5) * 12;
+      arr.push({ x, y: yStart, age: 0, alpha: 1 });
+    }
+  }
+
   // A faint, static cloud of ions in a compartment band (decorative).
-  function drawCloud(ctx, W, y0, y1, color, alpha) {
+  function drawCloud(ctx, W, y0, y1, color, alpha, rng) {
     ctx.fillStyle = color;
     ctx.globalAlpha = alpha;
-    const n = Math.floor(W / 26);
+    const n = Math.floor(W / 22);
     for (let i = 0; i < n; i++) {
-      const x = (i * 97.3) % W;
-      const y = y0 + ((i * 53.7) % Math.max(1, y1 - y0));
-      dot(ctx, x, y, 1.5);
+      const x = (i * 97.3 + 13) % W;
+      const y = y0 + ((i * 53.7 + 7) % Math.max(1, y1 - y0));
+      dot(ctx, x, y, 1.6);
     }
     ctx.globalAlpha = 1;
   }
@@ -302,7 +352,6 @@ export function mount(root, ui) {
   function drawVoltmeter(ctx, cx, cy, r, v, pal, mono) {
     ctx.strokeStyle = pal.rule; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI, 2 * Math.PI); ctx.stroke();
-    // needle: -90 mV -> left, +60 mV -> right
     const f = Math.max(0, Math.min(1, (v - V_MIN) / (V_MAX - V_MIN)));
     const a = Math.PI + f * Math.PI;
     ctx.strokeStyle = pal.v; ctx.lineWidth = 2;
@@ -311,11 +360,6 @@ export function mount(root, ui) {
     ctx.stroke();
     ctx.fillStyle = pal.ink; ctx.font = mono; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillText(`${v.toFixed(0)} mV`, cx, cy + 4);
-  }
-
-  // Tint color from polarity: -1 indigo, 0 neutral (paper), +1 coral.
-  function tintColor(pol, pal) {
-    return pol < 0 ? pal.k : pal.na;
   }
 
   // --- notes ---

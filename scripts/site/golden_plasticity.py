@@ -15,13 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from pymonntorch import NeuronGroup, SynapseGroup, NeuronDimension, Network
 
-from conex.behaviors.neurons import (
-    SimpleDendriteStructure,
-    SimpleDendriteComputation,
-    LIF,
-    NeuronAxon,
-    Fire,
-)
+from conex.behaviors.neurons import NeuronAxon
 from conex.behaviors.synapses import (
     SynapseInit,
     WeightInitializer,
@@ -62,17 +56,14 @@ def make_net():
 
 
 def lif_group(net, size, tag):
+    # Scripted-spike group: only NeuronAxon is needed so axon.get_spike works.
+    # A real LIF with threshold=0, v_rest=0 fires every step and would clobber
+    # the scripted spikes, so it is intentionally omitted here.
     return NeuronGroup(
         size=size,
         net=net,
         tag=tag,
-        behavior=[
-            SimpleDendriteStructure(),
-            SimpleDendriteComputation(),
-            LIF(R=5.0, threshold=0.0, tau=10.0, v_reset=0.0, v_rest=0.0),
-            NeuronAxon(),
-            Fire(),
-        ],
+        behavior=[NeuronAxon()],
     )
 
 
@@ -272,11 +263,17 @@ def scenario_encoders():
     }
 
 
-def run_input(net, pre, spikes, steps=1):
-    """Set scripted pre spikes, run `steps` iterations, return (I, weights)."""
+def run_input(net, pre, spikes, steps=2):
+    """Set scripted pre spikes, run `steps` iterations, return (I, weights).
+
+    DendriticInput (key 2) runs before PreSpikeCatcher (key 3), so I lags the
+    spikes by one step; run 2 iterations with the same pattern to settle.
+    """
     syn = net.SynapseGroups[0]
+    for ng in net.NeuronGroups:
+        ng.spikes = torch.zeros(ng.size, dtype=torch.bool)
     for t in range(steps):
-        pre.spikes = torch.tensor(spikes[t], dtype=torch.bool)
+        pre.spikes = torch.tensor(spikes[0], dtype=torch.bool)
         net.simulate_iteration()
     if not hasattr(syn, "weights"):
         return v(syn.I), None

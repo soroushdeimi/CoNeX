@@ -48,7 +48,10 @@ export function mount(root, ui) {
   // --- figures ---
   const arena = ui.canvas(figures, { height: 320 });
   const tiles = ui.canvas(figures, { height: 160 });
-  const firing = ui.heatmap(figures, { rows: 40, cols: 40, label: 'firing map, module 0 cell 0' });
+  // The firing map is drawn on a canvas (not ui.heatmap) so we can force a
+  // square display area: a heatmap stretches its cells to fill a wide, short
+  // box, which squashes the hexagonal lattice into horizontal stripes.
+  const firing = ui.canvas(figures, { height: 360 });
 
   const pos = [1.0, 1.0];
   let heading = 0.0;
@@ -57,16 +60,41 @@ export function mount(root, ui) {
   const PAD = 20;
 
   function drawFiring() {
-    const values = [];
-    const N = 40;
+    const { ctx, width, height } = firing;
+    ctx.clearRect(0, 0, width, height);
+    const paper = ui.color('paper');
+    const c1 = ui.color('c1');
+    const ink = ui.color('ink');
+    const N = 96;
+    // Centered square so the lattice is not stretched into stripes.
+    const side = Math.min(width, height) - 44;
+    const ox = (width - side) / 2;
+    const oy = (height - side) / 2;
+    const cw = side / N;
+    ctx.fillStyle = paper;
+    ctx.fillRect(ox, oy, side, side);
     for (let r = 0; r < N; r++) {
+      const y = -SPAN / 2 + (r / (N - 1)) * SPAN;
       for (let c = 0; c < N; c++) {
         const x = -SPAN / 2 + (c / (N - 1)) * SPAN;
-        const y = -SPAN / 2 + (r / (N - 1)) * SPAN;
-        values.push(module.computeActivation([x, y])[0]);
+        const a = module.computeActivation([x, y])[0];
+        if (a > 0.02) {
+          ctx.globalAlpha = a;
+          ctx.fillStyle = c1;
+          ctx.fillRect(ox + c * cw, oy + r * cw, cw + 0.5, cw + 0.5);
+        }
       }
     }
-    firing.draw(values, { min: 0, max: 1 });
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = ink;
+    ctx.strokeRect(ox, oy, side, side);
+    ctx.fillStyle = ink;
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('firing map, module 0 cell 0', width / 2, height - 2);
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
   }
 
   function rebuild() {
@@ -159,6 +187,11 @@ export function mount(root, ui) {
     drawArena();
     drawTiles();
   }
+  // Draw the canvases inside onResize (called after layout and on every
+  // resize); drawing once at mount with a 0 width would leave them empty.
+  arena.onResize(drawArena);
+  tiles.onResize(drawTiles);
+  firing.onResize(drawFiring);
 
   const anim = ui.animate((dtMs) => {
     if (autoWalk.get()) {
@@ -213,7 +246,9 @@ export function mount(root, ui) {
     where an object is.</p>
     <p>The tiles show each module's own scale &lambda; and orientation &theta;
     (the line spacing and angle in the mini-grid) plus its phase offset (the dot).
-    The large heatmap is the firing map of module 0's first cell over the arena.</p>
+    The large square map is the firing map of module 0's first cell over the
+    arena. It is drawn on a square so the hexagonal lattice is not stretched
+    into stripes by a wide, short display box.</p>
     <p><strong>Important:</strong> the hexagonal periodicity is <em>built into the
     model</em>. The wave vectors are fixed by the scale and orientation, so the
     lattice is imposed by construction &mdash; it is not learned from experience.
@@ -240,8 +275,8 @@ from conex import GridCellModule, TimeResolution
 module = GridCellModule(
     n_modules=${nModules},
     cells_per_module=${cellsPerModule},
-    scale_range=(${scaleMin.get()}, ${scaleMax.get()}),
-    orientation_range=(0.0, ${orientMax.get()}),
+    scale_range=(${fmt(scaleMin.get())}, ${fmt(scaleMax.get())}),
+    orientation_range=(0.0, ${fmt(orientMax.get())}),
 )
 net = Network(behavior={1: TimeResolution(dt=1.0)}, dtype=torch.float32, device="cpu")
 neurons = NeuronGroup(
@@ -262,6 +297,12 @@ activation = module.encode_position(neurons, torch.tensor([1.0, 1.0]))
       window.removeEventListener('pointerup', onUp);
     },
   };
+}
+
+// At most 4 significant digits for numbers shown in text and code snippets.
+function fmt(v) {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return String(v);
+  return Number(v.toPrecision(4)).toString();
 }
 
 // Deterministic 2D phases in [0, 2*pi) so the pattern is reproducible.

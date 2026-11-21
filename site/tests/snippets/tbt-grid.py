@@ -7,7 +7,7 @@ module = GridCellModule(
     n_modules=4,
     cells_per_module=25,
     scale_range=(0.5, 2),
-    orientation_range=(0.0, 1.0471975511965976),
+    orientation_range=(0.0, 1.047),
 )
 net = Network(behavior={1: TimeResolution(dt=1.0)}, dtype=torch.float32, device="cpu")
 neurons = NeuronGroup(

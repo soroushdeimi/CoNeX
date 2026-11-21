@@ -234,6 +234,17 @@ export function aelifNarration({ v, omega, p, I, splashing }) {
     : 'input beats adaptation: v rises toward threshold';
 }
 
+// Homeostasis hero narration, driven by the real group rate vs the target. For
+// activity-based control the threshold moves to bring the rate to the target:
+// above target the threshold rises (slows firing), below it the threshold falls.
+// For voltage-based control the voltage is pushed toward the target band.
+export function homeostasisNarration({ rate, target, mode }) {
+  if (mode === 'voltage') return 'voltage pushed toward the target band';
+  if (rate > target) return 'rate above target: threshold rises to slow firing';
+  if (rate < target) return 'rate below target: threshold falls to speed firing';
+  return 'rate at target: threshold holds';
+}
+
 // Analytic LIF firing rate (Hz, in a.u. of time): f = 1 / (tau * ln((vss-v_reset)/(vss-threshold)))
 // where vss = v_rest + R*I. The formula is only valid in the normal firing regime
 // v_reset < threshold < vss; outside it (e.g. v_reset >= threshold, or I at/below the

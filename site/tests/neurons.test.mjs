@@ -23,6 +23,7 @@ import {
   inherentNoise,
   makeActivityHomeostasis,
   makeVoltageHomeostasis,
+  homeostasisNarration,
   spikeTimes,
   firingStats,
 } from '../assets/js/models/neurons.js';
@@ -317,6 +318,42 @@ test('activity homeostasis throws when window_size <= activity_rate', () => {
     () => makeActivityHomeostasis({ activity_rate: 5, window_size: 5, updating_rate: 0.1 }),
     /window_size must exceed activity_rate/
   );
+});
+
+test('homeostasisNarration: rate vs target, driven by the real quantities (hand-computed)', () => {
+  assert.equal(homeostasisNarration({ rate: 20, target: 10, mode: 'activity' }), 'rate above target: threshold rises to slow firing');
+  assert.equal(homeostasisNarration({ rate: 5, target: 10, mode: 'activity' }), 'rate below target: threshold falls to speed firing');
+  assert.equal(homeostasisNarration({ rate: 10, target: 10, mode: 'activity' }), 'rate at target: threshold holds');
+  assert.equal(homeostasisNarration({ rate: 20, target: 10, mode: 'voltage' }), 'voltage pushed toward the target band');
+});
+
+test('homeostasis: N live steps equal the precomputed run bit-for-bit', () => {
+  // The plate's live step() runs the same per-neuron LIF + homeostasis as the
+  // golden test. Stepping it N times must reproduce the golden window_spikes
+  // exactly (the precomputed run), for a fixed parameter set.
+  const p = S.homeostasis_activity.params;
+  const h = S.homeostasis_activity.homeostasis;
+  const size = S.homeostasis_activity.size;
+  const I = S.homeostasis_activity.current;
+  const dt = S.homeostasis_activity.dt;
+  const N = S.homeostasis_activity.steps;
+  const hos = Array.from({ length: size }, () => makeActivityHomeostasis(h));
+  const vs = new Array(size).fill(0.0);
+  const thresholds = new Array(size).fill(p.threshold);
+  const windowSpikes = [];
+  let acc = 0;
+  for (let it = 1; it <= N; it++) {
+    let groupSpikes = 0;
+    for (let j = 0; j < size; j++) {
+      const r = lifStep({ v: vs[j] }, { ...p, threshold: thresholds[j] }, I, dt);
+      vs[j] = r.v;
+      groupSpikes += r.spike ? 1 : 0;
+      thresholds[j] = hos[j].step(r.spike, thresholds[j], it);
+    }
+    acc += groupSpikes;
+    if (it % h.window_size === 0) { windowSpikes.push(acc); acc = 0; }
+  }
+  assert.deepEqual(windowSpikes, S.homeostasis_activity.window_spikes, 'live window spikes must equal the precomputed run');
 });
 
 // --- Voltage homeostasis (single LIF, current 1.0, band at target 5.0) ---

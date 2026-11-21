@@ -43,14 +43,27 @@ export function mount(root, ui) {
   }
 
   function render() {
-    const W = 560;
+    const W = 760;
     const H = 460;
     const boxW = 180;
     const boxH = 64;
     const x = (W - boxW) / 2;
+    const boxLeft = x;
+    const boxRight = x + boxW;
     const gap = (H - 4 * boxH) / 5;
     const yOf = {};
     LAYER_ORDER.forEach((name, i) => { yOf[name] = gap + i * (boxH + gap); });
+    const midY = (name) => yOf[name] + boxH / 2;
+
+    // Each connection gets its own horizontal lane (elbow routing) so the lines
+    // and their labels never overlap. Right lanes carry the short L4<->L23 pair,
+    // left lanes carry the two long connections that pass through the middle.
+    const lane = {
+      'L4_to_L23': { x: boxRight + 34, side: 'right' },
+      'L23_to_L4': { x: boxRight + 74, side: 'right' },
+      'L23_to_L5': { x: boxLeft - 34, side: 'left' },
+      'L6_to_L4': { x: boxLeft - 74, side: 'left' },
+    };
 
     const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%', height: H });
     svg.style.maxWidth = W + 'px';
@@ -68,30 +81,42 @@ export function mount(root, ui) {
 
     // connections first (behind the boxes)
     for (const conn of structure.connections) {
-      const from = yOf[conn.from];
-      const to = yOf[conn.to];
-      const cx = x + boxW / 2;
-      const down = to > from;
-      const y1 = down ? from + boxH : from;
-      const y2 = down ? to : to + boxH;
+      const key = `${conn.from}_to_${conn.to}`;
+      const L = lane[key] || { x: boxRight + 34, side: 'right' };
+      const yFrom = midY(conn.from);
+      const yTo = midY(conn.to);
+      const edge = L.side === 'right' ? boxRight : boxLeft;
       const color = conn.type === 'feedback' ? c4 : conn.type === 'lateral' ? c3 : c1;
       const path = svgEl('path', {
-        d: `M ${cx} ${y1} L ${cx} ${y2}`,
+        d: `M ${edge} ${yFrom} L ${L.x} ${yFrom} L ${L.x} ${yTo} L ${edge} ${yTo}`,
         stroke: color,
         'stroke-width': 2,
         fill: 'none',
         'marker-end': `url(#arrow-${conn.type})`,
       });
       svg.appendChild(path);
-      // label
+      // label: sits in the open space beside the boxes, on its own lane. The two
+      // short connections share the L23-L4 gap, so nudge them apart vertically.
+      const text = `${conn.label} (${conn.type})`;
+      const estW = text.length * 6.2;
+      let ly = (yFrom + yTo) / 2;
+      if (key === 'L4_to_L23') ly -= 11;
+      if (key === 'L23_to_L4') ly += 11;
+      const lx = L.side === 'right' ? L.x + 6 : L.x - 6;
+      const anchor = L.side === 'right' ? 'start' : 'end';
+      const rectX = L.side === 'right' ? lx - 3 : lx - estW - 3;
+      svg.appendChild(svgEl('rect', {
+        x: rectX, y: ly - 10, width: estW + 6, height: 14,
+        fill: paper, opacity: 0.85,
+      }));
       const label = svgEl('text', {
-        x: cx + 8,
-        y: (y1 + y2) / 2,
+        x: lx, y: ly,
         fill: muted,
         'font-size': 11,
+        'text-anchor': anchor,
         'font-family': 'system-ui, sans-serif',
       });
-      label.textContent = `${conn.label} (${conn.type})`;
+      label.textContent = text;
       svg.appendChild(label);
     }
 

@@ -123,6 +123,47 @@ test('grid: hexagonal lattice periodicity', () => {
   closeVec(Array.from(shifted), g.periodicity.shifted, { abs: 1e-4 });
 });
 
+test('grid: activation is maximal at lattice points and lower between them', () => {
+  const g = golden.grid;
+  const m = new GridCellModule({
+    nModules: g.n_modules,
+    cellsPerModule: g.cells_per_module,
+    scaleRange: g.scale_range,
+    orientationRange: g.orientation_range,
+    phases: g.phases.flat(),
+  });
+  // Module 0, cell 0. The hexagonal lattice fundamental translations are
+  // a1 = (2*lambda/sqrt(3)) * (cos(theta+30deg), sin(theta+30deg))
+  // a2 = a1 rotated by 60deg.
+  const lam = m.scales[0];
+  const th = m.orientations[0];
+  const px = m.gridPhase[0];
+  const py = m.gridPhase[1];
+  const L = (2 * lam) / Math.sqrt(3);
+  const a1 = [L * Math.cos(th + Math.PI / 6), L * Math.sin(th + Math.PI / 6)];
+  const a2 = [L * Math.cos(th + Math.PI / 2), L * Math.sin(th + Math.PI / 2)];
+  const act = (x, y) => m.computeActivation([x, y])[0];
+
+  // The phase point is a lattice maximum (all three cosines = 1).
+  const atPhase = act(px, py);
+  assert.ok(atPhase > 0.99, `phase point should be a maximum, got ${atPhase}`);
+
+  // Every lattice point p = i*a1 + j*a2 is also a maximum.
+  for (let i = -2; i <= 2; i++) {
+    for (let j = -2; j <= 2; j++) {
+      const x = px + i * a1[0] + j * a2[0];
+      const y = py + i * a1[1] + j * a2[1];
+      close(act(x, y), atPhase, { abs: 1e-4 });
+    }
+  }
+
+  // Midpoints between lattice points are strictly lower (the "valleys").
+  const mid12 = act(px + (a1[0] + a2[0]) / 2, py + (a1[1] + a2[1]) / 2);
+  const mid1 = act(px + a1[0] / 2, py + a1[1] / 2);
+  assert.ok(mid12 < atPhase - 0.3, `midpoint should be a valley, got ${mid12}`);
+  assert.ok(mid1 < atPhase - 0.3, `half-step should be a valley, got ${mid1}`);
+});
+
 test('grid: missing phases throws', () => {
   assert.throws(
     () => new GridCellModule({ nModules: 2, cellsPerModule: 5 }),

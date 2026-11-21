@@ -57,11 +57,11 @@ export function mount(root, ui) {
   // --- figures ---
   const arena = ui.canvas(figures, { height: 300 });
   const dispPlot = ui.plot(figures, {
-    height: 220, xLabel: 'displacement cell index', xUnit: '',
+    height: 220, xLabel: 'displacement cell', xUnit: 'index',
     yLabel: 'activation', yUnit: 'a.u.',
   });
   const codePlot = ui.plot(figures, {
-    height: 220, xLabel: 'grid cell index', xUnit: '',
+    height: 220, xLabel: 'grid cell', xUnit: 'index',
     yLabel: 'activation', yUnit: 'a.u.',
   });
 
@@ -114,7 +114,7 @@ export function mount(root, ui) {
     const decoded = disp.decodeDisplacement(act);
     dispPlot.draw(
       [{ x: Array.from({ length: act.length }, (_, i) => i), y: Array.from(act), label: 'activation', color: 'c3' }],
-      { xRange: [0, act.length - 1] },
+      { xRange: [0, act.length - 1], yRange: [0, 1] },
     );
     const codeA = grid.computeActivation(A);
     const codeB = grid.computeActivation(B);
@@ -127,6 +127,9 @@ export function mount(root, ui) {
     );
     void decoded;
   }
+  // The arena canvas must draw inside onResize (called after layout and on
+  // every resize); drawing once at mount with a 0 width would leave it empty.
+  arena.onResize(drawArena);
   render();
   ui.onTheme(render);
 
@@ -156,26 +159,43 @@ export function mount(root, ui) {
   `);
 
   ui.code(notes, () => `
-from conex import DisplacementCellModule, GridCellModule
+import torch
+from pymonntorch import Network, NeuronGroup
+from conex import DisplacementCellModule, GridCellModule, TimeResolution
 
 disp = DisplacementCellModule(
     n_cells=${nCells.get()},
-    max_displacement=${maxDisp.get()},
-    sigma=${sigma.get()},
+    max_displacement=${fmt(maxDisp.get())},
+    sigma=${fmt(sigma.get())},
 )
 grid = GridCellModule(n_modules=${nModules}, cells_per_module=${cellsPerModule})
 
-code_a = grid.encode_position(neurons, torch.tensor([${ax.get()}, ${ay.get()}]))
-code_b = grid.encode_position(neurons, torch.tensor([${bx.get()}, ${by.get()}]))
-displacement_code = disp.compute_displacement(
-    neurons,
-    torch.tensor([${ax.get()}, ${ay.get()}]),
-    torch.tensor([${bx.get()}, ${by.get()}]),
+net = Network(behavior={1: TimeResolution(dt=1.0)}, dtype=torch.float32, device="cpu")
+grid_neurons = NeuronGroup(
+    net=net, size=${nModules} * ${cellsPerModule}, behavior={100: grid}, tag="grid",
 )
-decoded = disp.decode_displacement(neurons, displacement_code)
+disp_neurons = NeuronGroup(
+    net=net, size=${nCells.get()}, behavior={100: disp}, tag="disp",
+)
+net.initialize()
+
+code_a = grid.encode_position(grid_neurons, torch.tensor([${fmt(ax.get())}, ${fmt(ay.get())}]))
+code_b = grid.encode_position(grid_neurons, torch.tensor([${fmt(bx.get())}, ${fmt(by.get())}]))
+displacement_code = disp.compute_displacement(
+    disp_neurons,
+    torch.tensor([${fmt(ax.get())}, ${fmt(ay.get())}]),
+    torch.tensor([${fmt(bx.get())}, ${fmt(by.get())}]),
+)
+decoded = disp.decode_displacement(disp_neurons, displacement_code)
 `);
 
   return { destroy() {} };
+}
+
+// At most 4 significant digits for numbers shown in text and code snippets.
+function fmt(v) {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return String(v);
+  return Number(v.toPrecision(4)).toString();
 }
 
 function buildPhases(nModules, cellsPerModule, seed) {

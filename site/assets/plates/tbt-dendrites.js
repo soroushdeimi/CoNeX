@@ -28,10 +28,12 @@ export function isPredictive(depol, depolThresh) {
   return depol >= depolThresh;
 }
 
-// One-line narration driven by the model state.
+// One-line narration driven by the model state. k is the fractional player
+// time, so the count of arrived bits is floored to an integer.
 export function dendriteNarration({ k, nActive, nPredictive }) {
-  if (k === 0) return 'no context yet: all segments are silent';
-  return `${k} of ${nActive} context bits arrived; ${nPredictive} cell${nPredictive === 1 ? '' : 's'} now predictive`;
+  const arrived = Math.floor(k);
+  if (arrived === 0) return 'no context yet: all segments are silent';
+  return `${arrived} of ${nActive} context bits arrived; ${nPredictive} cell${nPredictive === 1 ? '' : 's'} now predictive`;
 }
 
 export function mount(root, ui) {
@@ -154,6 +156,12 @@ export function mount(root, ui) {
     const actArr = f ? f.activation : seg.segmentActivation;
     const predArr = f ? f.predictive : null;
     const activeArr = f ? f.active : new Array(nc).fill(false);
+    // Ease the segment counts between the completed frame and the next so the
+    // target cell's count visibly ticks up as its bit arrives.
+    const k = Math.floor(currentK);
+    const frac = currentK - k;
+    const e = ui.ease(frac);
+    const fNext = frames[k + 1] || frames[k];
 
     const cellW = width / nc;
     const topY = 22; // context row
@@ -176,7 +184,7 @@ export function mount(root, ui) {
     for (let c = 0; c < nc; c++) {
       for (let s = 0; s < ns; s++) {
         const idx = c * ns + s;
-        const act = actArr[idx];
+        const act = actArr[idx] + (fNext.activation[idx] - actArr[idx]) * e;
         const x = c * cellW + 3;
         const y = gridTop + s * rowH;
         const w = cellW - 6;
@@ -205,33 +213,29 @@ export function mount(root, ui) {
       }
     }
 
-    // particles: the arriving context bit travels down to the segments that
-    // synapse onto it (decorative; does not change any shown number)
-    const b = currentK; // 0..nActive, fractional
-    const k = Math.floor(b);
-    const frac = b - k;
+    // particles: the arriving context bit flies from its context dot to each
+    // segment that actually has a synapse onto that bit (the real segment
+    // targets), and fades out on arrival. Decorative; does not change numbers.
     if (k < order.length && frac > 0 && frac < 1) {
       const src = order[k]; // the presynaptic cell arriving now
       const srcX = src * cellW + cellW / 2;
-      const nP = 3; // particles per arriving bit
-      for (let s = 0; s < ns; s++) {
-        for (let c = 0; c < nc; c++) {
+      for (let c = 0; c < nc; c++) {
+        for (let s = 0; s < ns; s++) {
           const segIdx = c * ns + s;
-          let hits = 0;
+          let hasSyn = false;
           for (let j = 0; j < model.nS; j++) {
-            if (seg.segmentTargets[segIdx * model.nS + j] === src) hits++;
+            if (seg.segmentTargets[segIdx * model.nS + j] === src) { hasSyn = true; break; }
           }
-          if (!hits) continue;
+          if (!hasSyn) continue;
           const tx = c * cellW + cellW / 2;
           const ty = gridTop + s * rowH + (rowH - 4) / 2;
-          for (let p = 0; p < nP; p++) {
-            const pf = Math.max(0, Math.min(1, frac * 1.2 - p * 0.15));
-            const px = srcX + (tx - srcX) * pf;
-            const py = topY + (ty - topY) * pf;
-            ctx.globalAlpha = 0.8 * (1 - pf * 0.5);
-            ctx.fillStyle = c1;
-            ctx.beginPath(); ctx.arc(px, py, 2.5, 0, 2 * Math.PI); ctx.fill();
-          }
+          const px = srcX + (tx - srcX) * frac;
+          const py = topY + (ty - topY) * frac;
+          // fade in at the dot, fade out on arrival (alpha peaks mid-flight)
+          const alpha = 0.9 * Math.sin(Math.PI * frac);
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = c1;
+          ctx.beginPath(); ctx.arc(px, py, 3, 0, 2 * Math.PI); ctx.fill();
         }
       }
       ctx.globalAlpha = 1;

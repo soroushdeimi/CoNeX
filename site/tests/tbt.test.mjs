@@ -665,6 +665,16 @@ test('dendrites hero: narration reports bits arrived and predictive count', () =
   assert.match(many, /3 cells now predictive/);
 });
 
+test('dendrites hero: narration floors the fractional bit count to an integer', () => {
+  // the player time is fractional; the narration must show an integer count
+  const line = dendriteNarration({ k: 3.499799999999987, nActive: 6, nPredictive: 2 });
+  assert.match(line, /3 of 6 context bits arrived/);
+  assert.doesNotMatch(line, /3\.49/);
+  // just under a whole number still floors down
+  assert.match(dendriteNarration({ k: 0.999, nActive: 6, nPredictive: 0 }), /no context yet/);
+  assert.match(dendriteNarration({ k: 1.0, nActive: 6, nPredictive: 0 }), /1 of 6 context bits arrived/);
+});
+
 // ---------------------------------------------------------------------------
 // tbt-voting hero mappings
 // ---------------------------------------------------------------------------
@@ -698,7 +708,8 @@ test('voting hero: consensus object is the agreed object or -1', () => {
 });
 
 test('voting hero: narration reports consensus state', () => {
-  assert.equal(votingNarration({ step: 3, objs: [2, 2, 2], net: true }), 'step 3: network consensus on object 2');
+  // every column shares the same top candidate -> consensus with the step count
+  assert.equal(votingNarration({ step: 3, objs: [2, 2, 2], net: true }), 'consensus: object 2 after 3 steps');
   assert.equal(votingNarration({ step: 1, objs: [2, 2, -1], net: false }), 'step 1: columns are converging on object 2');
   assert.equal(votingNarration({ step: 0, objs: [-1, -1, -1], net: false }), 'step 0: no consensus yet');
 });

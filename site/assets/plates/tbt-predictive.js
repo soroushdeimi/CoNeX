@@ -191,9 +191,12 @@ export function mount(root, ui) {
   `);
 
   ui.code(notes, () => `
+import torch
+from pymonntorch import Network, NeuronGroup
 from conex import (
     TopDownPrediction, ErrorUnit, PrecisionWeighting,
     FreeEnergyMinimization, PredictiveCodingLearning, PredictiveCodingConfig,
+    TimeResolution,
 )
 
 config = PredictiveCodingConfig(
@@ -213,8 +216,15 @@ behaviors = {
     238: FreeEnergyMinimization(config=config, track_components=True),
     350: PredictiveCodingLearning(config=config, use_hebbian=False),
 }
-neurons.activity = sensory            # level 0 input
-neurons.top_down_input = higher_level  # level 1 pattern
+net = Network(behavior={1: TimeResolution(dt=1.0)}, dtype=torch.float32, device="cpu")
+neurons = NeuronGroup(net=net, size=${SIZE}, behavior=behaviors, tag="level")
+net.initialize()
+
+torch.manual_seed(${sigSeed.get()})
+sensory = torch.rand(${SIZE})            # level 0 input
+higher_level = torch.rand(${SIZE})       # level 1 pattern
+neurons.activity = sensory
+neurons.top_down_input = higher_level
 for behavior in behaviors.values():
     behavior.forward(neurons)
 `);

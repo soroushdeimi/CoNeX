@@ -41,6 +41,38 @@ export function mount(root, ui) {
   });
   redraw();
 
+  // 8x8 heatmap of a seeded random field
+  const R = ui.rng(42);
+  const heat = [];
+  for (let i = 0; i < 64; i++) heat.push(R.next());
+  const heatFig = ui.heatmap(figures, { rows: 8, cols: 8, label: 'field (a.u.)', height: 200 });
+  heatFig.draw(heat, { min: 0, max: 1 });
+
+  // raster of 20 seeded spikes across 5 neurons over 100 ms
+  const R2 = ui.rng(7);
+  const spikes = [];
+  for (let i = 0; i < 20; i++) {
+    spikes.push([R2.next() * 100, Math.floor(R2.next() * 5)]);
+  }
+  const rasFig = ui.raster(figures, { height: 160, xLabel: 'time', xUnit: 'ms' });
+  rasFig.draw(spikes, 5, 100);
+
+  // free canvas: a circle whose radius follows the amplitude slider
+  const cv = ui.canvas(figures, { height: 160 });
+  function drawCircle() {
+    const { ctx, width, height } = cv;
+    ctx.clearRect(0, 0, width, height);
+    ctx.strokeStyle = ui.color('c2');
+    ctx.lineWidth = 2;
+    const r = 10 + amp.get() * 10; // radius grows with the amplitude slider
+    ctx.beginPath();
+    ctx.arc(width / 2, height / 2, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  drawCircle();
+  cv.onResize(drawCircle);
+  amp.onInput(drawCircle);
+
   ui.note(notes, 'This plate is a demo of the shared <code>ui.js</code> API: ' +
     'three sliders, a live plot, and URL-hash state. Change a slider and the ' +
     'value appears in the address bar; reload and it is restored.');

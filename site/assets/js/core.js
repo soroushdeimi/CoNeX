@@ -114,6 +114,27 @@ export function dataRange(min, max) {
   return [a, b];
 }
 
+// A small listener list. add(fn) returns an unsubscribe; emit(v) calls each
+// listener in order with v. Pure, no DOM, so it can be tested in node.
+export function listenerList() {
+  const fns = [];
+  return {
+    add(fn) {
+      fns.push(fn);
+      return () => {
+        const i = fns.indexOf(fn);
+        if (i >= 0) fns.splice(i, 1);
+      };
+    },
+    emit(v) {
+      for (const fn of fns.slice()) fn(v);
+    },
+    size() {
+      return fns.length;
+    },
+  };
+}
+
 // Format a tick value with decimals derived from the step. Trailing zeros are
 // trimmed only after a decimal point, so 10 stays "10" (not "1").
 export function fmtTick(v, step) {

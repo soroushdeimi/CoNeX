@@ -1,5 +1,5 @@
 // Shared UI + plotting API for the CoNeX site. See .worker/CONTRACT.md.
-import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick } from './core.js';
+import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, listenerList } from './core.js';
 
 const THEME_KEY = 'conex-theme';
 
@@ -150,6 +150,7 @@ export function slider(parent, { key, label, unit, min, max, step, value, onInpu
   parent.appendChild(row);
 
   const spec = { type: 'number', min, max };
+  const listeners = listenerList();
   const control = {
     get() {
       return Number(input.value);
@@ -158,6 +159,9 @@ export function slider(parent, { key, label, unit, min, max, step, value, onInpu
       input.value = String(v);
       readout.textContent = `${v} ${unit}`;
     },
+    onInput(fn) {
+      return listeners.add(fn);
+    },
   };
   control.set(value);
   input.addEventListener('input', () => {
@@ -165,6 +169,7 @@ export function slider(parent, { key, label, unit, min, max, step, value, onInpu
     readout.textContent = `${v} ${unit}`;
     if (key) commitControl(key, spec, control);
     if (onInput) onInput(v);
+    listeners.emit(v);
   });
   if (key) registerControl(key, spec, control);
   return control;
@@ -185,6 +190,7 @@ export function number(parent, { key, label, unit, value, onInput }) {
   parent.appendChild(row);
 
   const spec = { type: 'number' };
+  const listeners = listenerList();
   const control = {
     get() {
       return Number(input.value);
@@ -192,10 +198,15 @@ export function number(parent, { key, label, unit, value, onInput }) {
     set(v) {
       input.value = String(v);
     },
+    onInput(fn) {
+      return listeners.add(fn);
+    },
   };
   input.addEventListener('input', () => {
+    const v = Number(input.value);
     if (key) commitControl(key, spec, control);
-    if (onInput) onInput(Number(input.value));
+    if (onInput) onInput(v);
+    listeners.emit(v);
   });
   if (key) registerControl(key, spec, control);
   return control;
@@ -218,6 +229,7 @@ export function select(parent, { key, label, options, value, onInput }) {
   parent.appendChild(row);
 
   const spec = { type: 'select', options };
+  const listeners = listenerList();
   const control = {
     get() {
       return input.value;
@@ -225,10 +237,14 @@ export function select(parent, { key, label, options, value, onInput }) {
     set(v) {
       input.value = v;
     },
+    onInput(fn) {
+      return listeners.add(fn);
+    },
   };
   input.addEventListener('change', () => {
     if (key) commitControl(key, spec, control);
     if (onInput) onInput(input.value);
+    listeners.emit(input.value);
   });
   if (key) registerControl(key, spec, control);
   return control;
@@ -246,6 +262,7 @@ export function toggle(parent, { key, label, value, onInput }) {
   parent.appendChild(row);
 
   const spec = { type: 'toggle' };
+  const listeners = listenerList();
   const control = {
     get() {
       return input.checked;
@@ -253,10 +270,14 @@ export function toggle(parent, { key, label, value, onInput }) {
     set(v) {
       input.checked = !!v;
     },
+    onInput(fn) {
+      return listeners.add(fn);
+    },
   };
   input.addEventListener('change', () => {
     if (key) commitControl(key, spec, control);
     if (onInput) onInput(input.checked);
+    listeners.emit(input.checked);
   });
   if (key) registerControl(key, spec, control);
   return control;
@@ -481,24 +502,35 @@ export function plot(parent, { height = 260, xLabel = 'x', yLabel = 'y', xUnit =
 export function raster(parent, { height = 200, xLabel = 'time', xUnit = 'ms' }) {
   const st = makeCanvas(parent, height);
   const M = { left: 48, right: 12, top: 8, bottom: 34 };
+  let last = null;
+
+  function render() {
+    if (!last) return;
+    const { spikes, nRows, tMax } = last;
+    const w = st.width, h = st.height;
+    const ctx = st.ctx;
+    const pal = PALETTES[theme];
+    ctx.clearRect(0, 0, w, h);
+    const xRange = [0, tMax || 1];
+    const xTicks = computeTicks(xRange[0], xRange[1]);
+    const yTicks = { ticks: [0, nRows], step: nRows };
+    const ax = drawAxes(ctx, w, h, M, xRange, [0, nRows], xTicks, yTicks, xLabel, 'neuron', xUnit, 'index');
+    ctx.fillStyle = pal.ink;
+    for (const [t, idx] of spikes) {
+      if (idx < 0 || idx >= nRows) continue;
+      const px = ax.sx(t);
+      const py = ax.y1 + ((idx + 0.5) / nRows) * (ax.y0 - ax.y1);
+      ctx.fillRect(px - 0.75, py - 3, 1.5, 6);
+    }
+  }
+
+  st.redraw = render;
+  ui.onTheme(render);
 
   return {
     draw(spikes, nRows, tMax) {
-      const w = st.width, h = st.height;
-      const ctx = st.ctx;
-      const pal = PALETTES[theme];
-      ctx.clearRect(0, 0, w, h);
-      const xRange = [0, tMax || 1];
-      const xTicks = computeTicks(xRange[0], xRange[1]);
-      const yTicks = { ticks: [0, nRows], step: nRows };
-      const ax = drawAxes(ctx, w, h, M, xRange, [0, nRows], xTicks, yTicks, xLabel, 'neuron', xUnit, 'index');
-      ctx.fillStyle = pal.ink;
-      for (const [t, idx] of spikes) {
-        if (idx < 0 || idx >= nRows) continue;
-        const px = ax.sx(t);
-        const py = ax.y1 + ((idx + 0.5) / nRows) * (ax.y0 - ax.y1);
-        ctx.fillRect(px - 0.75, py - 3, 1.5, 6);
-      }
+      last = { spikes, nRows, tMax };
+      render();
     },
   };
 }
@@ -506,36 +538,48 @@ export function raster(parent, { height = 200, xLabel = 'time', xUnit = 'ms' }) 
 export function heatmap(parent, { rows, cols, label = '', height = 200 }) {
   const st = makeCanvas(parent, height);
   const M = { left: 48, right: 12, top: 8, bottom: 34 };
+  let last = null;
+
+  function render() {
+    if (!last) return;
+    const { values, min, max } = last;
+    const w = st.width, h = st.height;
+    const ctx = st.ctx;
+    const pal = PALETTES[theme];
+    ctx.clearRect(0, 0, w, h);
+    let lo = min, hi = max;
+    if (lo === undefined || hi === undefined) {
+      lo = Infinity; hi = -Infinity;
+      for (const v of values) { if (v < lo) lo = v; if (v > hi) hi = v; }
+      if (lo === hi) hi = lo + 1;
+    }
+    const cw = (w - M.left - M.right) / cols;
+    const ch = (h - M.top - M.bottom) / rows;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const v = values[r * cols + c];
+        const f = (v - lo) / (hi - lo);
+        ctx.fillStyle = mix(pal.paper, pal.c1, Math.max(0, Math.min(1, f)));
+        ctx.fillRect(M.left + c * cw, M.top + r * ch, cw + 0.5, ch + 0.5);
+      }
+    }
+    ctx.strokeStyle = pal.ink;
+    ctx.strokeRect(M.left, M.top, cols * cw, rows * ch);
+    ctx.fillStyle = pal.ink;
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(label, (M.left + w - M.right) / 2, h - 2);
+  }
+
+  // redraw on resize (the RO resets the canvas) and on theme change
+  st.redraw = render;
+  ui.onTheme(render);
 
   return {
     draw(values, { min, max } = {}) {
-      const w = st.width, h = st.height;
-      const ctx = st.ctx;
-      const pal = PALETTES[theme];
-      ctx.clearRect(0, 0, w, h);
-      let lo = min, hi = max;
-      if (lo === undefined || hi === undefined) {
-        lo = Infinity; hi = -Infinity;
-        for (const v of values) { if (v < lo) lo = v; if (v > hi) hi = v; }
-        if (lo === hi) hi = lo + 1;
-      }
-      const cw = (w - M.left - M.right) / cols;
-      const ch = (h - M.top - M.bottom) / rows;
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const v = values[r * cols + c];
-          const f = (v - lo) / (hi - lo);
-          ctx.fillStyle = mix(pal.paper, pal.c1, Math.max(0, Math.min(1, f)));
-          ctx.fillRect(M.left + c * cw, M.top + r * ch, cw + 0.5, ch + 0.5);
-        }
-      }
-      ctx.strokeStyle = pal.ink;
-      ctx.strokeRect(M.left, M.top, cols * cw, rows * ch);
-      ctx.fillStyle = pal.ink;
-      ctx.font = '11px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
-      ctx.fillText(label, (M.left + w - M.right) / 2, h - 2);
+      last = { values, min, max };
+      render();
     },
   };
 }
@@ -555,11 +599,17 @@ function hex(s) {
 
 export function canvas(parent, { height = 200 }) {
   const st = makeCanvas(parent, height);
+  const listeners = listenerList();
+  // the plate draws itself; the RO resets the canvas on resize, so tell it to redraw
+  st.redraw = () => listeners.emit();
   return {
     get canvas() { return st.canvas; },
     get ctx() { return st.ctx; },
     get width() { return st.width; },
     get height() { return st.height; },
+    onResize(fn) {
+      return listeners.add(fn);
+    },
   };
 }
 

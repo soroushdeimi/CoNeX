@@ -309,6 +309,10 @@ export function mount(root, ui) {
     xUnit: 'steps',
   });
 
+  const rasterCaption = document.createElement('figcaption');
+  rasterCaption.style.cssText = 'font-size:12px;font-style:italic;color:var(--muted,#5f6b6d);margin:2px 0 10px 48px;line-height:1.4;';
+  figures.appendChild(rasterCaption);
+
   // 2. Weights heatmap on canvas with labeled axes and colour scale
   const heatCanvas = ui.canvas(figures, { height: 230 });
 
@@ -393,6 +397,14 @@ export function mount(root, ui) {
     }
     cachedRunMin = rMin;
     cachedRunMax = rMax;
+
+    if (topology.is_conv || topology.is_local) {
+      rasterCaption.textContent =
+        'Spike raster: rows 0–15 are pre neurons (indices 0–15, 4×4 input); rows 16–19 are post neurons (indices 0–3, 2×2 output).';
+    } else {
+      rasterCaption.textContent =
+        'Spike raster: rows 0–3 are pre neurons (indices 0–3); rows 4–7 are post neurons (indices 0–3).';
+    }
   }
 
   function renderAt(step) {

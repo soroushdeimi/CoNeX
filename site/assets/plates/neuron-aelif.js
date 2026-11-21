@@ -248,9 +248,11 @@ tryThis.style.fontStyle = 'italic';
     ctx.moveTo(tx, pipeY);
     ctx.quadraticCurveTo((tx + bx + bw) / 2, pipeY - 30, bx + bw, yWater + 20);
     ctx.stroke();
+    // The R·w value is a second caption line under the tank (the gap between the
+    // bucket and the tank is too narrow to hold it between them).
     ctx.fillStyle = pal.adapt; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`R·w = ${(p.R * wNow).toFixed(2)} mV`, (tx + bx + bw) / 2, pipeY - 48);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(`drains R·w = ${(p.R * wNow).toFixed(2)} mV`, tcx, tBot + 18);
   }
 
   // --- frame ---

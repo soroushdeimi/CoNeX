@@ -535,3 +535,48 @@ test('structure: layer sizes and connections match CoNeX', () => {
   );
 });
 
+// ---------------------------------------------------------------------------
+// tbt-grid hero mappings (model state -> drawn quantity / narration)
+// ---------------------------------------------------------------------------
+
+import {
+  trailAlpha,
+  glowRadius,
+  gridNarration,
+} from '../assets/plates/tbt-grid.js';
+
+test('grid hero: trail alpha fades linearly from 1 to 0 over the window', () => {
+  assert.equal(trailAlpha(0, 5), 1);
+  assert.equal(trailAlpha(2.5, 5), 0.5);
+  assert.equal(trailAlpha(5, 5), 0);
+  // clamped: negative age -> 1, age past window -> 0
+  assert.equal(trailAlpha(-1, 5), 1);
+  assert.equal(trailAlpha(9, 5), 0);
+  // zero window -> no trail
+  assert.equal(trailAlpha(0, 0), 0);
+});
+
+test('grid hero: glow radius grows with mean activation and is bounded', () => {
+  assert.equal(glowRadius(0), 10);
+  assert.equal(glowRadius(1), 40);
+  assert.equal(glowRadius(0.5), 25);
+  // clamped to the [0,1] activation range
+  assert.equal(glowRadius(-3), 10);
+  assert.equal(glowRadius(7), 40);
+});
+
+test('grid hero: narration reports the walk speed and firing level', () => {
+  assert.equal(
+    gridNarration({ meanAct: 0.5, speed: 0 }),
+    'agent at rest: the grid cells hold the position code',
+  );
+  const high = gridNarration({ meanAct: 0.9, speed: 0.6 });
+  assert.match(high, /walks at 0\.60 a\.u\.\/s/);
+  assert.match(high, /high level/);
+  assert.match(high, /mean 0\.90 a\.u\./);
+  const low = gridNarration({ meanAct: 0.1, speed: 0.2 });
+  assert.match(low, /low level/);
+  const mid = gridNarration({ meanAct: 0.5, speed: 0.2 });
+  assert.match(mid, /medium level/);
+});
+

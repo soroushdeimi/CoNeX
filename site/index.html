@@ -250,7 +250,7 @@ symbol  anomaly  bursting columns
       const TAU = 20, R = 0.5, I = 65, V_REST = -70, THR = -50, V_RESET = -55;
       const DT = 1; // ms
       const RI = R * I; // 32.5 mV
-      const V_TOP = -48, V_BOT = -72; // y-axis range (mV)
+      const V_TOP = -48.5, V_BOT = -57; // trace-panel y range (mV)
       const H = 220;
       let v = V_REST, t = 0;
       const trace = []; // [t, v]
@@ -289,10 +289,10 @@ symbol  anomaly  bursting columns
         const win = windowFor(w);
         const t0 = t - win;
         const sx = (tt) => ((tt - t0) / win) * w;
-        // trace in the upper 70%, raster in the lower 30%
-        const traceTop = 8, traceBot = H * 0.7;
+        // trace panel in the upper ~78%, raster in a thin strip at the bottom
+        const traceTop = 8, traceBot = H * 0.78;
         const sy = (vv) => traceTop + ((V_TOP - vv) / (V_TOP - V_BOT)) * (traceBot - traceTop);
-        const rasterTop = H * 0.74, rasterBot = H - 6;
+        const rasterTop = H * 0.85, rasterBot = H - 6;
 
         // threshold (dashed) and reset (dotted) reference lines
         ctx.strokeStyle = pal.muted;
@@ -311,10 +311,15 @@ symbol  anomaly  bursting columns
         ctx.fillStyle = pal.muted;
         ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
         ctx.textAlign = 'left';
+        // small tick labels at the left edge
+        ctx.textBaseline = 'middle';
+        ctx.fillText('-50', 2, sy(THR));
+        ctx.fillText('-55', 2, sy(V_RESET));
+        // line labels, offset right of the ticks so they do not collide
         ctx.textBaseline = 'bottom';
-        ctx.fillText('threshold -50 mV', 4, sy(THR) - 2);
+        ctx.fillText('threshold -50 mV', 26, sy(THR) - 2);
         ctx.textBaseline = 'top';
-        ctx.fillText('reset -55 mV', 4, sy(V_RESET) + 2);
+        ctx.fillText('reset -55 mV', 26, sy(V_RESET) + 2);
 
         // voltage trace
         ctx.strokeStyle = pal.c1;

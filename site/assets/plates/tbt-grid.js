@@ -193,21 +193,32 @@ export function mount(root, ui) {
   tiles.onResize(drawTiles);
   firing.onResize(drawFiring);
 
-  const anim = ui.animate((dtMs) => {
-    if (autoWalk.get()) {
-      heading += 0.15 * (dtMs / 16.7);
-      const v = speed.get();
-      module.pathIntegrate([v * Math.cos(heading), v * Math.sin(heading)], dtMs / 1000);
-      pos[0] = module.gridPosition[0];
-      pos[1] = module.gridPosition[1];
-      if (pos[0] > 3) pos[0] = -3;
-      if (pos[0] < -3) pos[0] = 3;
-      if (pos[1] > 3) pos[1] = -3;
-      if (pos[1] < -3) pos[1] = 3;
-    }
-    render();
+  // The player drives the walk; its speed select (0.25x..4x) is the speed
+  // control. Model time is in seconds, so dtMs/1000 is the path-integration dt.
+  let lastT = 0;
+  const player = ui.player(figures, {
+    duration: 10,
+    unit: 's',
+    playSeconds: 5,
+    loop: true,
+    onFrame(t) {
+      // t wraps to 0 on loop; skip that frame so dt stays positive.
+      const dtMs = t >= lastT ? (t - lastT) * 1000 : 0;
+      lastT = t;
+      if (autoWalk.get()) {
+        heading += 0.15 * (dtMs / 16.7);
+        const v = speed.get();
+        module.pathIntegrate([v * Math.cos(heading), v * Math.sin(heading)], dtMs / 1000);
+        pos[0] = module.gridPosition[0];
+        pos[1] = module.gridPosition[1];
+        if (pos[0] > 3) pos[0] = -3;
+        if (pos[0] < -3) pos[0] = 3;
+        if (pos[1] > 3) pos[1] = -3;
+        if (pos[1] < -3) pos[1] = 3;
+      }
+      render();
+    },
   });
-  anim.start();
 
   // drag to move the agent
   const canvas = arena.canvas;
@@ -291,7 +302,7 @@ activation = module.encode_position(neurons, torch.tensor([1.0, 1.0]))
 
   return {
     destroy() {
-      anim.stop();
+      player.pause();
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);

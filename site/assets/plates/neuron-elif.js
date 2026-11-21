@@ -42,6 +42,8 @@ export function mount(root, ui) {
   ui.note(notes, `The phase line plots d<var>v</var>/d<var>t</var> against <var>v</var> for the current input. Where the curve
   crosses zero is a fixed point: if it is below threshold the neuron settles there (no firing); if the
   input is strong enough that no stable fixed point sits below threshold, the voltage runs away and fires.
+  The vertical axis is clipped to a readable window; above <var>theta</var><sub>rh</sub> the exponential term makes
+  d<var>v</var>/d<var>t</var> grow without bound, so the curve leaves the top of the window there.
   ML analogy: the exponential term is like a soft, self-reinforcing "excitation" — the analogy breaks
   because it is a deterministic dynamical term, not a learned weight.`);
   ui.code(notes, () => codeSnippet());
@@ -74,10 +76,17 @@ export function mount(root, ui) {
       }
       prev = { v, d };
     }
+    // Clip the y window to the interesting part: the exponential term blows up
+    // above ~theta_rh, so a fixed window keeps the fixed points readable.
+    const yLo = -2, yHi = 10; // mV/ms
     figPhase.draw(
       [{ x: xs, y: ys, label: 'dv/dt', color: 'c1', style: 'line' }],
-      { hlines: [{ y: 0, label: 'dv/dt = 0' }],
-        vlines: fixed.map((f) => ({ x: f, label: 'fixed point' })) }
+      { yRange: [yLo, yHi],
+        hlines: [{ y: 0, label: 'dv/dt = 0' }],
+        vlines: [
+          ...fixed.map((f) => ({ x: f, label: 'fixed point' })),
+          { x: p.theta_rh, label: 'theta_rh' },
+        ] }
     );
 
     // Voltage trace.

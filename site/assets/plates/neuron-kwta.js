@@ -33,6 +33,7 @@ export function mount(root, ui) {
 
   const figBefore = ui.raster(figures, { height: 200, xLabel: 't', xUnit: 'ms' });
   const figAfter = ui.raster(figures, { height: 200, xLabel: 't', xUnit: 'ms' });
+  const figCount = ui.plot(figures, { height: 160, xLabel: 't', yLabel: 'spiking neurons', xUnit: 'ms', yUnit: 'count' });
 
   ui.note(notes, `KWTA keeps only the <var>k</var> strongest neurons active. In CoNeX, <code>KWTA.forward</code>
   checks which neurons are above threshold; if more than <var>k</var> are, it keeps the top-<var>k</var> by voltage and
@@ -41,10 +42,12 @@ export function mount(root, ui) {
   Units: v in mV, t in ms, I in pA, R in GOhm.`);
   ui.note(notes, `The two rasters use the <b>same seeded noise</b>: the top is the group with no KWTA
   (every neuron that crosses threshold fires), the bottom is the same group with KWTA applied, so the
-  difference is exactly the k-winners inhibition. Raising <var>k</var> lets more neurons win; lowering it
-  sharpens the competition. ML analogy: KWTA is a hard top-<var>k</var> sparsification, like keeping only the
-  <var>k</var> largest activations; the analogy breaks because here the "activations" are membrane voltages
-  with dynamics, not a static feature vector.`);
+  difference is exactly the k-winners inhibition. The bottom plot shows the number of spiking neurons
+  per step for both runs: without KWTA it can exceed <var>k</var>, with KWTA it is capped at <var>k</var>
+  (the dashed line). Raising <var>k</var> lets more neurons win; lowering it sharpens the competition.
+  ML analogy: KWTA is a hard top-<var>k</var> sparsification, like keeping only the <var>k</var> largest
+  activations; the analogy breaks because here the "activations" are membrane voltages with dynamics,
+  not a static feature vector.`);
   ui.code(notes, () => codeSnippet());
 
   function params() {
@@ -53,6 +56,8 @@ export function mount(root, ui) {
 
   // Run the group for STEPS steps. Both runs apply the same seeded noise; the only
   // difference is whether KWTA resets the losers before the spike decision.
+  // Returns {spikes: [t, index][], counts: {t, n}[]} where counts is the number of
+  // spiking neurons per step.
   function run(useKwta) {
     const p = params();
     const rng = ui.rng(cSeed.get());
@@ -62,22 +67,36 @@ export function mount(root, ui) {
     const k = cK.get();
     let vs = new Array(SIZE).fill(p.v_rest);
     const spikes = []; // [t, index]
+    const counts = []; // {t, n}
     for (let it = 1; it <= STEPS; it++) {
       const t = it * p.dt;
       vs = vs.map((v) => lifUpdate({ v }, p, I, p.dt));
       vs = inherentNoise(vs, rng, scale, offset);
       if (useKwta) vs = kwta(vs, p.threshold, p.v_reset, k);
+      let n = 0;
       for (let j = 0; j < SIZE; j++) {
-        if (vs[j] >= p.threshold) { spikes.push([t, j]); vs[j] = p.v_reset; }
+        if (vs[j] >= p.threshold) { spikes.push([t, j]); vs[j] = p.v_reset; n++; }
       }
+      counts.push({ t, n });
     }
-    return spikes;
+    return { spikes, counts };
   }
 
   function draw() {
-    const tMax = STEPS * params().dt;
-    figBefore.draw(run(false), SIZE, tMax);
-    figAfter.draw(run(true), SIZE, tMax);
+    const p = params();
+    const tMax = STEPS * p.dt;
+    const k = cK.get();
+    const before = run(false);
+    const after = run(true);
+    figBefore.draw(before.spikes, SIZE, tMax);
+    figAfter.draw(after.spikes, SIZE, tMax);
+    figCount.draw(
+      [
+        { x: before.counts.map((c) => c.t), y: before.counts.map((c) => c.n), label: 'no KWTA', color: 'c3', style: 'line' },
+        { x: after.counts.map((c) => c.t), y: after.counts.map((c) => c.n), label: 'KWTA', color: 'c1', style: 'line' },
+      ],
+      { hlines: [{ y: k, label: 'k' }], yRange: [0, SIZE] }
+    );
   }
 
   function codeSnippet() {

@@ -266,13 +266,15 @@ pre {
   flex-wrap: wrap;
 }
 .ui-player-speed {
-  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: 0.85rem;
   color: var(--ink);
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  padding: 0.15rem 0.3rem;
+}
+.ui-player-speed input[type='range'] {
+  width: 90px;
+  accent-color: var(--c1);
 }
 .ui-player-readout {
   margin-left: auto;
@@ -419,6 +421,10 @@ pre {
 }
 
 /* Learning-rules table */
+.rules-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
 .rules-table {
   width: 100%;
   border-collapse: collapse;
@@ -430,6 +436,7 @@ pre {
   padding: 0.4rem 0.6rem;
   border-bottom: 1px solid var(--rule);
   vertical-align: top;
+  overflow-wrap: anywhere;
 }
 .rules-table th {
   font-family: ui-serif, Georgia, serif;
@@ -512,6 +519,21 @@ pre {
   position: absolute;
   bottom: 8px;
   right: 8px;
+}
+/* small, unobtrusive speed control under the hero figure */
+.hero-speed-row {
+  margin-top: 0.4rem;
+}
+.hero-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.hero-speed input[type='range'] {
+  width: 90px;
+  accent-color: var(--c1);
 }
 
 .install-line {

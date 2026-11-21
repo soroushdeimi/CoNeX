@@ -1,25 +1,35 @@
 // Layout checker: drives headless Chrome over the DevTools protocol (no npm
-// packages; node has fetch and WebSocket built in) and lists every element
-// whose right edge exceeds the viewport. Run:
-//   node site/tests/check_layout.mjs [width]
-// Exits 0 if no page overflows, 1 otherwise.
+// packages; node has fetch and WebSocket built in) and lists, for every page,
+// (1) elements whose right edge exceeds the viewport and (2) a .plate-controls
+// block whose box overlaps the .plate-notes block (the sticky-controls bug).
+// Run:
+//   node site/tests/check_layout.mjs [width ...]   (default: 390 1440)
+//   THEME=dark node site/tests/check_layout.mjs    (light is the default)
+// Exits 0 if no page overflows or overlaps, 1 otherwise.
 import { spawn } from 'node:child_process';
+import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const CHROME =
   process.env.CHROME_BIN ||
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const WIDTH = Number(process.argv[2] || 390);
+const widths = process.argv.slice(2).map(Number).filter((n) => Number.isFinite(n) && n > 0);
+if (!widths.length) widths.push(390, 1440);
 const HEIGHT = 900;
 const BASE = process.env.BASE_URL || 'http://localhost:8000';
+const THEME = process.env.THEME === 'dark' ? 'dark' : 'light';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const platesDir = join(here, '..', 'assets', 'plates');
 const PAGES = [
   '/index.html',
   '/atlas/index.html',
-  '/atlas/plate.html?id=_example',
+  ...readdirSync(platesDir)
+    .filter((f) => f.endsWith('.js'))
+    .map((f) => `/atlas/plate.html?id=${encodeURIComponent(f.slice(0, -3))}`),
 ];
 
-const here = dirname(fileURLToPath(import.meta.url));
 const PORT = 9400 + Math.floor(Math.random() * 100);
 
 const chrome = spawn(
@@ -73,39 +83,81 @@ ws.onmessage = (ev) => {
   }
 };
 
-await send(ws, 'Emulation.setDeviceMetricsOverride', {
-  width: WIDTH,
-  height: HEIGHT,
-  deviceScaleFactor: 1,
-  mobile: false,
-});
 await send(ws, 'Page.enable');
 
 const EXPR = `(() => {
   const w = window.innerWidth;
-  const out = [...document.querySelectorAll('*')]
-    .filter((e) => e.getBoundingClientRect().right > w + 1)
+  const overflow = [...document.querySelectorAll('*')]
+    .filter((e) => {
+      const r = e.getBoundingClientRect();
+      if (r.right <= w + 1) return false;
+      // Known false positive: a <code> inside a scrollable box may extend
+      // past the viewport while the box itself scrolls.
+      let p = e.parentElement;
+      while (p) {
+        const ox = getComputedStyle(p).overflowX;
+        if (ox === 'auto' || ox === 'scroll') return false;
+        p = p.parentElement;
+      }
+      return true;
+    })
     .map((e) => e.tagName + '.' + String(e.className).split(' ').join('.') +
       ' right=' + Math.round(e.getBoundingClientRect().right * 10) / 10);
-  return JSON.stringify({ innerW: w, scrollW: document.documentElement.scrollWidth, overflow: out });
+  let overlap = null;
+  const controls = document.querySelector('.plate-controls');
+  const notes = document.querySelector('.plate-notes');
+  if (controls && notes) {
+    const c = controls.getBoundingClientRect();
+    const n = notes.getBoundingClientRect();
+    const sameColumn = c.left < n.right && n.left < c.right;
+    if (sameColumn && c.bottom > n.top + 1) {
+      overlap = '.plate-controls bottom=' + Math.round(c.bottom * 10) / 10 +
+        ' > .plate-notes top=' + Math.round(n.top * 10) / 10;
+    }
+  }
+  return JSON.stringify({ innerW: w, scrollW: document.documentElement.scrollWidth, overflow, overlap });
 })()`;
 
 let failed = false;
-for (const path of PAGES) {
-  await send(ws, 'Page.navigate', { url: BASE + path });
-  await new Promise((r) => setTimeout(r, 2500));
-  const { result } = await send(ws, 'Runtime.evaluate', {
-    expression: EXPR,
-    returnByValue: true,
+for (const width of widths) {
+  await send(ws, 'Emulation.setDeviceMetricsOverride', {
+    width,
+    height: HEIGHT,
+    deviceScaleFactor: 1,
+    mobile: false,
   });
-  const data = JSON.parse(result.value);
-  if (data.overflow.length) {
-    failed = true;
-    console.log(`FAIL ${path} (innerW=${data.innerW}, scrollW=${data.scrollW})`);
-    for (const o of data.overflow) console.log(`   ${o}`);
-  } else {
-    console.log(`OK   ${path} (innerW=${data.innerW}, scrollW=${data.scrollW})`);
+  // Set the theme before any page script runs (ui.js reads it on load).
+  const { identifier } = await send(ws, 'Page.addScriptToEvaluateOnNewDocument', {
+    source:
+      THEME === 'dark'
+        ? "localStorage.setItem('conex-theme', 'dark');"
+        : "localStorage.removeItem('conex-theme');",
+  });
+  for (const path of PAGES) {
+    await send(ws, 'Page.navigate', { url: BASE + path });
+    await new Promise((r) => setTimeout(r, 2500));
+    let data;
+    try {
+      const { result } = await send(ws, 'Runtime.evaluate', {
+        expression: EXPR,
+        returnByValue: true,
+      });
+      data = JSON.parse(result.value);
+    } catch (err) {
+      failed = true;
+      console.log(`FAIL ${path} [${width}px ${THEME}] (page did not load: ${err.message})`);
+      continue;
+    }
+    if (data.overflow.length || data.overlap) {
+      failed = true;
+      console.log(`FAIL ${path} [${width}px ${THEME}] (innerW=${data.innerW}, scrollW=${data.scrollW})`);
+      for (const o of data.overflow) console.log(`   overflow: ${o}`);
+      if (data.overlap) console.log(`   overlap: ${data.overlap}`);
+    } else {
+      console.log(`OK   ${path} [${width}px ${THEME}] (innerW=${data.innerW}, scrollW=${data.scrollW})`);
+    }
   }
+  await send(ws, 'Page.removeScriptToEvaluateOnNewDocument', { identifier }).catch(() => {});
 }
 
 ws.close();

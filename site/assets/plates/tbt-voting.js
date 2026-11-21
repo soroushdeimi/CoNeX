@@ -40,6 +40,9 @@ export function mount(root, ui) {
     key: 'convergenceThreshold', label: 'convergence_threshold', unit: 'fraction', min: 0.3, max: 1, step: 0.05, value: 0.8,
   });
   const seed = ui.number(scn, { key: 'seed', label: 'seed', unit: '', value: 7 });
+  const nSteps = ui.slider(scn, {
+    key: 'votingSteps', label: 'voting steps', unit: 'steps', min: 2, max: 30, step: 1, value: 10,
+  });
 
   // --- state ---
   let memories = [];
@@ -93,13 +96,13 @@ export function mount(root, ui) {
     lastVotes = [];
     // record the initial (pre-vote) state
     frames.push(snapshot());
-    // Run the full voting to convergence once, recording a frame per step.
-    // The player only indexes into these, so no per-frame recomputation.
-    for (let i = 0; i < 60; i++) {
+    // Run the voting for the requested number of steps, recording a frame per
+    // step (stop early if the network reaches consensus). The player only
+    // indexes into these, so no per-frame recomputation.
+    for (let i = 0; i < nSteps.get(); i++) {
       stepOnce();
       frames.push(snapshot());
-      const last = frames[frames.length - 1];
-      if (last.net) break;
+      if (frames[frames.length - 1].net) break;
     }
     currentStep = frames.length - 1;
   }
@@ -117,8 +120,8 @@ export function mount(root, ui) {
     };
   }
 
-  const rebuild = () => { build(); render(); };
-  [nObjects, repSize, sparsity, voteThresh, decay, minVotes, nColumns, trueObj, noise, convThresh, seed].forEach((c) => c.onInput(rebuild));
+  const rebuild = () => { build(); player.setDuration(frames.length - 1); render(); };
+  [nObjects, repSize, sparsity, voteThresh, decay, minVotes, nColumns, trueObj, noise, convThresh, seed, nSteps].forEach((c) => c.onInput(rebuild));
 
   // --- figures ---
   const votePlot = ui.plot(figures, {
@@ -144,9 +147,10 @@ export function mount(root, ui) {
     void netConsensus;
   }
 
-  // Draw each column as a box listing its candidate objects (votes > 0), with
-  // lines between columns whose thickness is the shared top vote. The pulse
-  // position is the player time, so the lines "travel" as the vote spreads.
+  // Draw each column as a box with one horizontal bar per candidate object
+  // (bar length = that object's vote at this step); the column's top object is
+  // highlighted. A line between two adjacent columns pulses when they share the
+  // same top object at this step (their votes are aligned).
   function drawColumns(f) {
     const { ctx, width, height } = colCanvas;
     ctx.clearRect(0, 0, width, height);
@@ -155,9 +159,13 @@ export function mount(root, ui) {
     const c1 = ui.color('c1');
     const c2 = ui.color('c2');
     const n = columns.length;
-    const boxW = Math.min(120, (width - 20) / n - 10);
-    const boxH = height - 30;
+    const nObj = nObjects.get();
+    const boxW = Math.min(150, (width - 20) / n - 12);
+    const boxH = height - 24;
+    const topY = 26;
+    const barH = Math.min(16, (boxH - 8) / nObj - 2);
     const xs = [];
+    const tops = [];
     for (let c = 0; c < n; c++) {
       const x = 10 + c * ((width - 20) / n) + ((width - 20) / n - boxW) / 2;
       xs.push(x);
@@ -165,28 +173,37 @@ export function mount(root, ui) {
       ctx.strokeRect(x, 10, boxW, boxH);
       ctx.fillStyle = ink;
       ctx.font = '12px ui-monospace, monospace';
-      ctx.fillText('col ' + c, x + 4, 24);
-      // candidate set: objects this column voted for at this step
+      ctx.fillText('col ' + c, x + 4, 20);
       const votes = f.votes[c] || [];
-      const cands = [];
-      for (let o = 0; o < votes.length; o++) if (votes[o] > 0) cands.push(o);
-      cands.sort((a, b) => votes[b] - votes[a]);
-      ctx.font = '11px ui-monospace, monospace';
-      cands.slice(0, 5).forEach((o, i) => {
-        const isTop = o === f.objs[c];
+      // the column's top object at this step (highest vote)
+      let top = -1, topV = -1;
+      for (let o = 0; o < votes.length; o++) if (votes[o] > topV) { topV = votes[o]; top = o; }
+      tops.push(top);
+      const maxV = Math.max(1e-6, topV);
+      for (let o = 0; o < nObj; o++) {
+        const v = votes[o] || 0;
+        const y = topY + o * (barH + 2);
+        const isTop = o === top;
+        // label
         ctx.fillStyle = isTop ? c2 : muted;
-        ctx.fillText('obj ' + o + '  ' + votes[o].toFixed(2), x + 6, 42 + i * 15);
-      });
+        ctx.font = '10px ui-monospace, monospace';
+        ctx.fillText(String(o), x + 4, y + barH - 3);
+        // bar: length proportional to the vote at this step
+        const bw = (v / maxV) * (boxW - 24);
+        ctx.fillStyle = isTop ? c2 : c1;
+        ctx.globalAlpha = v > 0 ? 0.85 : 0.15;
+        ctx.fillRect(x + 16, y, Math.max(0, bw), barH - 3);
+        ctx.globalAlpha = 1;
+      }
     }
-    // vote lines between adjacent columns, pulsing with the player time
+    // lines between adjacent columns, pulsing when they share the same top object
     const pulse = 0.5 + 0.5 * Math.sin((f.step / Math.max(1, frames.length - 1)) * Math.PI * 4);
     ctx.strokeStyle = c1;
     for (let c = 0; c < n - 1; c++) {
-      const a = f.acc[c], b = f.acc[c + 1];
-      const shared = Math.min(Math.max(...a), Math.max(...b));
-      ctx.globalAlpha = 0.3 + 0.5 * pulse;
-      ctx.lineWidth = 1 + Math.min(4, shared);
+      const shared = tops[c] >= 0 && tops[c] === tops[c + 1];
       const y = 10 + boxH / 2;
+      ctx.globalAlpha = shared ? 0.4 + 0.5 * pulse : 0.12;
+      ctx.lineWidth = shared ? 2 + 2 * pulse : 1;
       ctx.beginPath();
       ctx.moveTo(xs[c] + boxW, y);
       ctx.lineTo(xs[c + 1], y);
@@ -213,8 +230,9 @@ export function mount(root, ui) {
     } &nbsp;|&nbsp; network consensus: ${f.net ? '<strong>yes</strong>' : 'no'}`;
   }
 
+  // The player time is the step index (0..nSteps), so t maps 1:1 to a frame.
   function onFrame(t) {
-    const i = Math.max(0, Math.min(frames.length - 1, Math.round((t / 100) * (frames.length - 1))));
+    const i = Math.max(0, Math.min(frames.length - 1, Math.round(t)));
     currentStep = i;
     render();
   }
@@ -223,18 +241,21 @@ export function mount(root, ui) {
   // every resize); drawing once at mount with a 0 width would leave it empty.
   colCanvas.onResize(() => { if (frames[currentStep]) drawColumns(frames[currentStep]); });
 
-  build();
-  // Start at the final (converged) frame so the plot is populated on load;
-  // the player then replays the voting from step 0.
-  render();
-  ui.onTheme(render);
-  ui.player(figures, {
-    duration: 100,
-    unit: 'a.u.',
+  // Create the player before build() so rebuild() can resize it; the player
+  // calls onFrame synchronously on creation, which renders the current frame.
+  const player = ui.player(figures, {
+    duration: nSteps.get(),
+    unit: 'steps',
     playSeconds: 6,
     loop: true,
     onFrame,
   });
+  build();
+  player.setDuration(frames.length - 1);
+  // Start at the final (converged) frame so the plot is populated on load;
+  // the player then replays the voting from step 0.
+  render();
+  ui.onTheme(render);
 
   // --- notes ---
   ui.note(notes, `
@@ -249,12 +270,13 @@ export function mount(root, ui) {
     <p>SDR voting is robust to noise: a partial overlap still counts, which is why
     a few flipped bits (the noise slider) do not stop the columns from converging
     on the true object.</p>
-    <p>The player replays the voting step by step. Each column box lists its
-    <em>candidate set</em> &mdash; the objects it voted for at that step, with the
-    winning object highlighted. The lines between columns are the lateral vote
-    exchange (their thickness is the shared top vote and they pulse as the vote
-    spreads); the plot below reveals each column's top accumulator over the steps.
-    Every accumulator and candidate set shown is the real value from that step.</p>
+    <p>The player replays the voting step by step (the <em>voting steps</em> control
+    sets how many steps are run). Each column box shows one horizontal bar per
+    candidate object &mdash; the bar's length is that object's vote at the current
+    step &mdash; with the column's top object highlighted. A line between two
+    adjacent columns pulses when they share the same top object at that step (their
+    votes are aligned). The plot below reveals each column's top accumulator over the
+    steps. Every vote, bar, and accumulator shown is the real value from that step.</p>
   `);
   ui.equation(notes, `
     <p>vote<sub>o</sub> = |local &cap; memory<sub>o</sub>| / |local|, &nbsp; kept only if &ge; voting_threshold</p>

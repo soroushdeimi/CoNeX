@@ -1,5 +1,5 @@
 // Shared UI + plotting API for the CoNeX site. See .worker/CONTRACT.md.
-import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime, playerSpeedFromPos, playerPosFromSpeed, liveSteps, LIVE_MAX_STEPS, ease } from './core.js';
+import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime, playerSpeedFromPos, playerPosFromSpeed, liveSteps, LIVE_MAX_STEPS, ease, readoutText } from './core.js';
 
 const THEME_KEY = 'conex-theme';
 const SPEED_KEY = 'conex-speed';
@@ -774,7 +774,7 @@ export function animate(fn) {
 
 // A time player: reveals a precomputed run over model time. Model time advances
 // at speed * duration / playSeconds per real second. See AMENDMENT 2.
-export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = true, integer, onFrame }) {
+export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = true, integer, onFrame, readoutFn }) {
   let dur = duration;
   let t = 0;
   let speed = readSpeed();
@@ -832,11 +832,7 @@ export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = 
   parent.appendChild(wrap);
 
   function fmtTime(v) {
-    if (isInt) return `t = ${v} ${unit}`;
-    const dec = dur < 10 ? 2 : 1;
-    let s = v.toFixed(dec);
-    if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
-    return `t = ${s} ${unit}`;
+    return readoutText(v, { unit, isInt, decimals: dur < 10 ? 2 : 1, readout: readoutFn });
   }
 
   function update() {
@@ -926,7 +922,7 @@ export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = 
 // A live model runner: steps the plate's own model each frame, like a live
 // oscilloscope. Model time advances at speed * modelPerSecond per real
 // second; step() is called once per dt of model time. See AMENDMENT 4.
-export function live(parent, { dt, unit = 'ms', modelPerSecond, windowSize, step, reset, onFrame }) {
+export function live(parent, { dt, unit = 'ms', modelPerSecond, windowSize, step, reset, onFrame, readoutFn }) {
   let t = 0;
   let acc = 0;
   let speed = readSpeed();
@@ -975,10 +971,7 @@ export function live(parent, { dt, unit = 'ms', modelPerSecond, windowSize, step
   parent.appendChild(wrap);
 
   function fmtTime(v) {
-    const dec = t < 10 ? 2 : 1;
-    let s = v.toFixed(dec);
-    if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
-    return `t = ${s} ${unit}${slowed ? ' (slowed)' : ''}`;
+    return readoutText(v, { unit, decimals: t < 10 ? 2 : 1, slowed, readout: readoutFn });
   }
 
   function update() {

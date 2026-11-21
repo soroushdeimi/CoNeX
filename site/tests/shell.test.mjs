@@ -5,6 +5,7 @@ import {
   encodeHash, decodeHash, rng, computeTicks, niceNum, dataRange, fmtTick,
   formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime,
   playerSpeedFromPos, playerPosFromSpeed, liveSteps, LIVE_MAX_STEPS, ease,
+  readoutText,
 } from '../assets/js/core.js';
 
 // --- URL-hash encode/decode ------------------------------------------------
@@ -423,6 +424,38 @@ test('ease clamps out-of-range and non-finite input', () => {
   assert.equal(ease(1.5), 1);
   assert.equal(ease(NaN), 0); // NaN maps to 0
   assert.equal(ease(Infinity), 1); // +Infinity clamps to 1
+});
+
+// --- readoutText (ui.player / ui.live readout) ------------------------------
+
+test('readoutText default: fractional time with the unit', () => {
+  assert.equal(readoutText(103.2, { unit: 'pA' }), 't = 103.2 pA');
+  assert.equal(readoutText(12.34, { unit: 'ms', decimals: 2 }), 't = 12.34 ms');
+});
+
+test('readoutText default: trailing zeros are trimmed after the decimal point', () => {
+  assert.equal(readoutText(103.0, { unit: 'pA' }), 't = 103 pA');
+  assert.equal(readoutText(12.30, { unit: 'ms', decimals: 2 }), 't = 12.3 ms');
+});
+
+test('readoutText default: integer mode prints whole time without decimals', () => {
+  assert.equal(readoutText(5, { unit: 'steps', isInt: true }), 't = 5 steps');
+});
+
+test('readoutText default: zero prints as "t = 0 <unit>"', () => {
+  assert.equal(readoutText(0, { unit: 'ms' }), 't = 0 ms');
+});
+
+test('readoutText default: appends " (slowed)" when the live runner is capped', () => {
+  assert.equal(readoutText(12.34, { unit: 'ms', decimals: 2, slowed: true }), 't = 12.34 ms (slowed)');
+  assert.equal(readoutText(12.34, { unit: 'ms', decimals: 2, slowed: false }), 't = 12.34 ms');
+});
+
+test('readoutText: a custom readout(t) function fully replaces the default', () => {
+  assert.equal(readoutText(30, { unit: 'pA', readout: (t) => `I = ${t} pA` }), 'I = 30 pA');
+  assert.equal(readoutText(4, { readout: (t) => `step ${t}/16: C` }), 'step 4/16: C');
+  // the custom function receives the (already shown) time value
+  assert.equal(readoutText(7.5, { unit: 'ms', readout: (t) => `t=${t}` }), 't=7.5');
 });
 
 // --- ui.tryThis (real ui.js, minimal DOM stub) ------------------------------

@@ -69,6 +69,12 @@ continue from the current `t` (clamped to the duration). The player autoplays on
 mount, pauses while the tab is hidden, and starts paused at the end for users
 who prefer reduced motion.
 
+Both `ui.player` and `ui.live` accept an optional `readoutFn(t)` that replaces
+the default `t = …` readout, so a plate can name the process instead of a bare
+time. For example `readoutFn: (t) => 'I = ' + t + ' pA'` shows the swept
+current, and `readoutFn: (t) => 'step ' + t + '/16: C'` shows a step counter.
+When omitted, the default `t = … <unit>` readout is unchanged.
+
 ## Live (oscilloscope) animation
 
 For continuous-time plates, `ui.live` steps the real model each frame instead of

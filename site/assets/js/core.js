@@ -151,6 +151,18 @@ export function playerShownTime(t, integer) {
   return integer ? Math.floor(t) : t;
 }
 
+// The player/live readout string. A custom `readout(t)` function (when given)
+// fully replaces the default "t = …" text so a plate can show e.g. "I = 30 pA"
+// or "step 4/16: C". Otherwise the default is used: whole-number time in
+// integer mode, `decimals` places otherwise, plus " (slowed)" when set.
+export function readoutText(t, { unit, isInt = false, decimals = 1, slowed = false, readout }) {
+  if (typeof readout === 'function') return readout(t);
+  if (isInt) return `t = ${t} ${unit}`;
+  let s = t.toFixed(decimals);
+  if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  return `t = ${s} ${unit}${slowed ? ' (slowed)' : ''}`;
+}
+
 // Clamp model time to [0, duration]. Non-finite input becomes 0.
 export function clampTime(t, duration) {
   if (!Number.isFinite(t)) return 0;

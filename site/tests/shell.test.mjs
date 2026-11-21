@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   encodeHash, decodeHash, rng, computeTicks, niceNum, dataRange, fmtTick,
-  listenerList,
+  formatValue, listenerList,
 } from '../assets/js/core.js';
 
 // --- URL-hash encode/decode ------------------------------------------------
@@ -165,6 +165,36 @@ test('fmtTick handles very small and very large values', () => {
 
 test('fmtTick prints zero as "0"', () => {
   assert.equal(fmtTick(0, 1), '0');
+});
+
+// --- formatValue (slider/number readouts) ----------------------------------
+
+test('formatValue caps a long float at 4 significant digits', () => {
+  // large value with a fine step: the step alone would give 7 decimals,
+  // the 4-significant-digit cap rounds it to 1235
+  assert.equal(formatValue(1234.5678, 0.001), '1235');
+  assert.equal(formatValue(123456.789, 0.01), '123457');
+});
+
+test('formatValue trims a repeating decimal to the step precision', () => {
+  assert.equal(formatValue(0.16666666666666666, 0.001), '0.1667');
+  assert.equal(formatValue(1 / 6, 0.01), '0.167');
+});
+
+test('formatValue keeps whole numbers and simple decimals intact', () => {
+  assert.equal(formatValue(10, 1), '10');
+  assert.equal(formatValue(100, 10), '100');
+  assert.equal(formatValue(0.1, 0.1), '0.1');
+  assert.equal(formatValue(-0.5, 0.5), '-0.5');
+});
+
+test('formatValue does not drop digits from large whole numbers', () => {
+  assert.equal(formatValue(2500000, 500000), '2500000');
+  assert.equal(formatValue(12345.6789, 100), '12346');
+});
+
+test('formatValue prints zero as "0"', () => {
+  assert.equal(formatValue(0, 0.1), '0');
 });
 
 // --- listenerList (backing ui.slider/number/select/toggle .onInput) --------

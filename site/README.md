@@ -53,3 +53,18 @@ Run the tests with:
 ```bash
 node --test site/tests/
 ```
+
+## Animating a plate
+
+Every plate animates. For a time-based plate, compute the full run once when a
+parameter changes, then let `ui.player` reveal it. `ui.player(parent, {duration,
+unit, playSeconds, loop, onFrame})` renders a play/pause button, a restart
+button, a speed select (0.25x–4x), a scrubber and a `t = …` readout, and calls
+`onFrame(t)` every animation frame and after a seek; model time advances at
+`speed * duration / playSeconds` per real second. Inside `onFrame`, redraw the
+figure with `plot.draw(series, {revealX: t})` (or `raster.draw(spikes, nRows,
+tMax, {revealT: t})`) so only the part of the run up to `t` is shown, with a
+cursor line at the current time. On a parameter change, recompute the run and
+continue from the current `t` (clamped to the duration). The player autoplays on
+mount, pauses while the tab is hidden, and starts paused at the end for users
+who prefer reduced motion.

@@ -135,6 +135,42 @@ export function listenerList() {
   };
 }
 
+// Units whose player time is a count, not a continuous quantity.
+const DISCRETE_UNITS = new Set(['steps', 'samples', 'epochs', 'step']);
+
+// Whether a player should show whole-number time. An explicit `integer` wins;
+// otherwise it is on for discrete units (steps, samples, epochs, step).
+export function playerInteger(unit, integer) {
+  if (integer !== undefined) return !!integer;
+  return DISCRETE_UNITS.has(unit);
+}
+
+// The time handed to onFrame / the readout: floored to an integer in integer
+// mode, otherwise the raw value.
+export function playerShownTime(t, integer) {
+  return integer ? Math.floor(t) : t;
+}
+
+// Clamp model time to [0, duration]. Non-finite input becomes 0.
+export function clampTime(t, duration) {
+  if (!Number.isFinite(t)) return 0;
+  return Math.min(duration, Math.max(0, t));
+}
+
+// Advance model time by dtMs of real time. Model time advances at
+// speed * duration / playSeconds per real second. With loop, the excess
+// beyond duration wraps to the start; without, it clamps at duration.
+export function playerAdvance(t, dtMs, duration, playSeconds, speed, loop) {
+  const dt = (dtMs / 1000) * speed * (duration / playSeconds);
+  if (loop) {
+    let nt = t + dt;
+    while (nt >= duration) nt -= duration;
+    while (nt < 0) nt += duration;
+    return nt;
+  }
+  return clampTime(t + dt, duration);
+}
+
 // Format a tick value with decimals derived from the step. Trailing zeros are
 // trimmed only after a decimal point, so 10 stays "10" (not "1").
 export function fmtTick(v, step) {

@@ -14,13 +14,13 @@ export const meta = {
 
 const P = { ...DEFAULTS };
 const SIZE = 8;
-const STEPS = 2000;
+const STEPS = 50000; // 5 s at dt = 0.1 ms, long enough to converge
 
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
   const sec = ui.section(controls, 'Neuron (LIF) parameters (CoNeX names)');
-  const cR = ui.slider(sec, { key: 'R', label: 'R', unit: 'GOhm', min: 0.1, max: 2, step: 0.05, value: P.R });
+  const cR = ui.slider(sec, { key: 'R', label: 'R', unit: 'GOhm', min: 0.1, max: 2, step: 0.05, value: 1.0 });
   const cTau = ui.slider(sec, { key: 'tau', label: 'tau', unit: 'ms', min: 1, max: 50, step: 0.5, value: P.tau });
   const cTh = ui.slider(sec, { key: 'threshold', label: 'threshold (init)', unit: 'mV', min: -80, max: 20, step: 0.5, value: -50.0 });
   const cReset = ui.slider(sec, { key: 'v_reset', label: 'v_reset', unit: 'mV', min: -80, max: -40, step: 0.5, value: P.v_reset });
@@ -30,7 +30,7 @@ export function mount(root, ui) {
   const secIn = ui.section(controls, 'Random input (seeded)');
   const cSeed = ui.number(secIn, { key: 'seed', label: 'seed', unit: '', value: 1 });
   const cIbase = ui.slider(secIn, { key: 'I_base', label: 'I_base', unit: 'pA', min: 0, max: 120, step: 1, value: 40.0 });
-  const cIamp = ui.slider(secIn, { key: 'I_amp', label: 'I_amp', unit: 'pA', min: 0, max: 80, step: 1, value: 40.0 });
+  const cIamp = ui.slider(secIn, { key: 'I_amp', label: 'I_amp', unit: 'pA', min: 0, max: 80, step: 1, value: 10.0 });
 
   const secH = ui.section(controls, 'Homeostasis');
   const cType = ui.select(secH, {
@@ -41,10 +41,12 @@ export function mount(root, ui) {
     ],
     value: 'activity',
   });
-  // Activity-based
-  const cARate = ui.slider(secH, { key: 'activity_rate', label: 'activity_rate', unit: 'spikes/window', min: 1, max: 20, step: 1, value: 4 });
-  const cWin = ui.slider(secH, { key: 'window_size', label: 'window_size', unit: 'steps', min: 5, max: 200, step: 1, value: 100 });
-  const cUpd = ui.slider(secH, { key: 'updating_rate', label: 'updating_rate', unit: 'mV', min: 0, max: 1, step: 0.01, value: 0.1 });
+  // Activity-based. window_size is in steps; the target rate (Hz) is
+  // activity_rate / (window_size * dt / 1000). Defaults: 1 spike / 1000 steps
+  // (100 ms) at dt 0.1 ms = 10 Hz, a cortical rate.
+  const cARate = ui.slider(secH, { key: 'activity_rate', label: 'activity_rate', unit: 'spikes/window', min: 1, max: 20, step: 1, value: 1 });
+  const cWin = ui.slider(secH, { key: 'window_size', label: 'window_size', unit: 'steps', min: 100, max: 5000, step: 100, value: 1000 });
+  const cUpd = ui.slider(secH, { key: 'updating_rate', label: 'updating_rate', unit: 'mV', min: 0, max: 1, step: 0.01, value: 0.2 });
   const cDecay = ui.slider(secH, { key: 'decay_rate', label: 'decay_rate', unit: '', min: 0.5, max: 1, step: 0.01, value: 1.0 });
   // Voltage-based
   const cTarget = ui.slider(secH, { key: 'target_voltage', label: 'target_voltage', unit: 'mV', min: -70, max: -40, step: 0.5, value: -60.0 });
@@ -60,11 +62,12 @@ export function mount(root, ui) {
   Units: v in mV, t in ms, I in pA, R in GOhm.`);
   ui.equation(notes, `activity: <var>threshold</var> ← <var>threshold</var> − <var>activities</var>·<var>updating_rate</var> (every <var>window_size</var> steps)<br>
   voltage: <var>exhaustion</var> += (<var>v</var>−band)·<var>eta_ip</var>, &nbsp; <var>v</var> ← <var>v</var> − <var>exhaustion</var>`);
-  ui.note(notes, `The top figure shows the group firing rate (Hz) over time; the bottom shows the control
-  variable (threshold for activity-based, mean voltage for voltage-based) converging toward the target.
-  ML analogy: this is like a learning-rate / weight-decay loop that keeps activation levels in a
-  healthy range; the analogy breaks because it is a slow, local, activity-driven rule with no error
-  signal or label.`);
+  ui.note(notes, `The top figure shows the group firing rate (Hz) over 5 s; the dashed line is the target
+  rate. The bottom shows the control variable (mean threshold for activity-based, mean voltage for
+  voltage-based) converging toward the value that produces the target. The defaults aim for a cortical
+  rate (~10 Hz): 1 spike per 100 ms window. ML analogy: this is like a learning-rate / weight-decay
+  loop that keeps activation levels in a healthy range; the analogy breaks because it is a slow, local,
+  activity-driven rule with no error signal or label.`);
   ui.code(notes, () => codeSnippet());
 
   function params() {
@@ -89,14 +92,17 @@ export function mount(root, ui) {
           target_voltage: cTarget.get(), eta_ip: cEta.get(),
         }));
 
+    const win = type === 'activity' ? cWin.get() : 1000;
+    const targetHz = cARate.get() / (cWin.get() * p.dt / 1000);
     const t = [], rate = [], ctrl = [];
-    const win = type === 'activity' ? cWin.get() : 100;
     let acc = 0;
     for (let it = 1; it <= STEPS; it++) {
       let groupSpikes = 0;
       for (let j = 0; j < SIZE; j++) {
         const I = p.I_base + rng.next() * p.I_amp;
-        const r = lifStep({ v: vs[j] }, p, I, p.dt);
+        // The homeostasis threshold must drive the dynamics, not just be plotted.
+        const pj = type === 'activity' ? { ...p, threshold: thresholds[j] } : p;
+        const r = lifStep({ v: vs[j] }, pj, I, p.dt);
         vs[j] = r.v;
         groupSpikes += r.spike ? 1 : 0;
         if (type === 'activity') {
@@ -115,7 +121,8 @@ export function mount(root, ui) {
         acc = 0;
       }
     }
-    figRate.draw([{ x: t, y: rate, label: 'firing rate', color: 'c1', style: 'line' }], {});
+    figRate.draw([{ x: t, y: rate, label: 'firing rate', color: 'c1', style: 'line' }],
+      { hlines: [{ y: targetHz, label: 'target' }], yRange: [0, Math.max(targetHz * 3, 50)] });
     if (type === 'activity') {
       figCtrl.draw([{ x: t, y: ctrl, label: 'mean threshold', color: 'c2', style: 'line' }], {});
     } else {

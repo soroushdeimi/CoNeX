@@ -11,6 +11,21 @@ const P = { ...DEFAULTS };
 const SIZE = 8;
 const STEPS = 200;
 
+// Use ui.player when the shell provides it; otherwise fall back to a stub that
+// reveals the whole run once, so figures are never empty in the test mock.
+function makePlayer(ui, parent, onFrame) {
+  if (typeof ui.player === 'function') {
+    return ui.player(parent, { duration: 0, unit: 'ms', playSeconds: 5, loop: true, onFrame });
+  }
+  let t = 0;
+  return {
+    play() {}, pause() {},
+    seek(x) { t = x; }, // no player to animate; setDuration reveals the full run
+    playing() { return false; },
+    setDuration(d) { t = d; onFrame(d); },
+  };
+}
+
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
@@ -34,6 +49,9 @@ export function mount(root, ui) {
   const figBefore = ui.raster(figures, { height: 200, xLabel: 't', xUnit: 'ms' });
   const figAfter = ui.raster(figures, { height: 200, xLabel: 't', xUnit: 'ms' });
   const figCount = ui.plot(figures, { height: 160, xLabel: 't', yLabel: 'spiking neurons', xUnit: 'ms', yUnit: 'count' });
+  // Bar chart of the group's voltages at the current step; the k winners are highlighted.
+  const figWin = ui.canvas(figures, { height: 160 });
+  const player = makePlayer(ui, figures, frame);
 
   ui.note(notes, `KWTA keeps only the <var>k</var> strongest neurons active. In CoNeX, <code>KWTA.forward</code>
   checks which neurons are above threshold; if more than <var>k</var> are, it keeps the top-<var>k</var> by voltage and
@@ -56,8 +74,9 @@ export function mount(root, ui) {
 
   // Run the group for STEPS steps. Both runs apply the same seeded noise; the only
   // difference is whether KWTA resets the losers before the spike decision.
-  // Returns {spikes: [t, index][], counts: {t, n}[]} where counts is the number of
-  // spiking neurons per step.
+  // Returns {spikes: [t, index][], counts: {t, n}[], voltages: [v[] per step],
+  // winners: [Set of winner indices per step]}. voltages/winners are only filled
+  // for the KWTA run (useKwta) and are the post-KWTA voltages before the reset.
   function run(useKwta) {
     const p = params();
     const rng = ui.rng(cSeed.get());
@@ -68,35 +87,98 @@ export function mount(root, ui) {
     let vs = new Array(SIZE).fill(p.v_rest);
     const spikes = []; // [t, index]
     const counts = []; // {t, n}
+    const voltages = []; // v[] per step (post-KWTA, pre-reset)
+    const winners = []; // Set of winner indices per step
     for (let it = 1; it <= STEPS; it++) {
       const t = it * p.dt;
       vs = vs.map((v) => lifUpdate({ v }, p, I, p.dt));
       vs = inherentNoise(vs, rng, scale, offset);
-      if (useKwta) vs = kwta(vs, p.threshold, p.v_reset, k);
+      let win = new Set();
+      if (useKwta) {
+        const after = kwta(vs, p.threshold, p.v_reset, k);
+        // Winners are the neurons KWTA left above threshold (the top-k).
+        for (let j = 0; j < SIZE; j++) if (after[j] >= p.threshold) win.add(j);
+        vs = after;
+      }
+      voltages.push(vs.slice());
+      winners.push(win);
       let n = 0;
       for (let j = 0; j < SIZE; j++) {
         if (vs[j] >= p.threshold) { spikes.push([t, j]); vs[j] = p.v_reset; n++; }
       }
       counts.push({ t, n });
     }
-    return { spikes, counts };
+    return { spikes, counts, voltages, winners };
   }
 
+  let runData = null;
+
+  // Recompute both runs once; the player then reveals them frame by frame.
   function draw() {
     const p = params();
     const tMax = STEPS * p.dt;
-    const k = cK.get();
     const before = run(false);
     const after = run(true);
-    figBefore.draw(before.spikes, SIZE, tMax);
-    figAfter.draw(after.spikes, SIZE, tMax);
+    runData = { p, tMax, before, after };
+    player.setDuration(tMax);
+    player.seek(0); // reveals the first frame (also covers reduced-motion, which starts paused)
+  }
+
+  // Reveal both rasters and the count plot up to time t, and highlight the k
+  // winners at the current step.
+  function frame(t) {
+    if (!runData) return;
+    const { p, tMax, before, after } = runData;
+    const k = cK.get();
+    figBefore.draw(before.spikes, SIZE, tMax, { revealT: t });
+    figAfter.draw(after.spikes, SIZE, tMax, { revealT: t });
     figCount.draw(
       [
         { x: before.counts.map((c) => c.t), y: before.counts.map((c) => c.n), label: 'no KWTA', color: 'c3', style: 'line' },
         { x: after.counts.map((c) => c.t), y: after.counts.map((c) => c.n), label: 'KWTA', color: 'c1', style: 'line' },
       ],
-      { hlines: [{ y: k, label: 'k' }], yRange: [0, SIZE] }
+      { revealX: t, hlines: [{ y: k, label: 'k' }], yRange: [0, SIZE] }
     );
+    drawWinners(t);
+  }
+
+  // Bar chart of the group's voltages at the current step; the k winners (the
+  // top-k above threshold in the KWTA run) are drawn in coral, the rest in teal.
+  function drawWinners(t) {
+    const { p, after } = runData;
+    const step = Math.min(after.voltages.length - 1, Math.max(0, Math.round(t / p.dt)));
+    const vs = after.voltages[step];
+    const win = after.winners[step];
+    const ctx = figWin.ctx;
+    const W = figWin.width, H = figWin.height;
+    const M = { left: 44, right: 12, top: 12, bottom: 30 };
+    ctx.clearRect(0, 0, W, H);
+    const pal = { ink: ui.color('ink'), muted: ui.color('muted'), rule: ui.color('rule') };
+    const vMin = Math.min(p.v_rest, p.v_reset) - 5;
+    const vMax = p.threshold + 5;
+    const sy = (v) => (H - M.bottom) - ((v - vMin) / (vMax - vMin)) * (H - M.bottom - M.top);
+    // frame + threshold line
+    ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+    ctx.strokeRect(M.left, M.top, W - M.left - M.right, H - M.bottom - M.top);
+    ctx.strokeStyle = pal.muted; ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(M.left, sy(p.threshold)); ctx.lineTo(W - M.right, sy(p.threshold)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = pal.muted; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText(`threshold ${p.threshold} mV`, M.left + 3, sy(p.threshold) - 12);
+    // bars
+    const bw = (W - M.left - M.right) / SIZE;
+    for (let j = 0; j < SIZE; j++) {
+      const x = M.left + j * bw;
+      const y = sy(Math.max(vMin, Math.min(vMax, vs[j])));
+      ctx.fillStyle = win.has(j) ? ui.color('c2') : ui.color('c1');
+      ctx.fillRect(x + 2, Math.min(y, H - M.bottom), bw - 4, Math.abs((H - M.bottom) - y));
+      ctx.fillStyle = pal.ink; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillText(String(j), x + bw / 2, H - M.bottom + 3);
+    }
+    ctx.fillStyle = pal.ink; ctx.font = '11px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText(`voltage of each neuron at t = ${(step * p.dt).toFixed(1)} ms (coral = k winners)`, (M.left + W - M.right) / 2, H - 2);
   }
 
   function codeSnippet() {

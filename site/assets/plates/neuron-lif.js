@@ -141,8 +141,9 @@ export function mount(root, ui) {
     };
     const mono = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
 
-    // Bucket geometry: centred, sized to fill the width sensibly.
-    const bw = Math.min(240, Math.max(150, W * 0.42));
+    // Bucket geometry: centred, sized to fill the width sensibly. (The min width
+    // is kept low enough that the left-wall level labels fit at 390 px.)
+    const bw = Math.min(240, Math.max(128, W * 0.36));
     const bx = (W - bw) / 2;
     const cx = bx + bw / 2;
     const yRim = 90, yBot = 280;            // rim (threshold) and floor (v_rest)
@@ -172,9 +173,8 @@ export function mount(root, ui) {
     ctx.moveTo(bx, yRim); ctx.lineTo(bx, yBot); ctx.lineTo(bx + bw, yBot); ctx.lineTo(bx + bw, yRim);
     ctx.stroke();
 
-    // Dashed reference lines: threshold (rim) and v_reset, both labelled on the right.
-    ctx.font = mono;
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    // Dashed reference lines: threshold (rim) and v_reset. The level labels sit
+    // on the LEFT wall (right-aligned) so the right side is free for the leak jet.
     const yReset = yOf(p.v_reset);
     ctx.strokeStyle = pal.muted;
     ctx.setLineDash([4, 3]);
@@ -182,9 +182,11 @@ export function mount(root, ui) {
     ctx.beginPath(); ctx.moveTo(bx, yReset); ctx.lineTo(bx + bw, yReset); ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = pal.muted;
-    ctx.fillText(`threshold ${p.threshold} mV`, bx + bw + 10, yRim);
-    ctx.fillText(`v_reset ${p.v_reset} mV`, bx + bw + 10, yReset);
-    ctx.fillText(`v_rest ${p.v_rest} mV`, bx + bw + 10, yBot);
+    ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(`threshold ${p.threshold} mV`, bx - 10, yRim);
+    ctx.fillText(`v_reset ${p.v_reset} mV`, bx - 10, yReset);
+    ctx.fillText(`v_rest ${p.v_rest} mV`, bx - 10, yBot);
 
     // Tap above the bucket; falling stream width = input.
     const tapW = Math.max(2, Math.min(30, 2 + input * 5));

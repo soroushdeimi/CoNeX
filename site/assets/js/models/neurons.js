@@ -202,6 +202,27 @@ export function dropletCount(flow, frameSeconds, rng, rate = 30, cap = 40) {
   return Math.min(cap, whole + extra);
 }
 
+// ELIF exponential spike-initiation term (mV) at voltage v: delta*exp((v-theta_rh)/delta).
+// This is the "pump" in the bucket picture: it is the extra inflow that grows
+// sharply as v approaches theta_rh and drives the take-off.
+export function elifExpTerm(v, p) {
+  assertPositive('delta', p.delta);
+  return p.delta * Math.exp((v - p.theta_rh) / p.delta);
+}
+
+// ELIF hero narration, driven by the real quantities. While splashing it reports
+// the reset; otherwise it compares the exponential inflow (delta*exp(...)/tau,
+// mV/ms) to the input flow (R*I/tau, mV/ms) — the take-off begins when the
+// exponential term rivals the input.
+export function elifNarration({ v, p, I, splashing }) {
+  if (splashing) return 'threshold crossed: spike, reset to v_reset';
+  const pump = elifExpTerm(v, p) / p.tau;
+  const input = (p.R * I) / p.tau;
+  return pump > input
+    ? 'exponential term takes over: v accelerates to threshold'
+    : 'v below take-off: input and leak balance';
+}
+
 // Analytic LIF firing rate (Hz, in a.u. of time): f = 1 / (tau * ln((vss-v_reset)/(vss-threshold)))
 // where vss = v_rest + R*I. The formula is only valid in the normal firing regime
 // v_reset < threshold < vss; outside it (e.g. v_reset >= threshold, or I at/below the

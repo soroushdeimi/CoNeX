@@ -15,6 +15,8 @@ import {
   splashActive,
   lifNarration,
   dropletCount,
+  elifExpTerm,
+  elifNarration,
   fiCurve,
   kwta,
   inherentNoise,
@@ -157,6 +159,48 @@ test('elifStep matches golden elif_step trace', () => {
   const r = simulate('elif', p, S.elif_step.current, S.elif_step.steps, S.elif_step.dt);
   traceClose(r.v, S.elif_step.v);
   assert.deepEqual(r.spikes, S.elif_step.spikes);
+});
+
+test('elifExpTerm: delta*exp((v-theta_rh)/delta) (hand-computed)', () => {
+  const p = { delta: 2, theta_rh: -50 };
+  // v = theta_rh -> delta*exp(0) = delta = 2
+  close(elifExpTerm(-50, p), 2.0, 1e-9, 'at theta_rh');
+  // v = theta_rh + delta -> delta*exp(1) = 2*e
+  close(elifExpTerm(-48, p), 2 * Math.E, 1e-9, 'one delta above');
+  // v = theta_rh - 10*delta -> delta*exp(-10) = 2*4.54e-5 = 9.08e-5 (tiny)
+  close(elifExpTerm(-70, p), 2 * Math.exp(-10), 1e-9, 'far below theta_rh');
+});
+
+test('elifExpTerm throws on non-positive delta', () => {
+  assert.throws(() => elifExpTerm(0, { delta: 0, theta_rh: -50 }), /delta must be a positive finite number/);
+});
+
+test('elifNarration: take-off vs balance, driven by the real terms (hand-computed)', () => {
+  const p = { R: 0.5, tau: 20, v_rest: -70, threshold: 0, delta: 2, theta_rh: -50 };
+  const I = 65;
+  // just spiked -> reset line
+  assert.equal(elifNarration({ v: -55, p, I, splashing: true }), 'threshold crossed: spike, reset to v_reset');
+  // v=-50: exp term = 2 mV -> /tau = 0.1 mV/ms; input = 0.5*65/20 = 1.625 -> balance
+  assert.equal(elifNarration({ v: -50, p, I, splashing: false }), 'v below take-off: input and leak balance');
+  // v=-40: exp term = 2*exp(5) = 204 mV -> /tau = 10.2 mV/ms > input 1.625 -> take-off
+  assert.equal(elifNarration({ v: -40, p, I, splashing: false }), 'exponential term takes over: v accelerates to threshold');
+});
+
+test('ELIF: N live steps equal the precomputed run bit-for-bit', () => {
+  const p = { R: 0.5, tau: 20, threshold: 0, v_reset: -55, v_rest: -70, delta: 2, theta_rh: -50, dt: 0.1 };
+  const I = 65;
+  const N = 500;
+  const ref = simulate('elif', p, I, N, p.dt, p.v_rest);
+  let state = { v: p.v_rest };
+  const liveV = [], liveSpikes = [];
+  for (let i = 0; i < N; i++) {
+    const r = elifStep(state, p, I, p.dt);
+    state = { v: r.v };
+    liveV.push(r.v);
+    liveSpikes.push(r.spike);
+  }
+  assert.deepEqual(liveV, ref.v, 'live v trace must match the precomputed run exactly');
+  assert.deepEqual(liveSpikes, ref.spikes, 'live spike flags must match exactly');
 });
 
 // --- AELIF ---

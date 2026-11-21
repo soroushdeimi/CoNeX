@@ -1,4 +1,4 @@
-import { DEFAULTS, elifStep } from '../js/models/neurons.js';
+import { DEFAULTS, elifStep, elifExpTerm, elifNarration, dropletCount } from '../js/models/neurons.js';
 
 export const meta = {
   id: 'neuron-elif',
@@ -8,7 +8,9 @@ export const meta = {
 };
 
 const P = { ...DEFAULTS };
-const STEPS = 500;
+const DT = 0.1;      // ms, fixed integration step
+const WINDOW = 100;  // ms of model time kept on screen
+const MODEL_PER_SECOND = 100;
 
 // dv/dt for the ELIF at a given v and constant current I (mV per ms).
 function dvdt(v, p, I) {
@@ -27,23 +29,53 @@ export function mount(root, ui) {
   const cRest = ui.slider(sec, { key: 'v_rest', label: 'v_rest', unit: 'mV', min: -80, max: -50, step: 0.5, value: P.v_rest });
   const cDelta = ui.slider(sec, { key: 'delta', label: 'delta', unit: 'mV', min: 0.5, max: 10, step: 0.1, value: P.delta });
   const cTheta = ui.slider(sec, { key: 'theta_rh', label: 'theta_rh', unit: 'mV', min: -70, max: -30, step: 0.5, value: P.theta_rh });
-  const cDt = ui.slider(sec, { key: 'dt', label: 'dt', unit: 'ms', min: 0.01, max: 1, step: 0.01, value: P.dt });
+  const dtNote = document.createElement('p');
+  dtNote.style.fontStyle = 'italic';
+  dtNote.style.color = 'var(--muted)';
+  dtNote.style.fontSize = '0.85rem';
+  dtNote.textContent = `dt = ${DT} ms (fixed integration step; the other parameters update live)`;
+  sec.appendChild(dtNote);
   const cI = ui.slider(sec, { key: 'I', label: 'I (constant)', unit: 'pA', min: 0, max: 120, step: 1, value: 65.0 });
 
   function params() {
     return {
       R: cR.get(), tau: cTau.get(), threshold: cTh.get(), v_reset: cReset.get(),
-      v_rest: cRest.get(), delta: cDelta.get(), theta_rh: cTheta.get(), dt: cDt.get(),
+      v_rest: cRest.get(), delta: cDelta.get(), theta_rh: cTheta.get(), dt: DT,
     };
   }
 
-  // Compute the whole run once; the player reveals it frame by frame.
-  let runData = null;
-  function computeRun() {
+  // --- live model state (the real ELIF, stepped one dt at a time) ---
+  let state = { v: params().v_rest };
+  let t = 0;
+  let lastSpikeT = null;
+  const ring = []; // {t, v, spike} for the last WINDOW ms
+  const rng = ui.rng(1); // seeded rng for the decorative droplets only
+
+  function step() {
     const p = params();
     const I = cI.get();
+    const r = elifStep(state, p, I, DT);
+    state = { v: r.v };
+    t += DT;
+    if (r.spike) lastSpikeT = t;
+    ring.push({ t, v: r.v, spike: r.spike });
+    while (ring.length && ring[0].t < t - WINDOW) ring.shift();
+  }
 
-    // Phase line: dv/dt over a range of v, mark zero crossings (fixed points).
+  function reset() {
+    state = { v: params().v_rest };
+    t = 0;
+    lastSpikeT = null;
+    ring.length = 0;
+    drops.length = 0;
+  }
+
+  // Phase line curve (dv/dt vs v) for the current params and I. Recomputed only
+  // when a parameter changes; the ball just moves along it each frame.
+  let phase = null;
+  function computePhase() {
+    const p = params();
+    const I = cI.get();
     const vMin = Math.min(p.v_rest, p.v_reset) - 5;
     const vMax = p.threshold + 5;
     const N = 200;
@@ -55,169 +87,248 @@ export function mount(root, ui) {
       const d = dvdt(v, p, I);
       xs.push(v); ys.push(d);
       if (prev !== null && (prev.d <= 0) !== (d <= 0)) {
-        const t = prev.d / (prev.d - d);
-        fixed.push(prev.v + t * (v - prev.v));
+        const f = prev.d / (prev.d - d);
+        fixed.push(prev.v + f * (v - prev.v));
       }
       prev = { v, d };
     }
-    // Clip the y window to the interesting part: the exponential term blows up
-    // above ~theta_rh, so a fixed window keeps the fixed points readable.
-    const yLo = -2, yHi = 10; // mV/ms
-
-    // Voltage trace.
-    const t = [], v = [];
-    let state = { v: p.v_rest };
-    for (let n = 0; n < STEPS; n++) {
-      const r = elifStep(state, p, I, p.dt);
-      state = { v: r.v };
-      t.push(n * p.dt); v.push(r.v);
-    }
-    runData = { p, I, xs, ys, fixed, vMin, vMax, yLo, yHi, t, v };
-    return t[t.length - 1];
+    // Clip the y window so the exponential take-off is visible but does not
+    // blow up the scale: use the 95th percentile of the positive values.
+    const pos = ys.filter((y) => y > 0).sort((a, b) => a - b);
+    const yHi = Math.max(2, pos.length ? pos[Math.floor(0.95 * pos.length)] : 2);
+    const yLo = Math.min(0, Math.min(...ys));
+    phase = { xs, ys, fixed, vMin, vMax, yLo, yHi };
   }
 
-  // Phase line on a canvas so the moving dot and its dv/dt arrow can be overlaid.
-  const phase = ui.canvas(figures, { height: 240 });
-  const phaseCap = document.createElement('p');
-  phaseCap.style.fontStyle = 'italic';
-  phaseCap.textContent = 'Phase line: dv/dt (mV/ms) vs v (mV); the dot is the current v(t) and the arrow is dv/dt.';
-  figures.appendChild(phaseCap);
+  // --- figures ---
+  const hero = ui.hero(figures, { height: 340 });
   const figV = ui.plot(figures, { height: 200, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
-  // Membrane gauge: a vertical bar from v_rest to threshold filled to the current v.
-  const gauge = ui.canvas(figures, { height: 240 });
-  // Build the run before the player: ui.player may call onFrame synchronously.
-  const player = ui.player(figures, { duration: computeRun(), unit: 'ms', playSeconds: 5, loop: true, onFrame: frame });
 
+  // --- notes ---
   ui.note(notes, `The ELIF adds an exponential spike-initiation term to the LIF leak. As the voltage
   approaches the boosting threshold <var>theta</var><sub>rh</sub>, the term <var>delta</var>·exp((<var>v</var>−<var>theta</var><sub>rh</sub>)/<var>delta</var>)
   grows sharply, so the neuron accelerates toward threshold on its own. <var>delta</var> sets how sharp that
   take-off is; <var>theta</var><sub>rh</sub> sets where it starts. Units: v in mV, t in ms, I in pA, R in GOhm. The
-  spike-detection threshold (0 mV here) is a simulation choice — Gerstner gives no value for it.`);
+  spike-detection threshold (0 mV here) is a simulation choice — Gerstner gives no value for it.
+  The hero shows the phase line (the ball is the live v rolling along dv/dt) and the bucket with an
+  extra "pump" stream for the exponential term.`);
   ui.equation(notes, `<var>tau</var>·d<var>v</var>/d<var>t</var> = (<var>v</var><sub>rest</sub> − <var>v</var>) + <var>delta</var>·exp((<var>v</var>−<var>theta</var><sub>rh</sub>)/<var>delta</var>) + <var>R</var>·<var>I</var>`);
   ui.note(notes, `The phase line plots d<var>v</var>/d<var>t</var> against <var>v</var> for the current input. Where the curve
   crosses zero is a fixed point: if it is below threshold the neuron settles there (no firing); if the
   input is strong enough that no stable fixed point sits below threshold, the voltage runs away and fires.
-  The vertical axis is clipped to a readable window; above <var>theta</var><sub>rh</sub> the exponential term makes
-  d<var>v</var>/d<var>t</var> grow without bound, so the curve leaves the top of the window there.
-  In the voltage trace the spike peaks look like they only reach about −25 mV even though the
-  detection threshold is 0 mV: at dt=0.1 ms the upstroke is a single Euler step, so the step that
-  crosses threshold is reset before it is recorded and the plotted peak is the last value below
-  threshold, not the true peak.
+  The shaded band is the take-off region (about <var>theta</var><sub>rh</sub> to <var>theta</var><sub>rh</sub>+3<var>delta</var>), where the
+  exponential term dominates. In the voltage trace the spike peaks look like they only reach about
+  −25 mV even though the detection threshold is 0 mV: at dt=0.1 ms the upstroke is a single Euler
+  step, so the step that crosses threshold is reset before it is recorded.
   ML analogy: the exponential term is like a soft, self-reinforcing "excitation" — the analogy breaks
   because it is a deterministic dynamical term, not a learned weight.`);
   ui.code(notes, () => codeSnippet());
 
-  // Reveal the voltage trace up to time t, draw the gauge, and move the phase dot.
-  function frame(t) {
-    if (!runData) return;
-    const { p, t: tt, v } = runData;
-    figV.draw([{ x: tt, y: v, label: 'v', color: 'c2', style: 'line' }],
-      { revealX: t, hlines: [{ y: p.threshold, label: 'threshold' }] });
-    drawGauge(t);
-    drawPhase(t);
+  // --- hero drawing: phase line (left) + bucket with pump (right) ---
+  const drops = []; // decorative droplets {x,y,vx,vy,life,maxLife,kind}
+  let lastReal = 0;
+
+  function spawnDrops(n, x, y, vx, vy, kind) {
+    for (let i = 0; i < n; i++) {
+      drops.push({ x, y, vx: vx + (rng.next() - 0.5) * 12, vy, life: 0, maxLife: 0.35 + rng.next() * 0.3, kind });
+    }
+    if (drops.length > 200) drops.splice(0, drops.length - 200);
   }
 
-  // Phase line drawn on a canvas so the moving dot and its dv/dt arrow can be
-  // overlaid on the curve. The curve itself is the real dv/dt(v) for the current I.
-  function drawPhase(t) {
-    const { p, I, xs, ys, fixed, vMin, vMax, yLo, yHi, v } = runData;
-    const idx = Math.min(v.length - 1, Math.max(0, Math.round(t / p.dt)));
-    const vNow = v[idx];
-    const dNow = dvdt(vNow, p, I);
-    const ctx = phase.ctx;
-    const W = phase.width, H = phase.height;
-    const M = { left: 44, right: 12, top: 12, bottom: 30 };
+  function tickDrops(dtReal) {
+    for (let i = drops.length - 1; i >= 0; i--) {
+      const d = drops[i];
+      d.life += dtReal;
+      d.x += d.vx * dtReal;
+      d.y += d.vy * dtReal;
+      d.vy += 260 * dtReal;
+      if (d.life > d.maxLife) drops.splice(i, 1);
+    }
+  }
+
+  function drawHero() {
+    const p = params();
+    const I = cI.get();
+    const vNow = state.v;
+    const ctx = hero.ctx;
+    const W = hero.width, H = hero.height;
     ctx.clearRect(0, 0, W, H);
-    const pal = { ink: ui.color('ink'), muted: ui.color('muted'), rule: ui.color('rule') };
-    const sx = (x) => M.left + ((x - vMin) / (vMax - vMin)) * (W - M.left - M.right);
-    const sy = (y) => (H - M.bottom) - ((y - yLo) / (yHi - yLo)) * (H - M.bottom - M.top);
-    // frame + ticks
+    if (p.threshold <= p.v_rest) {
+      ctx.fillStyle = ui.color('muted');
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('threshold must exceed v_rest for the picture', W / 2, H / 2);
+      return;
+    }
+    const pal = {
+      ink: ui.color('ink'), muted: ui.color('muted'), rule: ui.color('rule'),
+      water: ui.color('c1'), tap: ui.color('c3'), leak: ui.color('c4'),
+      pump: ui.color('c6'), coral: ui.color('c2'),
+    };
+    const mono = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+    const splashing = vNow <= p.v_reset + 1e-9;
+
+    // ---- left: phase line ----
+    const split = W * 0.56;
+    const M = { left: 34, right: 8, top: 16, bottom: 26 };
+    const sx = (x) => M.left + ((x - phase.vMin) / (phase.vMax - phase.vMin)) * (split - M.left - M.right);
+    const sy = (y) => (H - M.bottom) - ((y - phase.yLo) / (phase.yHi - phase.yLo)) * (H - M.bottom - M.top);
+    // take-off band: theta_rh .. theta_rh + 3*delta
+    const bandL = Math.max(phase.vMin, p.theta_rh);
+    const bandR = Math.min(phase.vMax, p.theta_rh + 3 * p.delta);
+    if (bandR > bandL) {
+      ctx.fillStyle = pal.pump;
+      ctx.globalAlpha = 0.12;
+      ctx.fillRect(sx(bandL), M.top, sx(bandR) - sx(bandL), H - M.bottom - M.top);
+      ctx.globalAlpha = 1;
+    }
+    // frame + zero line
     ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
-    ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
-    ctx.fillStyle = pal.muted;
-    for (let gx = Math.ceil(vMin / 10) * 10; gx <= vMax; gx += 10) {
-      ctx.beginPath(); ctx.moveTo(sx(gx), M.top); ctx.lineTo(sx(gx), H - M.bottom); ctx.stroke();
-      ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(gx, sx(gx), H - M.bottom + 3);
-    }
-    for (let gy = Math.ceil(yLo / 2) * 2; gy <= yHi; gy += 2) {
-      ctx.beginPath(); ctx.moveTo(M.left, sy(gy)); ctx.lineTo(W - M.right, sy(gy)); ctx.stroke();
-      ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(gy, M.left - 4, sy(gy));
-    }
-    ctx.strokeStyle = pal.ink; ctx.strokeRect(M.left, M.top, W - M.left - M.right, H - M.bottom - M.top);
-    // zero line
+    ctx.strokeRect(M.left, M.top, split - M.left - M.right, H - M.bottom - M.top);
     ctx.strokeStyle = pal.muted; ctx.setLineDash([4, 3]);
-    ctx.beginPath(); ctx.moveTo(M.left, sy(0)); ctx.lineTo(W - M.right, sy(0)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(M.left, sy(0)); ctx.lineTo(split - M.right, sy(0)); ctx.stroke();
     // theta_rh and fixed points
-    for (const [xv, lab] of [[p.theta_rh, 'theta_rh'], ...fixed.map((f) => [f, 'fixed'])]) {
+    for (const [xv, lab] of [[p.theta_rh, 'theta_rh'], ...phase.fixed.map((f) => [f, 'fixed'])]) {
+      if (xv < phase.vMin || xv > phase.vMax) continue;
       ctx.beginPath(); ctx.moveTo(sx(xv), M.top); ctx.lineTo(sx(xv), H - M.bottom); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = pal.muted; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillStyle = pal.muted; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
       ctx.fillText(lab, sx(xv) + 2, M.top + 2);
       ctx.setLineDash([4, 3]);
     }
     ctx.setLineDash([]);
     // the curve
-    ctx.strokeStyle = ui.color('c1'); ctx.lineWidth = 1.5;
+    ctx.strokeStyle = pal.water; ctx.lineWidth = 1.5;
     ctx.beginPath();
-    for (let k = 0; k < xs.length; k++) {
-      const px = sx(xs[k]), py = sy(ys[k]);
+    for (let k = 0; k < phase.xs.length; k++) {
+      const px = sx(phase.xs[k]), py = sy(Math.max(phase.yLo, Math.min(phase.yHi, phase.ys[k])));
       if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.stroke();
-    // moving dot at the current v, with an arrow showing dv/dt (vertical, up if rising)
-    const dx = sx(vNow), dy = sy(Math.max(yLo, Math.min(yHi, dNow)));
-    const arrowLen = Math.max(-40, Math.min(40, dNow * 4)); // px, clipped to the window
-    ctx.strokeStyle = ui.color('c2'); ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(dx, dy); ctx.lineTo(dx, dy - arrowLen); ctx.stroke();
-    const ah = 5;
-    ctx.beginPath();
-    ctx.moveTo(dx, dy - arrowLen);
-    ctx.lineTo(dx - ah, dy - arrowLen + (arrowLen >= 0 ? ah : -ah));
-    ctx.lineTo(dx + ah, dy - arrowLen + (arrowLen >= 0 ? ah : -ah));
-    ctx.closePath(); ctx.fillStyle = ui.color('c2'); ctx.fill();
-    ctx.beginPath(); ctx.arc(dx, dy, 3.5, 0, Math.PI * 2); ctx.fillStyle = ui.color('c2'); ctx.fill();
+    // the ball at the live v, rolling along the curve
+    const dNow = dvdt(vNow, p, I);
+    const bx = sx(vNow), by = sy(Math.max(phase.yLo, Math.min(phase.yHi, dNow)));
+    ctx.beginPath(); ctx.arc(bx, by, 5, 0, Math.PI * 2);
+    ctx.fillStyle = splashing ? pal.coral : pal.ink; ctx.fill();
+    ctx.strokeStyle = pal.rule; ctx.lineWidth = 1; ctx.stroke();
     // axis titles
     ctx.fillStyle = pal.ink; ctx.font = '11px system-ui, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText('v (mV)', (M.left + W - M.right) / 2, H - 2);
+    ctx.fillText('v (mV)', (M.left + split - M.right) / 2, H - 2);
+    ctx.save();
+    ctx.translate(10, (M.top + H - M.bottom) / 2); ctx.rotate(-Math.PI / 2);
+    ctx.fillText('dv/dt (mV/ms)', 0, 0);
+    ctx.restore();
+
+    // ---- right: bucket with tap (input), hole (leak), pump (exponential) ----
+    const { input, leak } = { input: (p.R * I) / p.tau, leak: (vNow - p.v_rest) / p.tau };
+    const pump = elifExpTerm(vNow, p) / p.tau;
+    const bw = Math.min(150, Math.max(96, (W - split) * 0.5));
+    const bx0 = split + (W - split - bw) / 2;
+    const cx = bx0 + bw / 2;
+    const yRim = 90, yBot = 280;
+    const yOf = (val) => yBot - ((val - p.v_rest) / (p.threshold - p.v_rest)) * (yBot - yRim);
+    const level = Math.max(0, Math.min(1, (vNow - p.v_rest) / (p.threshold - p.v_rest)));
+    const yWater = yBot - level * (yBot - yRim);
+    ctx.fillStyle = splashing ? pal.coral : pal.water;
+    ctx.globalAlpha = 0.82;
+    ctx.fillRect(bx0 + 2, yWater, bw - 4, yBot - yWater);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = pal.ink; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let x = bx0 + 2; x <= bx0 + bw - 2; x += 4) {
+      const y = yWater + Math.sin((x - bx0) / 9) * 1.2;
+      if (x === bx0 + 2) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = pal.ink; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(bx0, yRim); ctx.lineTo(bx0, yBot); ctx.lineTo(bx0 + bw, yBot); ctx.lineTo(bx0 + bw, yRim);
+    ctx.stroke();
+    const yReset = yOf(p.v_reset);
+    ctx.strokeStyle = pal.muted; ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(bx0, yRim); ctx.lineTo(bx0 + bw, yRim); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(bx0, yReset); ctx.lineTo(bx0 + bw, yReset); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = pal.muted; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(`threshold ${p.threshold} mV`, bx0 - 6, yRim);
+    ctx.fillText(`v_reset ${p.v_reset} mV`, bx0 - 6, yReset);
+    ctx.fillText(`v_rest ${p.v_rest} mV`, bx0 - 6, yBot);
+    // tap (input) at the top-centre
+    const tapW = Math.max(2, Math.min(24, 2 + input * 4));
+    ctx.strokeStyle = pal.tap; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(cx - 14, 40); ctx.lineTo(cx + 14, 40); ctx.stroke();
+    ctx.lineWidth = tapW;
+    ctx.beginPath(); ctx.moveTo(cx, 44); ctx.lineTo(cx, yWater - 2); ctx.stroke();
+    ctx.fillStyle = pal.tap; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText(`input ${input.toFixed(2)}`, cx, 34);
+    // hole (leak) on the right wall
+    const holeY = yBot - 20;
+    const leakW = Math.max(1.5, Math.min(24, 1.5 + leak * 4));
+    const jetLen = Math.max(8, Math.min(48, 8 + leak * 30));
+    ctx.strokeStyle = pal.leak; ctx.lineWidth = leakW;
+    ctx.beginPath();
+    ctx.moveTo(bx0 + bw - 2, holeY);
+    ctx.quadraticCurveTo(bx0 + bw + jetLen * 0.5, holeY + 4, bx0 + bw + jetLen, holeY + jetLen * 0.5);
+    ctx.stroke();
+    ctx.fillStyle = pal.leak; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(`leak ${leak.toFixed(2)}`, cx, yBot + 12);
+    // pump (exponential term) on the left wall, feeding in
+    const pumpW = Math.max(1.5, Math.min(24, 1.5 + pump * 4));
+    const pumpLen = Math.max(8, Math.min(48, 8 + pump * 30));
+    ctx.strokeStyle = pal.pump; ctx.lineWidth = pumpW;
+    ctx.beginPath();
+    ctx.moveTo(bx0 + 2, yWater + 30);
+    ctx.quadraticCurveTo(bx0 - pumpLen * 0.5, yWater + 30 - 4, bx0 - pumpLen, yWater + 30 - pumpLen * 0.5);
+    ctx.stroke();
+    ctx.fillStyle = pal.pump; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(`pump ${pump.toFixed(2)}`, cx, yBot + 28);
+    // v readout
+    ctx.fillStyle = pal.ink; ctx.font = mono;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, bx0 + 6, yWater - 4);
+    // spike rim flash
+    if (splashing) {
+      ctx.strokeStyle = pal.coral; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(bx0, yRim); ctx.lineTo(bx0 + bw, yRim); ctx.stroke();
+    }
+
+    // decorative droplets (input from tap, leak from hole, pump from left)
+    ctx.fillStyle = pal.tap;
+    for (const d of drops) if (d.kind === 'tap') { ctx.globalAlpha = Math.max(0, 1 - d.life / d.maxLife); ctx.beginPath(); ctx.arc(d.x, d.y, 2.2, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = pal.leak;
+    for (const d of drops) if (d.kind === 'leak') { ctx.globalAlpha = Math.max(0, 1 - d.life / d.maxLife); ctx.beginPath(); ctx.arc(d.x, d.y, 2.2, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = pal.pump;
+    for (const d of drops) if (d.kind === 'pump') { ctx.globalAlpha = Math.max(0, 1 - d.life / d.maxLife); ctx.beginPath(); ctx.arc(d.x, d.y, 2.2, 0, Math.PI * 2); ctx.fill(); }
+    ctx.globalAlpha = 1;
   }
 
-  // Vertical bar from v_rest to threshold; the fill is the real v at time t.
-  // Coral flash on the step where the neuron just spiked.
-  function drawGauge(t) {
-    const { p, v } = runData;
-    const idx = Math.min(v.length - 1, Math.max(0, Math.round(t / p.dt)));
-    const vNow = v[idx];
-    const spiked = vNow <= p.v_reset + 1e-9; // reset value means this step fired
-    const ctx = gauge.ctx;
-    const W = gauge.width, H = gauge.height;
-    ctx.clearRect(0, 0, W, H);
-    const pal = { ink: ui.color('ink'), muted: ui.color('muted'), rule: ui.color('rule') };
-    const x = W / 2, bw = 26, top = 14, bot = H - 14;
-    const yOf = (val) => bot - ((val - p.v_rest) / (p.threshold - p.v_rest)) * (bot - top);
-    ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
-    ctx.strokeRect(x - bw / 2, top, bw, bot - top);
-    const vClamped = Math.max(p.v_rest, Math.min(p.threshold, vNow));
-    const yTop = yOf(vClamped);
-    ctx.fillStyle = spiked ? ui.color('c2') : ui.color('c1');
-    ctx.fillRect(x - bw / 2 + 1, yTop, bw - 2, bot - yTop);
-    ctx.strokeStyle = pal.muted; ctx.setLineDash([3, 3]);
-    for (const [val, lab] of [[p.threshold, 'threshold'], [p.v_rest, 'v_rest']]) {
-      const y = yOf(val);
-      ctx.beginPath(); ctx.moveTo(x - bw / 2 - 4, y); ctx.lineTo(x + bw / 2 + 4, y); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = pal.muted;
-      ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
-      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillText(`${lab} ${val} mV`, x + bw / 2 + 8, y);
-      ctx.setLineDash([3, 3]);
-    }
-    ctx.setLineDash([]);
-    // v readout to the left of the bar at the current level (the right side holds the markers).
-    ctx.fillStyle = pal.ink;
-    ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
-    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, x - bw / 2 - 8, yTop);
+  // --- frame ---
+  function frame() {
+    const now = typeof performance !== 'undefined' ? performance.now() : 0;
+    const dtReal = lastReal ? Math.min(0.05, (now - lastReal) / 1000) : 0;
+    lastReal = now;
+    const p = params();
+    const I = cI.get();
+    const input = (p.R * I) / p.tau;
+    const leak = (state.v - p.v_rest) / p.tau;
+    const pump = elifExpTerm(state.v, p) / p.tau;
+    const bw = Math.min(150, Math.max(96, (hero.width - hero.width * 0.56) * 0.5));
+    const bx0 = hero.width * 0.56 + (hero.width * 0.44 - bw) / 2;
+    const cx = bx0 + bw / 2;
+    spawnDrops(dropletCount(input, dtReal, rng), cx, 44, 0, 40, 'tap');
+    spawnDrops(dropletCount(leak, dtReal, rng), bx0 + bw - 2, 280 - 20, 60, 10, 'leak');
+    spawnDrops(dropletCount(pump, dtReal, rng), bx0 + 2, 280 - 20 - 30, -60, -10, 'pump');
+    tickDrops(dtReal);
+    drawHero();
+
+    const xs = ring.map((s) => s.t);
+    const ys = ring.map((s) => s.v);
+    figV.draw([{ x: xs, y: ys, label: 'v', color: 'c1', style: 'line' }],
+      { xRange: [t - WINDOW, t], hlines: [{ y: p.threshold, label: 'threshold' }] });
+    hero.narration(elifNarration({ v: state.v, p, I, splashing: state.v <= p.v_reset + 1e-9 }));
   }
 
   function codeSnippet() {
@@ -227,7 +338,7 @@ from conex.behaviors.neurons.neuron_types.lif_neurons import ELIF
 from conex.behaviors.neurons.specs import Fire
 from conex.behaviors.network.time_resolution import TimeResolution
 
-net = Network(behavior=[TimeResolution(dt=${p.dt})])
+net = Network(behavior=[TimeResolution(dt=${DT})])
 pop = NeuronGroup(net=net, size=1, behavior=[
     ELIF(R=${p.R}, threshold=${p.threshold}, tau=${p.tau},
          v_reset=${p.v_reset}, v_rest=${p.v_rest},
@@ -236,16 +347,25 @@ pop = NeuronGroup(net=net, size=1, behavior=[
 ])
 net.initialize()
 pop.I = pop.vector(mode=${cI.get()})   # constant input current (pA)
-net.simulate_iterations(${STEPS})`;
+net.simulate_iterations(1000)`;
   }
 
-  // On a parameter change: recompute the run and continue from the current t (clamped).
-  function run() {
-    player.setDuration(computeRun());
+  // Recompute the phase line only when a parameter changes (the ball moves each frame).
+  function onParam() {
+    computePhase();
+    frame();
   }
 
-  for (const c of [cR, cTau, cTh, cReset, cRest, cDelta, cTheta, cDt, cI]) c.onInput(run);
-  ui.onTheme(run);
+  // Compute the phase line before ui.live: the runner may call onFrame at mount.
+  computePhase();
+  ui.live(figures, {
+    dt: DT, unit: 'ms', modelPerSecond: MODEL_PER_SECOND, windowSize: WINDOW,
+    step, reset, onFrame: frame,
+  });
+  frame();
+  hero.onResize(frame);
+
+  for (const c of [cR, cTau, cTh, cReset, cRest, cDelta, cTheta, cI]) c.onInput(onParam);
 
   return { destroy() {} };
 }

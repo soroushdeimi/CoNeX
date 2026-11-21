@@ -59,6 +59,8 @@ function buildTopology(connection, w0 = 0.5) {
         initial_weights: new Array(src_idx.length).fill(w0),
         rows: 4,
         cols: 4,
+        rowLabel: 'post neuron',
+        colLabel: 'pre neuron',
         toMatrix: (w) => {
           const mat = new Array(16).fill(0);
           for (let k = 0; k < src_idx.length; k++) {
@@ -75,6 +77,8 @@ function buildTopology(connection, w0 = 0.5) {
         initial_weights: new Array(4).fill(w0),
         rows: 1,
         cols: 4,
+        rowLabel: 'connection',
+        colLabel: 'pre / post neuron index',
         toMatrix: (w) => [...w],
       };
     }
@@ -93,6 +97,8 @@ function buildTopology(connection, w0 = 0.5) {
         initial_weights: new Array(9).fill(w0),
         rows: 3,
         cols: 3,
+        rowLabel: 'kernel row',
+        colLabel: 'kernel col',
         toMatrix: (w) => [...w],
       };
     }
@@ -111,6 +117,8 @@ function buildTopology(connection, w0 = 0.5) {
         initial_weights: new Array(36).fill(w0),
         rows: 4,
         cols: 9,
+        rowLabel: 'post neuron',
+        colLabel: 'receptive field weight index (0..8)',
         toMatrix: (w) => [...w],
       };
     }
@@ -121,10 +129,146 @@ function buildTopology(connection, w0 = 0.5) {
         initial_weights: new Array(16).fill(w0),
         rows: 4,
         cols: 4,
+        rowLabel: 'post neuron',
+        colLabel: 'pre neuron',
         toMatrix: (w) => [...w],
       };
     }
   }
+}
+
+function mixHex(a, b, t) {
+  const parse = (s) => {
+    const m = String(s).match(/^#([0-9a-f]{6})$/i);
+    if (!m) return [128, 128, 128];
+    const n = parseInt(m[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const pa = parse(a), pb = parse(b);
+  const clamped = Math.max(0, Math.min(1, t));
+  const c = pa.map((v, i) => Math.round(v + (pb[i] - v) * clamped));
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+}
+
+function drawHeatmap(canvasObj, ui, matrix, rows, cols, { rowLabel, colLabel, runMin, runMax, curStep }) {
+  const { ctx, width, height } = canvasObj;
+  ctx.clearRect(0, 0, width, height);
+
+  const pal = {
+    paper: ui.color('paper'),
+    ink: ui.color('ink'),
+    muted: ui.color('muted'),
+    rule: ui.color('rule'),
+    c1: ui.color('c1'),
+  };
+
+  const M = { left: 86, right: 80, top: 26, bottom: 42 };
+  const plotW = Math.max(20, width - M.left - M.right);
+  const plotH = Math.max(20, height - M.top - M.bottom);
+
+  const cw = plotW / cols;
+  const ch = plotH / rows;
+
+  // Title
+  ctx.fillStyle = pal.ink;
+  ctx.font = '11px system-ui, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`Synaptic weights at step ${curStep}`, M.left, 6);
+
+  // Draw cells
+  const range = (runMax - runMin) || 1e-6;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const val = matrix[r * cols + c];
+      const frac = Math.max(0, Math.min(1, (val - runMin) / range));
+      ctx.fillStyle = mixHex(pal.paper, pal.c1, frac);
+      ctx.fillRect(M.left + c * cw, M.top + r * ch, cw, ch);
+      ctx.strokeStyle = pal.rule;
+      ctx.strokeRect(M.left + c * cw, M.top + r * ch, cw, ch);
+    }
+  }
+
+  // Border
+  ctx.strokeStyle = pal.ink;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(M.left, M.top, plotW, plotH);
+
+  // Row tick labels
+  ctx.fillStyle = pal.muted;
+  ctx.font = '10px ui-monospace, monospace';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  for (let r = 0; r < rows; r++) {
+    const y = M.top + (r + 0.5) * ch;
+    ctx.fillText(String(r), M.left - 6, y);
+  }
+
+  // Row axis title
+  ctx.fillStyle = pal.ink;
+  ctx.font = '11px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.save();
+  ctx.translate(16, M.top + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(rowLabel, 0, 0);
+  ctx.restore();
+
+  // Column tick labels
+  ctx.fillStyle = pal.muted;
+  ctx.font = '10px ui-monospace, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (let c = 0; c < cols; c++) {
+    const x = M.left + (c + 0.5) * cw;
+    ctx.fillText(String(c), x, M.top + plotH + 4);
+  }
+
+  // Column axis title
+  ctx.fillStyle = pal.ink;
+  ctx.font = '11px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(colLabel, M.left + plotW / 2, height - 2);
+
+  // Colour bar
+  const barX = width - M.right + 20;
+  const barW = 12;
+  const barY = M.top;
+  const barH = plotH;
+
+  const grad = ctx.createLinearGradient ? ctx.createLinearGradient(0, barY + barH, 0, barY) : null;
+  if (grad && typeof grad.addColorStop === 'function') {
+    grad.addColorStop(0, pal.paper);
+    grad.addColorStop(1, pal.c1);
+    ctx.fillStyle = grad;
+  } else {
+    ctx.fillStyle = pal.c1;
+  }
+  ctx.fillRect(barX, barY, barW, barH);
+  ctx.strokeStyle = pal.ink;
+  ctx.strokeRect(barX, barY, barW, barH);
+
+  // Colour bar labels
+  ctx.fillStyle = pal.muted;
+  ctx.font = '10px ui-monospace, monospace';
+  ctx.textAlign = 'left';
+
+  ctx.textBaseline = 'top';
+  ctx.fillText(runMax.toFixed(3), barX + barW + 5, barY);
+
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(runMin.toFixed(3), barX + barW + 5, barY + barH);
+
+  const mid = (runMin + runMax) / 2;
+  ctx.textBaseline = 'middle';
+  ctx.fillText(mid.toFixed(3), barX + barW + 5, barY + barH / 2);
+
+  ctx.fillStyle = pal.ink;
+  ctx.font = '10px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('weight', barX + barW / 2 + 10, barY - 4);
 }
 
 export function mount(root, ui) {
@@ -152,11 +296,25 @@ export function mount(root, ui) {
   let player = null;
   let cachedSimulation = null;
   let cachedTopology = null;
+  let cachedPreSpikes = null;
+  let cachedPostSpikes = null;
+  let cachedRunMin = 0.45;
+  let cachedRunMax = 0.55;
   let currentStep = state.steps;
 
-  const heatmapFig = ui.heatmap(figures, { rows: 4, cols: 4, label: 'Weights heatmap' });
+  // 1. Input spike raster figure
+  const rasterFig = ui.raster(figures, {
+    height: 125,
+    xLabel: 'time step',
+    xUnit: 'steps',
+  });
+
+  // 2. Weights heatmap on canvas with labeled axes and colour scale
+  const heatCanvas = ui.canvas(figures, { height: 230 });
+
+  // 3. Mean weight plot over time
   const meanPlot = ui.plot(figures, {
-    height: 200,
+    height: 180,
     xLabel: 'time step',
     xUnit: 'steps',
     yLabel: 'mean weight',
@@ -166,7 +324,7 @@ export function mount(root, ui) {
   function resolveClassName() {
     let conn = state.connection;
     if (state.rule === 'iSTDP' && (conn === 'Conv2d' || conn === 'Local2d')) {
-      conn = 'Simple'; // fallback for unsupported combination
+      conn = 'Simple';
     }
     if (state.rule === 'STDP') return `${conn}STDP`;
     if (state.rule === 'iSTDP') return `${conn}iSTDP`;
@@ -195,6 +353,9 @@ export function mount(root, ui) {
       : preSpikes16.map((row) => row.slice(0, 4));
     const post_spikes = postSpikes4;
 
+    cachedPreSpikes = pre_spikes;
+    cachedPostSpikes = post_spikes;
+
     const params = {
       a_plus: state.a_plus,
       a_minus: state.a_minus,
@@ -217,6 +378,21 @@ export function mount(root, ui) {
       pre_spikes,
       post_spikes,
     });
+
+    let rMin = Infinity;
+    let rMax = -Infinity;
+    for (const stepW of cachedSimulation.history_weights) {
+      for (const w of stepW) {
+        if (w < rMin) rMin = w;
+        if (w > rMax) rMax = w;
+      }
+    }
+    if (!Number.isFinite(rMin) || rMin === rMax) {
+      rMin = state.w0 - 0.05;
+      rMax = state.w0 + 0.05;
+    }
+    cachedRunMin = rMin;
+    cachedRunMax = rMax;
   }
 
   function renderAt(step) {
@@ -224,12 +400,35 @@ export function mount(root, ui) {
     const t = Math.max(0, Math.min(Math.floor(step), state.steps - 1));
     currentStep = t;
 
+    // 1. Draw input spike raster (pre neurons on bottom rows, post neurons on top rows)
+    const nPre = cachedPreSpikes[0].length;
+    const nPost = cachedPostSpikes[0].length;
+    const nTotal = nPre + nPost;
+    const spikesList = [];
+    for (let s = 0; s <= t; s++) {
+      const pRow = cachedPreSpikes[s];
+      for (let i = 0; i < nPre; i++) {
+        if (pRow[i]) spikesList.push([s, i]);
+      }
+      const postRow = cachedPostSpikes[s];
+      for (let j = 0; j < nPost; j++) {
+        if (postRow[j]) spikesList.push([s, nPre + j]);
+      }
+    }
+    rasterFig.draw(spikesList, nTotal, state.steps, { revealT: t });
+
+    // 2. Draw weights heatmap with axes and colour bar
     const curWeights = cachedSimulation.history_weights[t];
     const heatValues = cachedTopology.toMatrix(curWeights);
-    const minW = Math.min(0, ...heatValues);
-    const maxW = Math.max(1, ...heatValues);
-    heatmapFig.draw(heatValues, { min: minW, max: maxW });
+    drawHeatmap(heatCanvas, ui, heatValues, cachedTopology.rows, cachedTopology.cols, {
+      rowLabel: cachedTopology.rowLabel,
+      colLabel: cachedTopology.colLabel,
+      runMin: cachedRunMin,
+      runMax: cachedRunMax,
+      curStep: t,
+    });
 
+    // 3. Draw mean weight plot
     const xs = [];
     const ys = [];
     for (let i = 0; i < cachedSimulation.history_mean_weights.length; i++) {
@@ -258,6 +457,8 @@ export function mount(root, ui) {
     recompute();
     renderAt(currentStep);
   }
+
+  heatCanvas.onResize(() => renderAt(currentStep));
 
   // --- Controls ---
   const secSetup = ui.section(controls, 'Model selection');
@@ -383,15 +584,12 @@ export function mount(root, ui) {
     value: state.w0,
     onInput: (v) => { state.w0 = v; update(); },
   });
-  ui.slider(secParams, {
+  ui.number(secParams, {
     key: 'seed',
     label: 'random seed',
-    unit: 'a.u.',
-    min: 1,
-    max: 100,
-    step: 1,
+    unit: '',
     value: state.seed,
-    onInput: (v) => { state.seed = v; update(); },
+    onInput: (v) => { state.seed = Math.round(v); update(); },
   });
 
   // Animation player
@@ -427,10 +625,37 @@ export function mount(root, ui) {
 
   ui.note(
     notes,
-    `Topological differences: In Simple (dense) and Sparse connections, individual synapses update independently. ` +
-    `One2One matches pre and post neurons elementwise. Conv2d shares a single kernel across all receptive fields and averages ` +
-    `the weight gradients across destination neurons (dw / (dstH·dstW)), while Local2d maintains dedicated receptive field ` +
-    `weights for every destination neuron without spatial parameter sharing. Note: CoNeX does not define Conv2d or Local2d for iSTDP. ` +
+    `<strong>Topology breakdown (weights and sharing in CoNeX):</strong><br><br>` +
+    `<strong>Simple (dense):</strong> A full dense matrix of size <code>n_src &times; n_dst</code> ` +
+    `instantiates every pairwise connection (<code>dendrites.py:111-135</code>). In <code>SimpleSTDP</code>, ` +
+    `updates are computed via outer products <code>torch.outer(pre_spike, post_trace)</code> and ` +
+    `<code>torch.outer(pre_trace, post_spike)</code> (<code>learning.py:101-113</code>). Every connection has its ` +
+    `own independent weight; no weights are shared across synapses.<br><br>` +
+    `<strong>Sparse:</strong> Only instantiated connections exist, stored as a 1D tensor of non-zero entries ` +
+    `<code>synapse.weights.values()[:]</code> indexed by <code>src_idx</code> and <code>dst_idx</code> ` +
+    `(<code>dendrites.py:59-83</code>, <code>learning.py:131</code>). Non-existent connections have no weights and ` +
+    `receive zero updates (<code>learning.py:130-149</code>). Each existing connection updates independently; ` +
+    `no weights are shared.<br><br>` +
+    `<strong>One2One:</strong> Only diagonal synapses exist: presynaptic neuron <code>i</code> connects strictly ` +
+    `to postsynaptic neuron <code>i</code>, requiring <code>src.size == dst.size</code> (<code>dendrites.py:84-110</code>). ` +
+    `In <code>One2OneSTDP</code>, updates are 1D elementwise vectors along the diagonal (<code>learning.py:166-180</code>). ` +
+    `No weights are shared.<br><br>` +
+    `<strong>Conv2d:</strong> A single 2D kernel of shape <code>(1, 1, kh, kw)</code> is swept across all spatial ` +
+    `receptive field positions (<code>dendrites.py:209-306</code>). In <code>Conv2dSTDP</code>, presynaptic spikes and traces ` +
+    `are unfolded and multiplied against postsynaptic targets, then divided by ` +
+    `<code>self.weight_divisor = dst_shape[2] * dst_shape[1]</code> (<code>learning.py:307, 345</code>). ` +
+    `Weights are fully shared across all output positions; the single kernel's update is the spatial average over all receptive fields.<br><br>` +
+    `<strong>Local2d:</strong> Each destination neuron <code>j</code> maintains its own dedicated receptive field kernel ` +
+    `of size <code>kh &times; kw</code>, giving total weight shape <code>(1, out_size, connection_size)</code> ` +
+    `(<code>dendrites.py:307-385</code>, <code>learning.py:353-393</code>). Presynaptic inputs are unfolded locally, but ` +
+    `unlike Conv2d, weights are local to each destination position and updates are not divided by output size (<code>learning.py:395</code>). ` +
+    `No weights are shared across positions.<br><br>` +
+    `<em>Note on iSTDP:</em> CoNeX only implements Simple, Sparse, and One2One topologies for iSTDP ` +
+    `(<code>SimpleiSTDP</code>, <code>SparseiSTDP</code>, <code>One2OneiSTDP</code>; lines 183-293); Conv2d and Local2d iSTDP do not exist.`
+  );
+
+  ui.note(
+    notes,
     `ML analogy: STDP resembles contrastive Hebbian learning and local weight gradient descent; the analogy breaks because STDP operates ` +
     `on asynchronous spike event times rather than smooth continuous activation values.`
   );

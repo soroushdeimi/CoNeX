@@ -27,6 +27,14 @@ export function mount(root, ui) {
   let cachedTrajectories = null;
   let currentStep = state.steps * 2;
 
+  const curveLegend = document.createElement('div');
+  curveLegend.style.cssText = 'font-size:12px;margin:0 0 6px 48px;display:flex;gap:1.5rem;align-items:center;';
+  curveLegend.innerHTML =
+    `<span><strong style="color:var(--c1,#0f7b7f);font-size:15px;line-height:1;">―</strong> hard_bound</span>` +
+    `<span><strong style="color:var(--c2,#d95b43);font-size:15px;line-height:1;">―</strong> no_bound</span>` +
+    `<span><strong style="color:var(--c3,#b98a1f);font-size:15px;line-height:1;">―</strong> soft_bound</span>`;
+  figures.appendChild(curveLegend);
+
   const curvePlot = ui.plot(figures, {
     height: 190,
     xLabel: 'weight w',
@@ -86,9 +94,9 @@ export function mount(root, ui) {
 
     curvePlot.draw(
       [
-        { x: wVals, y: hardVals, label: 'hard_bound', color: 'c1' },
-        { x: wVals, y: noVals, label: 'no_bound', color: 'c2' },
-        { x: wVals, y: softVals, label: 'soft_bound', color: 'c3' },
+        { x: wVals, y: hardVals, color: 'c1' },
+        { x: wVals, y: noVals, color: 'c2' },
+        { x: wVals, y: softVals, color: 'c3' },
       ],
       {
         vlines: [
@@ -211,9 +219,9 @@ export function mount(root, ui) {
   // Notes
   ui.note(
     notes,
-    `Biological synapses are constrained by receptor packing limits, vesicular vesicle reserves, ` +
+    `Biological synapses are constrained by receptor packing limits, vesicle pools, ` +
     `and energetic costs. Without bounding mechanisms, associative synaptic plasticity can drive ` +
-    `synapses to explode unboundedly or invert to negative conductances. CoNeX implements three bounding ` +
+    `synapses to explode unboundedly or invert to negative weights. CoNeX implements three bounding ` +
     `regimes (learning.py lines 15-27): no_bound, hard_bound, and soft_bound, applicable independently ` +
     `to positive and negative learning.`
   );
@@ -235,6 +243,16 @@ export function mount(root, ui) {
     `factor (w − w_min)(w_max − w), smoothly decelerating updates near both bounds with maximal plasticity in the center. ` +
     `ML analogy: hard_bound corresponds to gradient projection or hard weight clipping (as in WGAN-GP or ReLU clamps); ` +
     `soft_bound acts as an intrinsic smooth barrier regularizer preventing weight runaway without external clipping.`
+  );
+
+  ui.note(
+    notes,
+    `CoNeX quirk (mirrored as-is): In conex/behaviors/synapses/learning.py:19-20, hard_bound is evaluated ` +
+    `with strict inequality: (w > w_min) * (w < w_max). In SimpleSTDP (learning.py:101-110), both potentiation ` +
+    `(dw_plus) and depression (dw_minus) scale multiplicatively by their bound factor. Once repeated potentiation ` +
+    `drives a weight to w_max exactly (or depression drives it to w_min), hard_bound evaluates to 0. Consequently, ` +
+    `subsequent depression cannot move the weight either because dw_minus is multiplied by 0, permanently trapping ` +
+    `the weight at the boundary. This real CoNeX behavior is mirrored as-is in our simulation and golden tests.`
   );
 
   // CoNeX code snippet

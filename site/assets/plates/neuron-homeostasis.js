@@ -50,7 +50,7 @@ export function mount(root, ui) {
   const cDecay = ui.slider(secH, { key: 'decay_rate', label: 'decay_rate', unit: '', min: 0.5, max: 1, step: 0.01, value: 1.0 });
   // Voltage-based
   const cTarget = ui.slider(secH, { key: 'target_voltage', label: 'target_voltage', unit: 'mV', min: -70, max: -40, step: 0.5, value: -60.0 });
-  const cEta = ui.slider(secH, { key: 'eta_ip', label: 'eta_ip', unit: 'mV', min: 0, max: 0.01, step: 0.0005, value: 0.001 });
+  const cEta = ui.slider(secH, { key: 'eta_ip', label: 'eta_ip', unit: '1/step', min: 0, max: 0.01, step: 0.0005, value: 0.001 });
 
   const figRate = ui.plot(figures, { height: 220, xLabel: 't', yLabel: 'firing rate', xUnit: 'ms', yUnit: 'Hz' });
   // Raster of the group, revealed in sync with the player.
@@ -145,7 +145,7 @@ export function mount(root, ui) {
   <var>activity_rate</var>. <b>VoltageBaseHomeostasis</b> instead pushes each neuron's voltage toward a target band
   by accumulating an "exhaustion" term. Both run on top of the same LIF dynamics under a random input.
   Units: v in mV, t in ms, I in pA, R in GOhm.`);
-  ui.equation(notes, `activity: <var>threshold</var> ← <var>threshold</var> − <var>activities</var>·<var>updating_rate</var> (every <var>window_size</var> steps)<br>
+  ui.equation(notes, `activity: <var>threshold</var> ← <var>threshold</var> + <var>activities</var>·<var>updating_rate</var> (every <var>window_size</var> steps)<br>
   voltage: <var>exhaustion</var> += (<var>v</var>−band)·<var>eta_ip</var>, &nbsp; <var>v</var> ← <var>v</var> − <var>exhaustion</var>`);
   ui.note(notes, `The top figure shows the group firing rate (Hz) over 5 s; the dashed line is the target
   rate. The bottom shows the control variable (mean threshold for activity-based, mean voltage for

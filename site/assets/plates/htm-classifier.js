@@ -1,4 +1,5 @@
 import { SDR, SDRClassifier } from '../js/models/htm.js';
+import { ease } from '../js/core.js';
 
 export const meta = {
   id: 'htm-classifier',
@@ -6,6 +7,43 @@ export const meta = {
   conex: ['SDRClassifier'],
   source: 'conex/behaviors/neurons/numenta/sdr.py',
 };
+
+// Pure hero state for the SDR classifier plate. During training the current
+// example "flies" into its class bucket (fly = eased progress 0..1) and the
+// per-class weight-sum bars grow; during inference the test SDR pulses and the
+// score bars race. t is the player time, in events.
+export function clfHeroState(run, t) {
+  const T = run.total;
+  const tt = Math.max(0, Math.min(T, t));
+  const n = run.n;
+  if (tt < run.nTrain) {
+    const e = Math.min(run.nTrain - 1, Math.floor(tt));
+    const f = ease(tt - e);
+    const ex = run.trainSeq[e];
+    const w = run.weightsAfter[e];
+    const bars = run.classIdx.map((c) => {
+      let s = 0;
+      for (let i = 0; i < n; i++) s += w[c][i];
+      return s;
+    });
+    return {
+      phase: 'train', e, f, fly: f, class: ex.c, dense: ex.dense, bars,
+      narration: `training: example ${e + 1}/${run.nTrain} (class ${ex.c}) flies into its bucket; weight bars grow`,
+    };
+  }
+  const kbits = Math.min(n, Math.floor(tt - run.nTrain));
+  const f = ease(tt - run.nTrain - kbits);
+  const w = run.weightsAfter[run.nTrain - 1];
+  const bars = run.classIdx.map((c) => {
+    let s = 0;
+    for (let i = 0; i < kbits; i++) s += w[c][i] * run.testDense[i];
+    return s / (run.counts[c] + 1e-6);
+  });
+  return {
+    phase: 'infer', kbits, f, fly: 1, class: run.pred, dense: run.testDense, bars,
+    narration: `inference: test SDR pulses, ${kbits}/${n} bits revealed; score bars race`,
+  };
+}
 
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
@@ -17,14 +55,11 @@ export function mount(root, ui) {
 
   const resetBtn = ui.button(controls, { label: 'Reset', onClick: () => recompute() });
 
+  // Hero: the SDR flies into its class bucket during training; during
+  // inference the test SDR pulses and the score bars race.
+  const hero = ui.hero(figures, { height: 200 });
+  const heroCap = { set(text) { hero.narration(text); } };
   const scoresPlot = ui.plot(figures, { height: 220, xLabel: 'class', yLabel: 'score', xUnit: 'index', yUnit: 'a.u.' });
-  const bitsCanvas = ui.canvas(figures, { height: 90 });
-  // ui.canvas does not expose its <figure>, and site.css is shell-owned, so the
-  // caption is styled inline to match the .ui-figure figcaption look.
-  const bitsCap = document.createElement('div');
-  bitsCap.style.cssText = 'font-style:italic;color:var(--muted);font-size:0.85rem;margin-top:0.3rem;';
-  bitsCap.textContent = 'current SDR (teal = active bits): the training pattern, then the revealed test code';
-  figures.appendChild(bitsCap);
   const readout = document.createElement('div');
   readout.className = 'ui-note';
   figures.appendChild(readout);
@@ -40,58 +75,63 @@ export function mount(root, ui) {
   function frame(t) {
     if (!run) return;
     lastT = t;
-    const T = run.total;
-    const tt = Math.max(0, Math.min(T, t));
-    let bars; // one value per class
-    let label;
-    if (tt < run.nTrain) {
-      // Training: e examples applied; bars show the per-class weight sums.
-      const e = Math.min(run.nTrain - 1, Math.floor(tt));
-      const w = run.weightsAfter[e];
-      bars = run.classIdx.map((c) => {
-        let s = 0;
-        for (let i = 0; i < run.n; i++) s += w[c][i];
-        return s;
-      });
-      const ex = run.trainSeq[e];
-      label = `training: example ${e + 1}/${run.nTrain} (class ${ex.c})`;
-      drawBitsFig(ex.dense);
-    } else {
-      // Inference: reveal the test SDR bit by bit; scores accumulate.
-      const k = Math.min(run.n, Math.floor(tt - run.nTrain));
-      const w = run.weightsAfter[run.nTrain - 1];
-      bars = run.classIdx.map((c) => {
-        let s = 0;
-        for (let i = 0; i < k; i++) s += w[c][i] * run.testDense[i];
-        return s / (run.counts[c] + 1e-6);
-      });
-      label = `inference: test SDR, ${k}/${run.n} bits revealed`;
-      drawBitsFig(run.testDense.slice(0, k).concat(new Array(run.n - k).fill(0)));
-    }
-    const maxBar = Math.max(...bars, 1e-6);
-    scoresPlot.draw([{ x: run.classIdx, y: bars, label: tt < run.nTrain ? 'weight sum' : 'score', color: 'c1', style: 'bars' }], {
+    const st = clfHeroState(run, lastT);
+    drawHero(st);
+    const maxBar = Math.max(...st.bars, 1e-6);
+    scoresPlot.draw([{ x: run.classIdx, y: st.bars, label: st.phase === 'train' ? 'weight sum' : 'score', color: 'c1', style: 'bars' }], {
       xRange: [0, run.classIdx.length],
       yRange: [0, maxBar * 1.1],
     });
-    readout.textContent = label;
+    readout.textContent = st.narration;
   }
 
-  // One row of bits: the current training pattern or the revealed test SDR.
-  function drawBitsFig(dense) {
-    const { ctx, width, height } = bitsCanvas;
+  // Hero: a row of class buckets. The current SDR (teal bits) flies into its
+  // bucket during training (fly = eased 0..1); during inference the test SDR
+  // pulses (fly = 1) and the winning bucket is highlighted.
+  function drawHero(st) {
+    const { ctx, width, height } = hero;
     ctx.clearRect(0, 0, width, height);
     const n = run.n;
+    const k = run.classIdx.length;
     const pad = 8;
-    const gap = 2;
-    const bw = (width - 2 * pad - gap * (n - 1)) / n;
-    for (let i = 0; i < n; i++) {
-      ctx.fillStyle = dense[i] ? ui.color('c1') : ui.color('muted');
-      ctx.fillRect(pad + i * (bw + gap), pad, bw, 18);
+    const bucketW = (width - 2 * pad) / k;
+    const sdrH = 22;
+    const sdrY = pad;
+    const bucketY = pad + sdrH + 24;
+    const bucketH = height - bucketY - pad;
+    const c1 = ui.color('c1');
+    const c2 = ui.color('c2');
+    const muted = ui.color('muted');
+    const ink = ui.color('ink');
+
+    // Class buckets.
+    for (let c = 0; c < k; c++) {
+      const x = pad + c * bucketW;
+      const isTarget = c === st.class;
+      ctx.strokeStyle = isTarget ? c2 : muted;
+      ctx.lineWidth = isTarget ? 2 : 1;
+      ctx.strokeRect(x + 2, bucketY, bucketW - 4, bucketH);
+      ctx.fillStyle = ink;
+      ctx.font = '11px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(`class ${c}`, x + bucketW / 2, bucketY + bucketH - 16);
     }
+
+    // The SDR: a row of bits that flies from the top into its target bucket.
+    const gap = 2;
+    const bw = (bucketW - 8 - gap * (n - 1)) / n;
+    const targetX = pad + st.class * bucketW + 4;
+    const startX = pad + (width - 2 * pad) / 2 - (n * (bw + gap) - gap) / 2;
+    const x = startX + (targetX - startX) * st.fly;
+    const y = sdrY + (bucketY - sdrH - 8 - sdrY) * st.fly;
+    for (let i = 0; i < n; i++) {
+      ctx.fillStyle = st.dense[i] ? c1 : muted;
+      ctx.fillRect(x + i * (bw + gap), y, bw, sdrH);
+    }
+    heroCap.set(st.narration);
   }
-  // The canvas backing store is reset on layout/resize, so register the draw
-  // via onResize (called after layout and on every resize) rather than once.
-  if (typeof bitsCanvas.onResize === 'function') bitsCanvas.onResize(() => frame(lastT));
+  hero.onResize(() => { if (run) drawHero(clfHeroState(run, lastT)); });
 
   function recompute() {
     const n = sdrSizeCtl.get();

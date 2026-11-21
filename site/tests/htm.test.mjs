@@ -21,6 +21,7 @@ import { sdrHeroState } from '../assets/plates/htm-sdr.js';
 import { encoderHeroState } from '../assets/plates/htm-encoder.js';
 import { spHeroState } from '../assets/plates/htm-sp.js';
 import { tmHeroState } from '../assets/plates/htm-tm.js';
+import { clfHeroState } from '../assets/plates/htm-classifier.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const golden = JSON.parse(readFileSync(join(here, 'golden', 'htm.json'), 'utf8'));
@@ -596,4 +597,58 @@ test('tm hero: narration names the step, symbol, burst count and anomaly', () =>
   const st1 = tmHeroState(tmRun(), 1);
   assert.match(st1.narration, /0 columns? burst/);
   assert.match(st1.narration, /anomaly 0\.00/);
+});
+
+// Classifier hero: n=4, 2 classes, 1 example each, lr=0.1.
+// class0 -> bit0, class1 -> bit2. test = class0 pattern [1,0,0,0].
+function clfRun() {
+  return {
+    n: 4,
+    classIdx: [0, 1],
+    trainSeq: [
+      { c: 0, dense: [1, 0, 0, 0] },
+      { c: 1, dense: [0, 0, 1, 0] },
+    ],
+    weightsAfter: [
+      [[0.1, 0, 0, 0], [0, 0, 0, 0]],
+      [[0.1, 0, 0, 0], [0, 0, 0.1, 0]],
+    ],
+    nTrain: 2,
+    counts: [1, 1],
+    testDense: [1, 0, 0, 0],
+    pred: 0,
+    total: 6,
+  };
+}
+
+test('clf hero: during training the SDR flies into its class bucket', () => {
+  const at0 = clfHeroState(clfRun(), 0);
+  assert.equal(at0.phase, 'train');
+  assert.equal(at0.class, 0);
+  assert.equal(at0.fly, 0); // at the start of example 0, not yet flown in
+  const mid = clfHeroState(clfRun(), 0.5);
+  assert.equal(mid.fly, 0.5); // eased halfway into the bucket
+  assert.deepEqual(mid.dense, [1, 0, 0, 0]);
+});
+
+test('clf hero: training bars are the per-class weight sums', () => {
+  const st = clfHeroState(clfRun(), 1); // example 1 applied
+  assert.ok(Math.abs(st.bars[0] - 0.1) < 1e-9);
+  assert.ok(Math.abs(st.bars[1] - 0.1) < 1e-9);
+});
+
+test('clf hero: during inference the score bars accumulate as bits are revealed', () => {
+  const none = clfHeroState(clfRun(), 2); // 0 bits revealed
+  assert.equal(none.phase, 'infer');
+  assert.equal(none.kbits, 0);
+  assert.deepEqual(none.bars, [0, 0]);
+  const one = clfHeroState(clfRun(), 3); // bit 0 revealed -> class0 scores
+  assert.equal(one.kbits, 1);
+  assert.ok(Math.abs(one.bars[0] - 0.1) < 1e-6);
+  assert.equal(one.bars[1], 0);
+});
+
+test('clf hero: narration names the phase and progress', () => {
+  assert.match(clfHeroState(clfRun(), 0).narration, /training: example 1\/2 \(class 0\)/);
+  assert.match(clfHeroState(clfRun(), 3).narration, /inference: test SDR pulses, 1\/4 bits revealed/);
 });

@@ -93,8 +93,9 @@ export function mount(root, ui) {
   at this dt". Note that CoNeX's Euler step multiplies the whole adaptation update by dt/w_tau, so
   each spike raises <var>w</var> by <var>beta</var>·dt (0.7 pA here), not by <var>beta</var> as in Gerstner's
   AdEx. With the jump set to <var>beta</var>, Bursting does burst (groups of 4-8 spikes at ~1-2 ms
-  intervals separated by ~60 ms gaps) and Irregular becomes irregular (CV 0.07 → 1.83), so the
-  small spike jump is what suppresses both patterns. ML analogy: <var>w</var> is a short-term
+  intervals separated by ~60 ms gaps) and Irregular's inter-spike-interval CV rises from 0.07 to 1.83
+  (whether the pattern is irregular rather than bursting was not checked), so the small spike jump
+  explains why Bursting is not reproduced. ML analogy: <var>w</var> is a short-term
   "fatigue" state like a running average of recent activity; the analogy breaks because it is a
   continuous dynamical variable, not a discrete counter.`);
   ui.code(notes, () => codeSnippet());

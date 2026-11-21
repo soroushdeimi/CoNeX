@@ -107,7 +107,18 @@ export function mount(root, ui) {
   const canvasFig = ui.hero(figures, { height: 270 });
   const heroCap = { set(text) { canvasFig.narration(text); } };
   const depolCaption = ui.note(figures, '<em>Depolarization is computed as max segment activity / activation_threshold, capped at 1, as in compute_depolarization (active_dendrites.py:181).</em>');
-  const statusNote = ui.note(figures, '');
+  // The per-step details live in a collapsible <details> so they do not
+  // duplicate the hero narration line.
+  const statusNote = document.createElement('details');
+  statusNote.className = 'ui-note';
+  statusNote.style.cssText = 'font-size:0.85rem;';
+  const statusSummary = document.createElement('summary');
+  statusSummary.textContent = 'step details';
+  statusNote.appendChild(statusSummary);
+  const statusBody = document.createElement('div');
+  statusBody.style.cssText = 'font-family:ui-monospace,monospace;line-height:1.4;margin-top:0.3rem;';
+  statusNote.appendChild(statusBody);
+  figures.appendChild(statusNote);
   const permPlot = ui.plot(figures, {
     height: 220,
     xLabel: 'learning step',
@@ -244,18 +255,9 @@ export function mount(root, ui) {
       actDetails.push(summary + parts.join('; '));
     }
 
-    const overlapVal = contextOverlap.get();
-    const lThresh = learnThresh.get();
-    const matchState = overlapVal >= lThresh
-      ? `<span style="color:var(--c5,#5b8a3c);font-weight:bold;">&ge; ${lThresh} (MATCHED &rarr; Learning active)</span>`
-      : `<span style="color:var(--c2,#d95b43);font-weight:bold;">&lt; ${lThresh} (SUBTHRESHOLD &rarr; No learning)</span>`;
-
-    statusNote.innerHTML = `
-      <div style="font-family:ui-monospace,monospace;font-size:0.85rem;line-height:1.4;">
-        <div><strong>Step ${clampedStep}</strong>: Context overlap with Segment 0 = ${overlapVal} cells ${matchState} &bull; Soma depolarization = ${(sData.depolarization * 100).toFixed(0)}%</div>
-        <div>${actDetails.join('<br>')}</div>
-      </div>
-    `;
+    // The narration line already names the step, match state and depolarization,
+    // so the details block only lists the per-segment synapse actions.
+    statusBody.innerHTML = actDetails.join('<br>');
 
     // 3. Draw permanences plot over all steps with revealX
     // Plot exactly 6 representative synapses from Segment 0 with concise labels

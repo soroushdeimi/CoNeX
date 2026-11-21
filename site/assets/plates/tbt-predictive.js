@@ -179,9 +179,9 @@ export function mount(root, ui) {
     const upRate = particleRate(err, 1, 14);
     const spawn = (arr, rate, x, y, vy) => {
       let n = Math.floor(rate * dt);
-      if (prng.next() < rate * dt - n) n++; // fractional remainder
+      if (prng() < rate * dt - n) n++; // fractional remainder
       for (let i = 0; i < n; i++) {
-        arr.push({ x: x + (prng.next() - 0.5) * 10, y, vy, life: 1 });
+        arr.push({ x: x + (prng() - 0.5) * 10, y, vy, life: 1 });
       }
     };
     spawn(downParticles, downRate, cx + 26, topY + 18, 90);

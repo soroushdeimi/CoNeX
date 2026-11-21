@@ -419,6 +419,10 @@ pre {
 }
 
 /* Learning-rules table */
+.rules-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
 .rules-table {
   width: 100%;
   border-collapse: collapse;
@@ -430,6 +434,7 @@ pre {
   padding: 0.4rem 0.6rem;
   border-bottom: 1px solid var(--rule);
   vertical-align: top;
+  overflow-wrap: anywhere;
 }
 .rules-table th {
   font-family: ui-serif, Georgia, serif;

@@ -18,8 +18,32 @@
       <button id="theme-toggle" class="ui-button" type="button">Dark</button>
     </div>
 
-    <section class="hero">
-      <h1>CoNeX</h1>
+    <section class="hero hero-grid">
+      <div class="hero-copy">
+        <h1>CoNeX</h1>
+        <p class="hero-tagline">
+          Cortical network for everything: spiking networks, cortical columns
+          and HTM in PyTorch.
+        </p>
+        <p class="install-line">pip install cnrl-conex</p>
+        <div class="hero-actions">
+          <a class="ui-button ui-button-primary" href="atlas/index.html">Open the atlas</a>
+          <a class="ui-button" href="atlas/plate.html?id=neuron-lif">Start here: LIF</a>
+        </div>
+      </div>
+      <figure class="ui-figure hero-figure">
+        <canvas id="hero-canvas" style="width:100%;height:220px;display:block;background:var(--card);border:1px solid var(--rule);border-radius:4px"></canvas>
+        <figcaption>
+          A single leaky integrate-and-fire neuron: membrane voltage (teal) and
+          its spikes (coral), driven by a constant 65 pA input. Same parameters
+          as the LIF plate (τ 20 ms, R 0.5 GΩ, v<sub>rest</sub> −70 mV,
+          threshold −50 mV, reset −55 mV).
+        </figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2>What is CoNeX</h2>
       <p>
         CoNeX is a Python framework for building, simulating, and experimenting
         with spiking neural networks, with a focus on modeling cortical
@@ -33,17 +57,6 @@
         behaviors, and apply learning rules such as Spike-Timing Dependent
         Plasticity (STDP).
       </p>
-      <p class="install-line">pip install cnrl-conex</p>
-
-      <figure class="ui-figure hero-figure">
-        <canvas id="hero-canvas" style="width:100%;height:220px;display:block;background:var(--card);border:1px solid var(--rule);border-radius:4px"></canvas>
-        <figcaption>
-          A single leaky integrate-and-fire neuron: membrane voltage (teal) and
-          its spikes (coral), driven by a constant 65 pA input. Same parameters
-          as the LIF plate (τ 20 ms, R 0.5 GΩ, v<sub>rest</sub> −70 mV,
-          threshold −50 mV, reset −55 mV).
-        </figcaption>
-      </figure>
     </section>
 
     <section>

@@ -135,6 +135,57 @@ export function listenerList() {
   };
 }
 
+// Units whose player time is a count, not a continuous quantity.
+const DISCRETE_UNITS = new Set(['steps', 'samples', 'epochs', 'step']);
+
+// Whether a player should show whole-number time. An explicit `integer` wins;
+// otherwise it is on for discrete units (steps, samples, epochs, step).
+export function playerInteger(unit, integer) {
+  if (integer !== undefined) return !!integer;
+  return DISCRETE_UNITS.has(unit);
+}
+
+// The time handed to onFrame / the readout: floored to an integer in integer
+// mode, otherwise the raw value.
+export function playerShownTime(t, integer) {
+  return integer ? Math.floor(t) : t;
+}
+
+// Clamp model time to [0, duration]. Non-finite input becomes 0.
+export function clampTime(t, duration) {
+  if (!Number.isFinite(t)) return 0;
+  return Math.min(duration, Math.max(0, t));
+}
+
+// Map a speed-slider position (0..1) to a playback speed on a log scale:
+// 0 -> 0.1x, 0.5 -> 1x, 1 -> 10x. Non-finite input becomes the middle (1x).
+export function playerSpeedFromPos(pos) {
+  if (!Number.isFinite(pos)) return 1;
+  const p = Math.min(1, Math.max(0, pos));
+  return Math.pow(10, p * 2 - 1);
+}
+
+// Inverse of playerSpeedFromPos: a speed -> slider position (0..1).
+export function playerPosFromSpeed(speed) {
+  if (!Number.isFinite(speed) || speed <= 0) return 0.5;
+  const s = Math.min(10, Math.max(0.1, speed));
+  return (Math.log10(s) + 1) / 2;
+}
+
+// Advance model time by dtMs of real time. Model time advances at
+// speed * duration / playSeconds per real second. With loop, the excess
+// beyond duration wraps to the start; without, it clamps at duration.
+export function playerAdvance(t, dtMs, duration, playSeconds, speed, loop) {
+  const dt = (dtMs / 1000) * speed * (duration / playSeconds);
+  if (loop) {
+    let nt = t + dt;
+    while (nt >= duration) nt -= duration;
+    while (nt < 0) nt += duration;
+    return nt;
+  }
+  return clampTime(t + dt, duration);
+}
+
 // Format a tick value with decimals derived from the step. Trailing zeros are
 // trimmed only after a decimal point, so 10 stays "10" (not "1").
 export function fmtTick(v, step) {

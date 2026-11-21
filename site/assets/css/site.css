@@ -168,11 +168,6 @@ pre {
   max-width: 100%;
 }
 
-.plate-controls {
-  position: sticky;
-  top: 1rem;
-}
-
 .plate-notes {
   grid-column: 1 / -1;
 }
@@ -183,7 +178,7 @@ pre {
   }
   /* phone order: figures, controls, notes (notes holds the code box) */
   .plate-figures { order: 1; }
-  .plate-controls { order: 2; position: static; }
+  .plate-controls { order: 2; }
   .plate-notes { order: 3; }
 }
 
@@ -254,6 +249,40 @@ pre {
   border: 1px solid var(--rule);
   border-radius: 4px;
   padding: 0.2rem 0.4rem;
+}
+
+/* Time player (AMENDMENT 2) */
+.ui-player {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--card);
+}
+.ui-player-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.ui-player-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+.ui-player-speed input[type='range'] {
+  width: 90px;
+  accent-color: var(--c1);
+}
+.ui-player-readout {
+  margin-left: auto;
+}
+.ui-player-scrub {
+  width: 100%;
+  margin-top: 0.4rem;
+  accent-color: var(--c1);
 }
 
 /* Figures */
@@ -391,6 +420,34 @@ pre {
   word-break: break-word;
 }
 
+/* Learning-rules table */
+.rules-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.rules-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.rules-table th,
+.rules-table td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.rules-table th {
+  font-family: ui-serif, Georgia, serif;
+  font-weight: 600;
+  color: var(--muted);
+}
+.rules-table td:first-child {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
 .searchbox {
   width: 100%;
   max-width: 420px;
@@ -462,6 +519,21 @@ pre {
   position: absolute;
   bottom: 8px;
   right: 8px;
+}
+/* small, unobtrusive speed control under the hero figure */
+.hero-speed-row {
+  margin-top: 0.4rem;
+}
+.hero-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.hero-speed input[type='range'] {
+  width: 90px;
+  accent-color: var(--c1);
 }
 
 .install-line {

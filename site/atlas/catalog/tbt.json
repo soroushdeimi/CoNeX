@@ -8,7 +8,8 @@
       "title": "Grid cell path integration",
       "summary": "Walk an agent through an arena and watch each grid cell module's phase and firing map.",
       "level": "intro",
-      "conex": ["conex.behaviors.neurons.numenta.grid_cells.GridCellModule"]
+      "conex": ["conex.behaviors.neurons.numenta.grid_cells.GridCellModule"],
+      "learning_rules": []
     },
     {
       "id": "tbt-displacement",
@@ -18,7 +19,8 @@
       "conex": [
         "conex.behaviors.neurons.numenta.grid_cells.DisplacementCellModule",
         "conex.behaviors.neurons.numenta.grid_cells.LocationEncoder"
-      ]
+      ],
+      "learning_rules": []
     },
     {
       "id": "tbt-dendrites",
@@ -29,7 +31,8 @@
         "conex.behaviors.neurons.numenta.active_dendrites.DendriticSegment",
         "conex.behaviors.neurons.numenta.active_dendrites.ActiveDendriteComputation",
         "conex.behaviors.neurons.numenta.active_dendrites.ContextualPrediction"
-      ]
+      ],
+      "learning_rules": []
     },
     {
       "id": "tbt-voting",
@@ -40,7 +43,8 @@
         "conex.behaviors.network.numenta.voting.ColumnVoting",
         "conex.behaviors.network.numenta.voting.ConsensusNetwork",
         "conex.behaviors.network.numenta.voting.SDROverlap"
-      ]
+      ],
+      "learning_rules": []
     },
     {
       "id": "tbt-predictive",
@@ -52,6 +56,10 @@
         "conex.behaviors.neurons.numenta.predictive_coding.PredictionUnit",
         "conex.behaviors.neurons.numenta.predictive_coding.ErrorUnit",
         "conex.behaviors.neurons.numenta.predictive_coding.PrecisionWeighting"
+      ],
+      "learning_rules": [
+        "PredictiveCodingLearning",
+        "PrecisionWeighting._learn_precision"
       ]
     },
     {
@@ -64,7 +72,8 @@
         "conex.nn.structure.layer.Layer",
         "conex.nn.structure.neocortex.Neocortex",
         "conex.nn.structure.cortical_layer_connection.CorticalLayerConnection"
-      ]
+      ],
+      "learning_rules": []
     }
   ]
 }

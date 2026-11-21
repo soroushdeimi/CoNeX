@@ -1,7 +1,29 @@
 // Shared UI + plotting API for the CoNeX site. See .worker/CONTRACT.md.
-import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList } from './core.js';
+import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime, playerSpeedFromPos, playerPosFromSpeed } from './core.js';
 
 const THEME_KEY = 'conex-theme';
+const SPEED_KEY = 'conex-speed';
+
+// The last chosen playback speed, shared by every player. Falls back to 1x.
+function readSpeed() {
+  try {
+    const v = Number(localStorage.getItem(SPEED_KEY));
+    if (Number.isFinite(v) && v >= 0.1 && v <= 10) return v;
+  } catch {
+    // storage unavailable; use the default
+  }
+  return 1;
+}
+function writeSpeed(v) {
+  try {
+    localStorage.setItem(SPEED_KEY, String(v));
+  } catch {
+    // ignore
+  }
+}
+function fmtSpeed(v) {
+  return `${v.toFixed(1)}x`;
+}
 
 const PALETTES = {
   light: {
@@ -408,27 +430,38 @@ export function plot(parent, { height = 260, xLabel = 'x', yLabel = 'y', xUnit =
     ctx.rect(ax.x0, ax.y1, ax.x1 - ax.x0, ax.y0 - ax.y1);
     ctx.clip();
 
+    const revealX = opts.revealX;
     for (const s of series) {
       const color = ui.color(s.color || 'c1');
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
       ctx.lineWidth = 1.5;
-      if (s.style === 'dots') {
+      // when revealing, draw only the prefix with x <= revealX (time series are sorted)
+      let lastIdx = s.x.length - 1;
+      if (typeof revealX === 'number') {
+        lastIdx = -1;
         for (let i = 0; i < s.x.length; i++) {
+          if (s.x[i] <= revealX) lastIdx = i;
+          else break;
+        }
+      }
+      if (lastIdx < 0) continue;
+      if (s.style === 'dots') {
+        for (let i = 0; i <= lastIdx; i++) {
           ctx.beginPath();
           ctx.arc(ax.sx(s.x[i]), ax.sy(s.y[i]), 2.5, 0, Math.PI * 2);
           ctx.fill();
         }
       } else if (s.style === 'bars') {
         const bw = Math.max(1, (ax.x1 - ax.x0) / s.x.length * 0.8);
-        for (let i = 0; i < s.x.length; i++) {
+        for (let i = 0; i <= lastIdx; i++) {
           const px = ax.sx(s.x[i]);
           const py = ax.sy(s.y[i]);
           ctx.fillRect(px - bw / 2, Math.min(py, ax.y0), bw, Math.abs(ax.y0 - py));
         }
       } else {
         ctx.beginPath();
-        for (let i = 0; i < s.x.length; i++) {
+        for (let i = 0; i <= lastIdx; i++) {
           const px = ax.sx(s.x[i]);
           const py = ax.sy(s.y[i]);
           if (i === 0) ctx.moveTo(px, py);
@@ -439,6 +472,20 @@ export function plot(parent, { height = 260, xLabel = 'x', yLabel = 'y', xUnit =
         }
         ctx.stroke();
       }
+      if (typeof revealX === 'number') {
+        ctx.beginPath();
+        ctx.arc(ax.sx(s.x[lastIdx]), ax.sy(s.y[lastIdx]), 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    if (typeof revealX === 'number') {
+      const px = ax.sx(revealX);
+      ctx.strokeStyle = pal.muted;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px, ax.y1);
+      ctx.lineTo(px, ax.y0);
+      ctx.stroke();
     }
 
     for (const hl of opts.hlines || []) {
@@ -511,7 +558,7 @@ export function raster(parent, { height = 200, xLabel = 'time', xUnit = 'ms' }) 
 
   function render() {
     if (!last) return;
-    const { spikes, nRows, tMax } = last;
+    const { spikes, nRows, tMax, revealT } = last;
     const w = st.width, h = st.height;
     const ctx = st.ctx;
     const pal = PALETTES[theme];
@@ -523,9 +570,19 @@ export function raster(parent, { height = 200, xLabel = 'time', xUnit = 'ms' }) 
     ctx.fillStyle = pal.ink;
     for (const [t, idx] of spikes) {
       if (idx < 0 || idx >= nRows) continue;
+      if (typeof revealT === 'number' && t > revealT) continue;
       const px = ax.sx(t);
       const py = ax.y1 + ((idx + 0.5) / nRows) * (ax.y0 - ax.y1);
       ctx.fillRect(px - 0.75, py - 3, 1.5, 6);
+    }
+    if (typeof revealT === 'number') {
+      const px = ax.sx(revealT);
+      ctx.strokeStyle = pal.muted;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px, ax.y1);
+      ctx.lineTo(px, ax.y0);
+      ctx.stroke();
     }
   }
 
@@ -533,8 +590,8 @@ export function raster(parent, { height = 200, xLabel = 'time', xUnit = 'ms' }) 
   ui.onTheme(render);
 
   return {
-    draw(spikes, nRows, tMax) {
-      last = { spikes, nRows, tMax };
+    draw(spikes, nRows, tMax, { revealT } = {}) {
+      last = { spikes, nRows, tMax, revealT };
       render();
     },
   };
@@ -713,11 +770,162 @@ export function animate(fn) {
   };
 }
 
+// A time player: reveals a precomputed run over model time. Model time advances
+// at speed * duration / playSeconds per real second. See AMENDMENT 2.
+export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = true, integer, onFrame }) {
+  let dur = duration;
+  let t = 0;
+  let speed = readSpeed();
+  let playing = false;
+  let raf = 0;
+  let lastTs = 0;
+  const isInt = playerInteger(unit, integer);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'ui-player';
+
+  const row = document.createElement('div');
+  row.className = 'ui-player-row';
+
+  const playBtn = document.createElement('button');
+  playBtn.className = 'ui-button ui-button-small';
+  playBtn.type = 'button';
+  playBtn.textContent = 'Play';
+
+  const restartBtn = document.createElement('button');
+  restartBtn.className = 'ui-button ui-button-small';
+  restartBtn.type = 'button';
+  restartBtn.textContent = 'Restart';
+
+  const speedWrap = document.createElement('label');
+  speedWrap.className = 'ui-player-speed';
+  const speedName = document.createElement('span');
+  speedName.textContent = 'speed';
+  const speedReadout = document.createElement('span');
+  speedReadout.className = 'ui-readout';
+  const speedSlider = document.createElement('input');
+  speedSlider.type = 'range';
+  speedSlider.min = '0';
+  speedSlider.max = '1';
+  speedSlider.step = '0.01';
+  speedSlider.value = String(playerPosFromSpeed(speed));
+  speedSlider.setAttribute('aria-label', 'Playback speed');
+  speedReadout.textContent = fmtSpeed(speed);
+  speedWrap.append(speedName, speedReadout, speedSlider);
+
+  const readout = document.createElement('span');
+  readout.className = 'ui-readout ui-player-readout';
+
+  row.append(playBtn, restartBtn, speedWrap, readout);
+
+  const scrub = document.createElement('input');
+  scrub.type = 'range';
+  scrub.className = 'ui-player-scrub';
+  scrub.min = '0';
+  scrub.max = String(dur);
+  scrub.step = String(dur / 1000);
+  scrub.value = '0';
+
+  wrap.append(row, scrub);
+  parent.appendChild(wrap);
+
+  function fmtTime(v) {
+    if (isInt) return `t = ${v} ${unit}`;
+    const dec = dur < 10 ? 2 : 1;
+    let s = v.toFixed(dec);
+    if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
+    return `t = ${s} ${unit}`;
+  }
+
+  function update() {
+    scrub.value = String(t);
+    readout.textContent = fmtTime(playerShownTime(t, isInt));
+  }
+
+  function frame(ts) {
+    if (!playing) return;
+    const dtMs = lastTs ? ts - lastTs : 0;
+    lastTs = ts;
+    if (dtMs > 0) {
+      t = playerAdvance(t, dtMs, dur, playSeconds, speed, loop);
+      update();
+      if (onFrame) onFrame(playerShownTime(t, isInt));
+    }
+    if (!loop && t >= dur) {
+      pause();
+      return;
+    }
+    raf = requestAnimationFrame(frame);
+  }
+
+  function play() {
+    if (playing) return;
+    if (!loop && t >= dur) t = 0; // replay from the start
+    playing = true;
+    lastTs = 0;
+    playBtn.textContent = 'Pause';
+    raf = requestAnimationFrame(frame);
+  }
+
+  function pause() {
+    playing = false;
+    playBtn.textContent = 'Play';
+    cancelAnimationFrame(raf);
+  }
+
+  function seek(nt) {
+    t = clampTime(nt, dur);
+    update();
+    if (onFrame) onFrame(playerShownTime(t, isInt));
+  }
+
+  function setDuration(d) {
+    dur = d;
+    scrub.max = String(dur);
+    scrub.step = String(dur / 1000);
+    t = clampTime(t, dur);
+    update();
+    if (onFrame) onFrame(playerShownTime(t, isInt));
+  }
+
+  playBtn.addEventListener('click', () => (playing ? pause() : play()));
+  restartBtn.addEventListener('click', () => {
+    seek(0);
+    play();
+  });
+  speedSlider.addEventListener('input', () => {
+    speed = playerSpeedFromPos(Number(speedSlider.value));
+    speedReadout.textContent = fmtSpeed(speed);
+    writeSpeed(speed);
+  });
+  scrub.addEventListener('input', () => {
+    seek(Number(scrub.value));
+  });
+
+  // pause while the tab is hidden so time does not jump on return
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) pause();
+  });
+
+  const reduced =
+    typeof matchMedia === 'function' &&
+    matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduced) {
+    t = dur;
+    update();
+    if (onFrame) onFrame(playerShownTime(t, isInt));
+  } else {
+    play();
+  }
+
+  return { play, pause, seek, playing: () => playing, setDuration };
+}
+
 const ui = {
   layout, section, slider, number, select, toggle, button,
   plot, raster, heatmap, canvas,
   note, equation, code,
-  rng, color, onTheme, animate,
+  rng, color, onTheme, animate, player,
   setTheme, getTheme, keyedParams,
 };
 export default ui;

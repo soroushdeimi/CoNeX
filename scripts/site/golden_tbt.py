@@ -483,7 +483,7 @@ def main():
     }
     out = os.path.normpath(OUT)
     with open(out, "w") as f:
-        json.dump(data, f, indent=1)
+        json.dump(data, f, separators=(",", ":"))
     print(f"wrote {out}")
 
 

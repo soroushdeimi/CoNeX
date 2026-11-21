@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   encodeHash, decodeHash, rng, computeTicks, niceNum, dataRange, fmtTick,
-  formatValue, listenerList,
+  formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime,
+  playerSpeedFromPos, playerPosFromSpeed,
 } from '../assets/js/core.js';
 
 // --- URL-hash encode/decode ------------------------------------------------
@@ -233,4 +234,106 @@ test('listenerList.emit is safe with no listeners and after unsubscribe', () => 
   const off = ll.add(() => {});
   off();
   ll.emit(4); // all unsubscribed: no throw
+});
+
+// --- clampTime / playerAdvance (backing ui.player) -------------------------
+
+test('clampTime keeps t within [0, duration]', () => {
+  assert.equal(clampTime(5, 100), 5);
+  assert.equal(clampTime(-5, 100), 0);
+  assert.equal(clampTime(150, 100), 100);
+});
+
+test('clampTime maps non-finite input to 0', () => {
+  assert.equal(clampTime(NaN, 100), 0);
+  assert.equal(clampTime(Infinity, 100), 0);
+  assert.equal(clampTime(-Infinity, 100), 0);
+});
+
+test('playerAdvance advances at speed * duration / playSeconds per real second', () => {
+  // duration 100 over 5 real seconds at 1x => 20 model units per real second
+  assert.equal(playerAdvance(0, 1000, 100, 5, 1, false), 20);
+  assert.equal(playerAdvance(0, 500, 100, 5, 1, false), 10);
+  assert.equal(playerAdvance(10, 500, 100, 5, 1, false), 20);
+});
+
+test('playerAdvance scales with speed', () => {
+  assert.equal(playerAdvance(0, 1000, 100, 5, 2, false), 40);
+  assert.equal(playerAdvance(0, 1000, 100, 5, 0.5, false), 10);
+});
+
+test('playerAdvance clamps at duration when not looping', () => {
+  assert.equal(playerAdvance(90, 1000, 100, 5, 1, false), 100);
+  assert.equal(playerAdvance(0, 10000, 100, 5, 1, false), 100);
+});
+
+test('playerAdvance wraps past the end when looping', () => {
+  assert.equal(playerAdvance(90, 1000, 100, 5, 1, true), 10);
+  assert.equal(playerAdvance(95, 2000, 100, 5, 1, true), 35);
+  // wraps more than once in a single large step
+  assert.equal(playerAdvance(95, 6000, 100, 5, 1, true), 15);
+});
+
+test('playerAdvance with a zero step stays put', () => {
+  assert.equal(playerAdvance(30, 0, 100, 5, 1, false), 30);
+  assert.equal(playerAdvance(30, 0, 100, 5, 1, true), 30);
+});
+
+// --- playerSpeedFromPos / playerPosFromSpeed (log-scale speed slider) -------
+
+test('playerSpeedFromPos maps the slider ends and middle to 0.1x / 1x / 10x', () => {
+  assert.ok(Math.abs(playerSpeedFromPos(0) - 0.1) < 1e-9, 'pos 0 -> 0.1x');
+  assert.ok(Math.abs(playerSpeedFromPos(0.5) - 1) < 1e-9, 'pos 0.5 -> 1x');
+  assert.ok(Math.abs(playerSpeedFromPos(1) - 10) < 1e-9, 'pos 1 -> 10x');
+});
+
+test('playerSpeedFromPos clamps out-of-range and non-finite input', () => {
+  assert.ok(Math.abs(playerSpeedFromPos(-1) - 0.1) < 1e-9, 'clamps low to 0.1x');
+  assert.ok(Math.abs(playerSpeedFromPos(2) - 10) < 1e-9, 'clamps high to 10x');
+  assert.ok(Math.abs(playerSpeedFromPos(NaN) - 1) < 1e-9, 'NaN -> 1x');
+});
+
+test('playerPosFromSpeed is the inverse of playerSpeedFromPos', () => {
+  for (const pos of [0, 0.25, 0.5, 0.75, 1]) {
+    const speed = playerSpeedFromPos(pos);
+    assert.ok(Math.abs(playerPosFromSpeed(speed) - pos) < 1e-9, `round-trip at pos ${pos}`);
+  }
+});
+
+test('playerPosFromSpeed maps 0.1x / 1x / 10x to the ends and middle', () => {
+  assert.ok(Math.abs(playerPosFromSpeed(0.1) - 0) < 1e-9, '0.1x -> 0');
+  assert.ok(Math.abs(playerPosFromSpeed(1) - 0.5) < 1e-9, '1x -> 0.5');
+  assert.ok(Math.abs(playerPosFromSpeed(10) - 1) < 1e-9, '10x -> 1');
+});
+
+test('playerPosFromSpeed clamps out-of-range and non-finite input', () => {
+  assert.equal(playerPosFromSpeed(0.01), 0, 'below 0.1x clamps to 0');
+  assert.equal(playerPosFromSpeed(100), 1, 'above 10x clamps to 1');
+  assert.equal(playerPosFromSpeed(NaN), 0.5, 'NaN -> middle');
+  assert.equal(playerPosFromSpeed(0), 0.5, 'non-positive -> middle');
+});
+
+// --- playerInteger / playerShownTime (discrete-unit readout) ---------------
+
+test('playerInteger is on by default for discrete units only', () => {
+  for (const u of ['steps', 'samples', 'epochs', 'step']) {
+    assert.equal(playerInteger(u, undefined), true, `${u} should default to integer`);
+  }
+  for (const u of ['ms', 's', 'a.u.', 'rad']) {
+    assert.equal(playerInteger(u, undefined), false, `${u} should default to fractional`);
+  }
+});
+
+test('playerInteger lets an explicit option override the unit default', () => {
+  assert.equal(playerInteger('ms', true), true);
+  assert.equal(playerInteger('steps', false), false);
+  assert.equal(playerInteger('ms', undefined), false);
+});
+
+test('playerShownTime floors in integer mode and passes through otherwise', () => {
+  assert.equal(playerShownTime(13999.2, true), 13999);
+  assert.equal(playerShownTime(14.9, true), 14);
+  assert.equal(playerShownTime(0, true), 0);
+  assert.equal(playerShownTime(13999.2, false), 13999.2);
+  assert.equal(playerShownTime(14.9, false), 14.9);
 });

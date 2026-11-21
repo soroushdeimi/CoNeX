@@ -408,7 +408,7 @@ def main():
         "connections": {**scenario_connections(), **scenario_connections_2d()},
     }
     with open(OUT, "w") as f:
-        json.dump(data, f, indent=1)
+        json.dump(data, f, separators=(",", ":"))
     print("wrote", OUT)
 
 

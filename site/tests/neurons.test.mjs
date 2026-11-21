@@ -10,6 +10,9 @@ import {
   simulate,
   lifRheobase,
   lifRateAnalytic,
+  bucketFlows,
+  bucketLevel,
+  splashActive,
   fiCurve,
   kwta,
   inherentNoise,
@@ -43,6 +46,45 @@ test('lifStep matches golden lif_step trace', () => {
 test('lifRheobase equals (threshold - v_rest)/R and matches golden', () => {
   const p = S.lif_rheobase.params;
   close(lifRheobase(p), S.lif_rheobase.i_rheo);
+});
+
+test('bucketFlows: inflow = R*I/tau, outflow = (v - v_rest)/tau (hand-computed)', () => {
+  const p = { R: 0.5, I: 65, tau: 20, v_rest: -70 };
+  const { input, leak } = bucketFlows(p, -60);
+  // input = 0.5 * 65 / 20 = 1.625 mV/ms; leak = (-60 - (-70)) / 20 = 0.5 mV/ms
+  close(input, 1.625, 1e-9, 'input');
+  close(leak, 0.5, 1e-9, 'leak');
+});
+
+test('bucketFlows: leak is 0 at rest and negative above rest; input scales with I', () => {
+  const p = { R: 0.5, I: 65, tau: 20, v_rest: -70 };
+  close(bucketFlows(p, -70).leak, 0, 1e-9, 'leak at rest');
+  close(bucketFlows(p, -80).leak, -0.5, 1e-9, 'leak below rest');
+  close(bucketFlows({ ...p, I: 0 }, -60).input, 0, 1e-9, 'no input at I=0');
+});
+
+test('bucketFlows throws on non-positive tau', () => {
+  assert.throws(() => bucketFlows({ R: 0.5, I: 65, tau: 0, v_rest: -70 }, -60), /tau must be a positive finite number/);
+});
+
+test('bucketLevel: fraction between v_rest and threshold, clamped (hand-computed)', () => {
+  const p = { v_rest: -70, threshold: -50 };
+  // (-53.1 - (-70)) / (-50 - (-70)) = 16.9 / 20 = 0.845
+  close(bucketLevel(-53.1, p), 0.845, 1e-9, 'mid level');
+  close(bucketLevel(-70, p), 0, 1e-9, 'empty at v_rest');
+  close(bucketLevel(-45, p), 1, 1e-9, 'clamped to rim above threshold');
+  close(bucketLevel(-80, p), 0, 1e-9, 'clamped to floor below v_rest');
+});
+
+test('bucketLevel throws when threshold does not exceed v_rest', () => {
+  assert.throws(() => bucketLevel(-60, { v_rest: -50, threshold: -50 }), /threshold must exceed v_rest/);
+});
+
+test('splashActive: 0.5 ms model-time window after a spike', () => {
+  assert.equal(splashActive(0.4, 0, 0.5), true, '0.4 ms after -> active');
+  assert.equal(splashActive(0.6, 0, 0.5), false, '0.6 ms after -> inactive');
+  assert.equal(splashActive(0.5, 0, 0.5), false, 'at the window edge -> inactive');
+  assert.equal(splashActive(10, null, 0.5), false, 'no spike -> inactive');
 });
 
 test('LIF at rheobase never fires; just above it fires (golden)', () => {
@@ -255,4 +297,25 @@ test('Bursting: NOT reproduced (fires nearly regularly, low CV)', () => {
 test('Irregular: NOT reproduced (fires nearly regularly, low CV)', () => {
   const s = rowStats('Irregular');
   assert.ok(s.cv < 0.2, `Irregular CV=${s.cv} is low -> ISIs are not irregular`);
+});
+
+// CoNeX's Euler step multiplies the whole adaptation update by dt/w_tau, so each
+// spike raises omega by beta*dt, not by beta as in Gerstner's AdEx. With the
+// jump restored to beta (beta scaled by 1/dt), the named patterns come back:
+// the ISI CV of Bursting and Irregular rises above 1, while the CoNeX jump
+// keeps them below 0.2.
+function rowCv(name, betaScale) {
+  const g = S.phys_aelif[name];
+  const r = simulate('aelif', { ...g.params, beta: g.params.beta * betaScale }, g.current, g.steps, g.dt, g.params.v_rest);
+  return firingStats(spikeTimes(r.spikes, g.dt)).cv;
+}
+
+test('Bursting: ISI CV > 1 with jump b (beta/dt), < 0.2 with the CoNeX jump', () => {
+  assert.ok(rowCv('Bursting', 1 / 0.1) > 1, `Bursting CV=${rowCv('Bursting', 1 / 0.1)} should be > 1 with jump b`);
+  assert.ok(rowCv('Bursting', 1) < 0.2, `Bursting CV=${rowCv('Bursting', 1)} should be < 0.2 with the CoNeX jump`);
+});
+
+test('Irregular: ISI CV > 1 with jump b (beta/dt), < 0.2 with the CoNeX jump', () => {
+  assert.ok(rowCv('Irregular', 1 / 0.1) > 1, `Irregular CV=${rowCv('Irregular', 1 / 0.1)} should be > 1 with jump b`);
+  assert.ok(rowCv('Irregular', 1) < 0.2, `Irregular CV=${rowCv('Irregular', 1)} should be < 0.2 with the CoNeX jump`);
 });

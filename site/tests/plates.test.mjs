@@ -101,6 +101,8 @@ function makeUi() {
     _sliders: [], // { control, min, max }
     _buttons: [],
     _canvasResizes: [], // onResize handlers, fired after mount (initial layout)
+    _players: [], // player() handles created by the plate
+    _animated: false, // set true when the plate calls ui.animate
   };
 
   ui.layout = (root) => {
@@ -213,12 +215,30 @@ function makeUi() {
   ui.color = () => '#000000';
   ui.onTheme = () => {};
   ui.animate = () => {
+    ui._animated = true;
     let running = false;
     return {
       start() { running = true; },
       stop() { running = false; },
       running() { return running; },
     };
+  };
+
+  // AMENDMENT 2: a player that fires onFrame at 0, duration/2 and duration once.
+  ui.player = (parent, opts) => {
+    const { duration, onFrame } = opts;
+    const handle = {
+      play() {},
+      pause() {},
+      seek(t) { if (onFrame) onFrame(t); },
+      playing() { return false; },
+      setDuration() {},
+    };
+    ui._players.push(handle);
+    for (const t of [0, duration / 2, duration]) {
+      if (onFrame) onFrame(t);
+    }
+    return handle;
   };
 
   return ui;
@@ -285,6 +305,19 @@ async function checkPlate(platePath) {
     assert.ok(fig.draws.length > 0, `${id}: a ${fig.kind} figure never received a draw() call`);
     assertFiniteFigure(fig, id);
   }
+
+  // AMENDMENT 2: every plate animates via a ui.player or ui.animate.
+  assert.ok(
+    ui._players.length > 0 || ui._animated,
+    `${id}: plate neither creates a ui.player nor calls ui.animate`,
+  );
+
+  // TASK 3: every animation must have the player controls. A plate that calls
+  // ui.animate must also create a ui.player (the speed slider lives there).
+  assert.ok(
+    !ui._animated || ui._players.length > 0,
+    `${id}: plate calls ui.animate without also creating a ui.player`,
+  );
 
   // Every ui.code function returns a non-empty string.
   assert.ok(ui._code.length > 0, `${id}: no ui.code snippet`);

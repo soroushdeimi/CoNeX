@@ -152,6 +152,35 @@ export function lifRheobase(p) {
   return (p.threshold - p.v_rest) / p.R;
 }
 
+// Leaky-bucket picture of the LIF. The "water level" is v; two flow rates
+// (mV/ms) move it. Inflow from the tap is the input term R*I/tau; outflow
+// through the hole is the leak (v - v_rest)/tau. Together they are exactly the
+// LIF update dv/dt = (R*I + (v_rest - v)) / tau. `params` needs R, I, tau, v_rest.
+export function bucketFlows(params, v) {
+  assertPositive('tau', params.tau);
+  const input = (params.R * params.I) / params.tau;
+  const leak = (v - params.v_rest) / params.tau;
+  return { input, leak };
+}
+
+// Leaky-bucket water level as a fraction 0..1 between v_rest (empty) and
+// threshold (rim), clamped. This is the real v at the player time — the level
+// must track v(t) at all times (it drops to v_reset at the spike step, which is
+// the real reset). `params` needs v_rest and threshold.
+export function bucketLevel(v, params) {
+  const span = params.threshold - params.v_rest;
+  if (!(span > 0)) throw new RangeError(`threshold must exceed v_rest, got ${params.threshold} <= ${params.v_rest}`);
+  return Math.max(0, Math.min(1, (v - params.v_rest) / span));
+}
+
+// Splash window: true while `t` is within `windowMs` of model time after a spike
+// at `lastSpikeT`. A spike at time 0 is active for t in [0, windowMs). No spike
+// (lastSpikeT null) is never active.
+export function splashActive(t, lastSpikeT, windowMs = 0.5) {
+  if (lastSpikeT == null) return false;
+  return t >= lastSpikeT && t < lastSpikeT + windowMs;
+}
+
 // Analytic LIF firing rate (Hz, in a.u. of time): f = 1 / (tau * ln((vss-v_reset)/(vss-threshold)))
 // where vss = v_rest + R*I. The formula is only valid in the normal firing regime
 // v_reset < threshold < vss; outside it (e.g. v_reset >= threshold, or I at/below the

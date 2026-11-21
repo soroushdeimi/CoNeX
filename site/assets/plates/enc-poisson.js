@@ -46,15 +46,40 @@ export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
   const img = pattern16();
   const N = 256;
-  let counts = new Array(N).fill(0);
 
   const raster = ui.raster(figures, { height: 220, xLabel: 'time', xUnit: 'steps' });
   const inCanvas = ui.canvas(figures, { height: 220 });
   const countCanvas = ui.canvas(figures, { height: 220 });
 
-  function render() {
+  // captions under each image (the canvas's parent is the <figure>); the
+  // cross-area checker's mock canvas has no parentElement, so guard it
+  const caption = (c, text) => {
+    if (!c.canvas.parentElement) return;
+    const cap = document.createElement('figcaption');
+    cap.textContent = text;
+    c.canvas.parentElement.appendChild(cap);
+  };
+  caption(inCanvas, 'input image (intensity 0-1)');
+  caption(countCanvas, 'spike count up to t');
+
+  const state = { time_window: 30, ratio: 5 / 30, seed: 42, encoder: 'simple' };
+  let data = null; // { spikes, ticks, T, maxCount, prefix }
+  let curT = 0;
+  let player = null;
+
+  function renderInput() {
     drawGrid(inCanvas.ctx, img, inCanvas.width, inCanvas.height, 0, 1, ui.color('c1'));
-    drawGrid(countCanvas.ctx, counts, countCanvas.width, countCanvas.height, 0, Math.max(1, ...counts), ui.color('c2'));
+  }
+
+  // Reveal the raster and fill the count grid with the spikes up to time t.
+  function renderAt(t) {
+    if (!data) return;
+    curT = t;
+    raster.draw(data.ticks, N, data.T, { revealT: t });
+    const upto = Math.max(0, Math.min(Math.floor(t) + 1, data.T));
+    const counts = new Array(N);
+    for (let i = 0; i < N; i++) counts[i] = data.prefix[i][upto];
+    drawGrid(countCanvas.ctx, counts, countCanvas.width, countCanvas.height, 0, data.maxCount, ui.color('c2'));
   }
 
   function encode() {
@@ -66,13 +91,21 @@ export function mount(root, ui) {
     else if (state.encoder === 'poisson') spikes = M.poisson(img, { time_window: T, ratio: r, seed: s });
     else spikes = M.simplePoisson(img, { time_window: T, ratio: r, seed: s });
     const ticks = [];
-    counts = new Array(N).fill(0);
-    for (let t = 0; t < T; t++) for (let i = 0; i < N; i++) if (spikes[t * N + i]) { ticks.push([t, i]); counts[i]++; }
-    raster.draw(ticks, N, T);
-    render();
+    const final = new Array(N).fill(0);
+    for (let t = 0; t < T; t++) for (let i = 0; i < N; i++) if (spikes[t * N + i]) { ticks.push([t, i]); final[i]++; }
+    // prefix[i][t] = spikes of pixel i at times < t, so counts up to t is an index
+    const prefix = new Array(N);
+    for (let i = 0; i < N; i++) {
+      const row = new Array(T + 1).fill(0);
+      for (let t = 0; t < T; t++) row[t + 1] = row[t] + (spikes[t * N + i] ? 1 : 0);
+      prefix[i] = row;
+    }
+    data = { spikes, ticks, T, maxCount: Math.max(1, ...final), prefix };
+    renderInput();
+    if (player) { player.setDuration(T); renderAt(Math.min(curT, T)); }
+    else renderAt(T); // no player (checker): show the whole window
   }
 
-  const state = { time_window: 30, ratio: 5 / 30, seed: 42, encoder: 'simple' };
   const sec = ui.section(controls, 'Encoder');
   ui.slider(sec, { key: 'time_window', label: 'time_window', unit: 'steps', min: 10, max: 100, step: 1, value: 30, onInput: (v) => { state.time_window = v; encode(); } });
   ui.slider(sec, { key: 'ratio', label: 'ratio', unit: 'a.u.', min: 0.05, max: 1.0, step: 0.05, value: 5 / 30, onInput: (v) => { state.ratio = v; encode(); } });
@@ -87,17 +120,24 @@ export function mount(root, ui) {
     onInput: (v) => { state.encoder = v; encode(); },
   });
 
+  encode();
+  // the cross-area checker's mock ui has no player; fall back to the full view
+  player = (typeof ui.player === 'function') ? ui.player(controls, {
+    duration: state.time_window, unit: 'steps', playSeconds: 5, loop: true,
+    onFrame: (t) => renderAt(t),
+  }) : null;
+  if (player) player.seek(0); // start empty; the player then fills the window
+
   // The real ui.js canvas clears itself on window resize and calls the
   // registered redraw; the cross-area checker's mock canvas has no onResize,
-  // so guard it (render() is already called directly at mount).
-  if (typeof inCanvas.onResize === 'function') inCanvas.onResize(render);
-  if (typeof countCanvas.onResize === 'function') countCanvas.onResize(render);
-  ui.onTheme(render);
-  encode();
+  // so guard it (renderAt is already called directly at mount).
+  if (typeof inCanvas.onResize === 'function') inCanvas.onResize(renderInput);
+  if (typeof countCanvas.onResize === 'function') countCanvas.onResize(() => renderAt(curT));
+  ui.onTheme(() => { renderInput(); renderAt(curT); });
 
   ui.note(notes, `A grayscale image (values 0-1) is turned into a spike train. <b>SimplePoisson</b> and <b>Poisson</b> are rate codes: a pixel with intensity <var>i</var> spikes at rate <var>i</var>·ratio, so brighter pixels fire more often. <b>Intensity2Latency</b> is a latency code: brighter pixels spike <i>sooner</i>, and the first spike carries the value. In the retina, ganglion cells encode light intensity both by firing rate and by response latency. The two squares show the input image (left) and the per-pixel spike count (right) on the same 16x16 scale.`);
   ui.equation(notes, `<var>spike</var>(<var>t</var>) ~ Bernoulli(<var>i</var> · ratio) &nbsp;for SimplePoisson; &nbsp; intervals ~ Poisson(1 / (<var>i</var> · ratio)) &nbsp;for Poisson.`);
-  ui.note(notes, `The ratio is dimensionless (a.u.); time is in simulation steps. ML analogy: this is like turning a continuous feature vector into a stochastic binary code (e.g. a dropout-style or stochastic binary embedding). The analogy breaks because real neurons have refractory periods and adaptation that a per-step Bernoulli does not model.`);
+  ui.note(notes, `The ratio is dimensionless (a.u.); time is in simulation steps. Note the <b>Poisson</b> encoder (the BindsNET method) samples the inter-spike <i>intervals</i> from a discrete Poisson distribution with mean 1/(<var>i</var>·ratio) steps (a zero interval becomes 1), then cumsums them to spike times. This is not the textbook Poisson process, whose intervals are exponential (continuous) or geometric (discrete); it is a BindsNET/CoNeX heuristic. ML analogy: this is like turning a continuous feature vector into a stochastic binary code (e.g. a dropout-style or stochastic binary embedding). The analogy breaks because real neurons have refractory periods and adaptation that a per-step Bernoulli does not model.`);
   ui.code(notes, () => {
     const cls = state.encoder === 'i2l' ? 'Intensity2Latency' : state.encoder === 'poisson' ? 'Poisson' : 'SimplePoisson';
     const ratioArg = state.encoder === 'i2l' ? '' : `, ratio=${fmt(state.ratio)}`;
@@ -106,5 +146,5 @@ from conex.helpers.transforms.encoders import ${cls}
 img = torch.rand(16, 16)  # 16x16, values in [0, 1]
 spikes = ${cls}(time_window=${state.time_window}${ratioArg})(img)`;
   });
-  return { destroy() {} };
+  return { destroy() { if (player) player.pause(); } };
 }

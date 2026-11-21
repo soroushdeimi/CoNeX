@@ -85,13 +85,15 @@ export function mount(root, ui) {
     trace.length = 0;
   }
   // Re-running on every control change keeps the plots populated (G1).
-  const rebuild = () => { build(); runSteps(40); };
+  const rebuild = () => { build(); runSteps(40); currentStep = trace.length - 1; };
   [signalType, sigSeed, hiSeed, lr, precTau, precLr, minPrec, maxPrec, nonlin, sparse, errThresh].forEach((c) => c.onInput(rebuild));
 
   // --- figures ---
   const errPlot = ui.plot(figures, { height: 220, xLabel: 'step', xUnit: 'index', yLabel: 'mean |error| / prediction', yUnit: 'a.u.' });
   const fePlot = ui.plot(figures, { height: 200, xLabel: 'step', xUnit: 'index', yLabel: 'free energy', yUnit: 'a.u.' });
   const precPlot = ui.plot(figures, { height: 200, xLabel: 'step', xUnit: 'index', yLabel: 'mean precision', yUnit: 'a.u.' });
+  const diagram = ui.canvas(figures, { height: 160 });
+  let currentStep = 0;
 
   function record() {
     const meanAbs = level.errorMagnitude.reduce((a, b) => a + b, 0) / SIZE;
@@ -123,32 +125,110 @@ export function mount(root, ui) {
 
   function render() {
     const t = trace;
+    const revealX = t[currentStep] ? t[currentStep].step : 0;
     errPlot.draw(
       [
         { x: t.map((p) => p.step), y: t.map((p) => p.meanAbs), label: 'mean |error|', color: 'c2' },
         { x: t.map((p) => p.step), y: t.map((p) => p.meanPred), label: 'mean prediction', color: 'c1' },
       ],
-      { xRange: [0, Math.max(1, t.length - 1)] },
+      { xRange: [0, Math.max(1, t.length - 1)], revealX },
     );
     fePlot.draw(
       [{ x: t.map((p) => p.step), y: t.map((p) => p.freeEnergy), label: 'free energy', color: 'c4' }],
-      { xRange: [0, Math.max(1, t.length - 1)] },
+      { xRange: [0, Math.max(1, t.length - 1)], revealX },
     );
     precPlot.draw(
       [{ x: t.map((p) => p.step), y: t.map((p) => p.meanPrec), label: 'mean precision', color: 'c5' }],
-      { xRange: [0, Math.max(1, t.length - 1)] },
+      { xRange: [0, Math.max(1, t.length - 1)], revealX },
     );
+    drawDiagram(t[currentStep]);
+  }
+
+  // Small schematic: error flows up, prediction flows down. The arrow
+  // thickness is the current step's real mean |error| and mean prediction.
+  function drawDiagram(p) {
+    const { ctx, width, height } = diagram;
+    ctx.clearRect(0, 0, width, height);
+    const ink = ui.color('ink');
+    const muted = ui.color('muted');
+    const c1 = ui.color('c1');
+    const c2 = ui.color('c2');
+    const cx = width / 2;
+    const topY = 24, botY = height - 24;
+    // two level boxes
+    ctx.font = '12px ui-monospace, monospace';
+    ctx.fillStyle = ink;
+    ctx.textAlign = 'center';
+    ctx.fillText('level 1 (higher)', cx, topY - 8);
+    ctx.fillText('level 0 (sensory)', cx, botY + 16);
+    ctx.strokeStyle = muted;
+    ctx.strokeRect(cx - 70, topY - 4, 140, 20);
+    ctx.strokeRect(cx - 70, botY - 16, 140, 20);
+    const err = p ? p.meanAbs : 0;
+    const pred = p ? p.meanPred : 0;
+    // error up (left), prediction down (right); thickness scales with magnitude
+    const errW = 1 + Math.min(8, err * 20);
+    const predW = 1 + Math.min(8, pred * 20);
+    ctx.strokeStyle = c2;
+    ctx.lineWidth = errW;
+    ctx.beginPath();
+    ctx.moveTo(cx - 24, botY - 16);
+    ctx.lineTo(cx - 24, topY + 16);
+    ctx.stroke();
+    arrowHead(ctx, cx - 24, topY + 16, c2, -1);
+    ctx.strokeStyle = c1;
+    ctx.lineWidth = predW;
+    ctx.beginPath();
+    ctx.moveTo(cx + 24, topY + 16);
+    ctx.lineTo(cx + 24, botY - 16);
+    ctx.stroke();
+    arrowHead(ctx, cx + 24, botY - 16, c1, 1);
+    ctx.lineWidth = 1;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c2;
+    ctx.fillText('error up', cx - 24 - 60, (topY + botY) / 2 - 6);
+    ctx.fillStyle = c1;
+    ctx.fillText('prediction down', cx + 34, (topY + botY) / 2 + 6);
+    ctx.textAlign = 'center';
+  }
+  function arrowHead(ctx, x, y, color, dir) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - 5, y + 8 * dir);
+    ctx.lineTo(x + 5, y + 8 * dir);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function onFrame(t) {
+    const i = Math.max(0, Math.min(trace.length - 1, Math.round((t / 100) * (trace.length - 1))));
+    currentStep = i;
+    render();
   }
 
   ui.button(controls, { label: 'Run 40 steps', onClick: () => runSteps(40) });
   ui.button(controls, { label: 'Perturb input', onClick: perturb });
   ui.button(controls, { label: 'Reset', onClick: rebuild });
 
+  // The diagram canvas must draw inside onResize (called after layout and on
+  // every resize); drawing once at mount with a 0 width would leave it empty.
+  diagram.onResize(() => { if (trace[currentStep]) drawDiagram(trace[currentStep]); });
+
   build();
   // Run a default learning run on load so the plots are not empty; the buttons
   // only re-run, perturb, or reset.
   runSteps(40);
+  currentStep = trace.length - 1; // start at the end so the plots are full
+  render();
   ui.onTheme(render);
+  ui.player(figures, {
+    duration: 100,
+    unit: 'a.u.',
+    playSeconds: 6,
+    loop: true,
+    onFrame,
+  });
 
   // --- notes ---
   ui.note(notes, `
@@ -162,6 +242,10 @@ export function mount(root, ui) {
     energy both fall. <strong>Perturb input</strong> injects noise into the sensory
     signal and the error jumps again &mdash; the "surprise" a real hierarchy would
     propagate upward.</p>
+    <p>The player sweeps the 40-step run: the three plots reveal their curves up to
+    the current step, and the small diagram shows error flowing up and prediction
+    flowing down with arrow thickness set to that step's real mean |error| and mean
+    prediction.</p>
     <p><strong>Precision</strong> is the inverse of the error variance, learned
     online and clamped to [<code>min_precision</code>, <code>max_precision</code>].
     It weights how much each unit's error matters. Note the free-energy quirk in

@@ -48,11 +48,29 @@ export function mount(root, ui) {
       sigma: sigma.get(),
     });
   }
-  const rebuild = () => { disp = buildDisp(); render(); };
+
+  // Precompute the walk A -> B: at each of N+1 points the agent's position,
+  // the real displacement-cell activation for the vector A -> position, and the
+  // decoded displacement. The player only indexes into this, so no per-frame
+  // recomputation.
+  const N = 60;
+  let frames = [];
+  function precompute() {
+    const A = [ax.get(), ay.get()];
+    const B = [bx.get(), by.get()];
+    frames = [];
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const pos = [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t];
+      const act = disp.computeDisplacement(A, pos);
+      frames.push({ pos, act, decoded: disp.decodeDisplacement(act) });
+    }
+  }
+  const rebuild = () => { disp = buildDisp(); precompute(); render(); };
   nCells.onInput(rebuild);
   maxDisp.onInput(rebuild);
   sigma.onInput(rebuild);
-  [ax, ay, bx, by].forEach((s) => s.onInput(render));
+  [ax, ay, bx, by].forEach((s) => s.onInput(rebuild));
 
   // --- figures ---
   const arena = ui.canvas(figures, { height: 300 });
@@ -67,6 +85,7 @@ export function mount(root, ui) {
 
   const SPAN = 12;
   const PAD = 24;
+  let currentFrame = null;
 
   function drawArena() {
     const { ctx, width, height } = arena;
@@ -104,14 +123,26 @@ export function mount(root, ui) {
     ctx.font = '13px ui-monospace, monospace';
     ctx.fillText('A', sx(A[0]) + 8, sy(A[1]) - 8);
     ctx.fillText('B', sx(B[0]) + 8, sy(B[1]) - 8);
+    // the agent at its current position, with the A -> agent displacement arrow
+    if (currentFrame) {
+      const p = currentFrame.pos;
+      ctx.strokeStyle = c1;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(sx(A[0]), sy(A[1]));
+      ctx.lineTo(sx(p[0]), sy(p[1]));
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      ctx.fillStyle = c1;
+      ctx.beginPath(); ctx.arc(sx(p[0]), sy(p[1]), 5, 0, 2 * Math.PI); ctx.fill();
+    }
   }
 
   function render() {
     drawArena();
     const A = [ax.get(), ay.get()];
     const B = [bx.get(), by.get()];
-    const act = disp.computeDisplacement(A, B);
-    const decoded = disp.decodeDisplacement(act);
+    const act = currentFrame ? currentFrame.act : disp.computeDisplacement(A, B);
     dispPlot.draw(
       [{ x: Array.from({ length: act.length }, (_, i) => i), y: Array.from(act), label: 'activation', color: 'c3' }],
       { xRange: [0, act.length - 1], yRange: [0, 1] },
@@ -125,13 +156,29 @@ export function mount(root, ui) {
       ],
       { xRange: [0, codeA.length - 1], yRange: [0, 1] },
     );
-    void decoded;
   }
+
+  // The player walks the agent from A to B over 100 a.u. of model time.
+  function onFrame(t) {
+    const i = Math.max(0, Math.min(N, Math.round((t / 100) * N)));
+    currentFrame = frames[i];
+    render();
+  }
+
   // The arena canvas must draw inside onResize (called after layout and on
   // every resize); drawing once at mount with a 0 width would leave it empty.
   arena.onResize(drawArena);
+  precompute();
+  currentFrame = frames[N]; // start at B so the initial draw is the full A->B code
   render();
   ui.onTheme(render);
+  ui.player(figures, {
+    duration: 100,
+    unit: 'a.u.',
+    playSeconds: 6,
+    loop: true,
+    onFrame,
+  });
 
   // --- notes ---
   ui.note(notes, `
@@ -143,8 +190,12 @@ export function mount(root, ui) {
     &mdash; the core of learning object structure through movement.</p>
     <p>The two location codes (top plot) are the grid cell activations at A and
     B. The displacement code (middle plot) is the population pattern for the
-    vector from A to B; a population-vector decode recovers the arrow you see in
-    the arena.</p>
+    vector from A to the agent; a population-vector decode recovers the arrow you
+    see in the arena.</p>
+    <p>The player walks the agent from A to B. At every point the displacement
+    code is the <em>real</em> activation of the cells for the vector from A to the
+    agent's current position, so the pattern shifts continuously as the agent
+    moves and settles on the full A&rarr;B code at the end.</p>
   `);
   ui.equation(notes, `
     <p>activation<sub>c</sub> = exp(&minus;|<var>d</var><sub>c</sub> &minus; <var>d</var>|&sup2; / (2&sigma;&sup2;))</p>

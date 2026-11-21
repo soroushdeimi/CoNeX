@@ -69,9 +69,9 @@ export function mount(root, ui) {
     });
     return { seg, context, nc, ns, nS };
   }
-  const rebuild = () => { model = buildModel(); render(); };
+  const rebuild = () => { model = buildModel(); precompute(); currentFrame = frames[frames.length - 1]; render(); };
   [nCells, nSegments, nSyn, actThresh, learnThresh, connPerm, seed, depolThresh].forEach((c) => c.onInput(rebuild));
-  ctxSparsity.onInput(render);
+  ctxSparsity.onInput(rebuild);
 
   // --- figures ---
   const segCanvas = ui.canvas(figures, { height: 260 });
@@ -79,31 +79,49 @@ export function mount(root, ui) {
     height: 200, xLabel: 'cell', xUnit: 'index', yLabel: 'depolarization', yUnit: 'a.u.',
   });
 
-  function contextSdr() {
+  // The context SDR is drawn as a fixed ordered list of active cells; the
+  // player reveals them one by one. Precompute one frame per bit so the
+  // animation only indexes, never recomputes.
+  let frames = [];
+  function precompute() {
+    const { seg, context, nc } = model;
     const rng = mulberry(seed.get() + 1000);
-    const active = new Array(model.nc).fill(false);
-    const nActive = Math.max(1, Math.round(model.nc * ctxSparsity.get()));
-    const idx = pickDistinct(rng, model.nc, nActive);
-    for (const i of idx) active[i] = true;
-    return active;
+    const nActive = Math.max(1, Math.round(nc * ctxSparsity.get()));
+    const order = pickDistinct(rng, nc, nActive);
+    frames = [];
+    const active = new Array(nc).fill(false);
+    for (let k = 0; k <= nActive; k++) {
+      if (k > 0) active[order[k - 1]] = true;
+      seg.computeSegmentActivation(active);
+      seg.computeDepolarization();
+      context.updatePredictions(null, seg.depolarization);
+      frames.push({
+        active: active.slice(),
+        activation: Float64Array.from(seg.segmentActivation),
+        depol: Float64Array.from(seg.depolarization),
+        predictive: Uint8Array.from(context.predictive),
+      });
+    }
   }
 
+  let currentFrame = null;
   function render() {
-    const { seg, context, nc, ns, nS } = model;
-    const active = contextSdr();
-    seg.computeSegmentActivation(active);
-    seg.computeDepolarization();
-    context.updatePredictions(null, seg.depolarization);
-    lastActive = active;
-
+    const { nc } = model;
+    const f = currentFrame;
+    lastActive = f ? f.active : new Array(nc).fill(false);
     drawSegments();
     depolPlot.draw(
       [
-        { x: Array.from({ length: nc }, (_, i) => i), y: Array.from(seg.depolarization), label: 'depolarization', color: 'c1' },
+        { x: Array.from({ length: nc }, (_, i) => i), y: f ? Array.from(f.depol) : new Array(nc).fill(0), label: 'depolarization', color: 'c1' },
       ],
       { xRange: [0, nc - 1], yRange: [0, 1], hlines: [{ y: depolThresh.get(), label: 'predictive threshold' }] },
     );
-    void nS;
+  }
+
+  function onFrame(t) {
+    const k = Math.max(0, Math.min(frames.length - 1, Math.round((t / 100) * (frames.length - 1))));
+    currentFrame = frames[k];
+    render();
   }
 
   function drawSegments() {
@@ -120,10 +138,12 @@ export function mount(root, ui) {
     const cols = Math.min(ns, 6);
     const cellW = width / nc;
     const rowH = (height - 30) / ns;
+    const actArr = currentFrame ? currentFrame.activation : seg.segmentActivation;
+    const predArr = currentFrame ? currentFrame.predictive : null;
     for (let c = 0; c < nc; c++) {
       for (let s = 0; s < ns; s++) {
         const idx = c * ns + s;
-        const act = seg.segmentActivation[idx];
+        const act = actArr[idx];
         const x = c * cellW + 3;
         const y = 24 + s * rowH;
         const w = cellW - 6;
@@ -141,10 +161,16 @@ export function mount(root, ui) {
         ctx.font = '11px ui-monospace, monospace';
         ctx.fillText(String(act), x + w / 2 - 4, y + h / 2 + 4);
       }
-      // cell index
+      // cell index, with a dot when the cell is predictive
       ctx.fillStyle = muted;
       ctx.font = '11px ui-monospace, monospace';
       ctx.fillText(String(c), c * cellW + cellW / 2 - 3, 14);
+      if (predArr && predArr[c]) {
+        ctx.fillStyle = c1;
+        ctx.beginPath();
+        ctx.arc(c * cellW + cellW / 2 + 8, 11, 3, 0, 2 * Math.PI);
+        ctx.fill();
+      }
     }
     // legend
     ctx.font = '11px system-ui, sans-serif';
@@ -153,6 +179,7 @@ export function mount(root, ui) {
       [c1, 'active (>= ' + actThresh.get() + ')'],
       [c3, 'matching (>= ' + learnThresh.get() + ')'],
       [muted, 'below'],
+      [c1, 'dot = predictive'],
     ];
     for (const [col, label] of legend) {
       ctx.fillStyle = col;
@@ -168,8 +195,17 @@ export function mount(root, ui) {
   // The segment canvas must draw inside onResize (called after layout and on
   // every resize); drawing once at mount with a 0 width would leave it empty.
   segCanvas.onResize(drawSegments);
+  precompute();
+  currentFrame = frames[frames.length - 1]; // start with the full context shown
   render();
   ui.onTheme(render);
+  ui.player(figures, {
+    duration: 100,
+    unit: 'a.u.',
+    playSeconds: 6,
+    loop: true,
+    onFrame,
+  });
 
   // --- notes ---
   ui.note(notes, `
@@ -187,6 +223,13 @@ export function mount(root, ui) {
     is how a neuron "expects" to fire: the matching distal segment primes it.</p>
     <p>Drag the context sparsity up to see more segments match; change the seed to
     draw a different context SDR and wiring.</p>
+    <p>The player reveals the context SDR <em>bit by bit</em>. As each presynaptic
+    cell fires, the segments that synapse onto it gain one active synapse; a segment
+    lights up (teal) the moment its count crosses
+    <code>activation_threshold</code>, and the cell it belongs to becomes
+    <strong>predictive</strong> (the dot above its column) once its depolarization
+    crosses <code>depolarization_threshold</code>. Every count and depolarization
+    shown is the real value computed at that point.</p>
   `);
   ui.equation(notes, `
     <p>activation<sub>seg</sub> = |{ synapses : connected &and; target active }|</p>

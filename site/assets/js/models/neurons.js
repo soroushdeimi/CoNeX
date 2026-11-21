@@ -1,26 +1,55 @@
 // Pure math for the Neurons area. No DOM, no globals.
 // Mirrors CoNeX exactly: same equations, same parameter names, same update order.
-// All quantities are in CoNeX dimensionless units (a.u.) unless a unit is stated.
+//
+// Units (physiological, from Gerstner et al. "Neuronal Dynamics" 2014, Table 6.1):
+//   v in mV, t in ms, I in pA, R in GOhm (so R*I is in mV), a in nS (so a*(v-v_rest)
+//   is in pA), b in pA, tau/tau_w in ms.
 //
 // CoNeX has no built-in numeric defaults for the neuron parameters (they are all
-// required constructor args), so this module defines one canonical set used as the
-// site default and as the golden reference:
-//   R=10, threshold=20, tau=10, v_reset=0, v_rest=0 (a.u.)
+// required constructor args). DEFAULTS is the physiological set used by the plates;
+// AU_DEFAULTS is a dimensionless (a.u.) set kept for the original golden cases.
 
 export const DEFAULTS = {
+  R: 0.5,          // GOhm  (500 MOhm)
+  threshold: 0.0,  // mV (AdEx spike-detection threshold; a simulation choice, not from Table 6.1)
+  tau: 20.0,       // ms
+  v_reset: -55.0,  // mV
+  v_rest: -70.0,   // mV
+  // ELIF
+  delta: 2.0,      // mV
+  theta_rh: -50.0, // mV
+  // AELIF
+  alpha: 0.0,      // nS
+  beta: 60.0,      // pA
+  w_tau: 30.0,     // ms
+  dt: 0.1,         // ms
+};
+
+export const AU_DEFAULTS = {
   R: 10.0,
   threshold: 20.0,
   tau: 10.0,
   v_reset: 0.0,
   v_rest: 0.0,
-  // ELIF
   delta: 2.0,
   theta_rh: 15.0,
-  // AELIF
   alpha: 0.08,
   beta: 0.5,
   w_tau: 100.0,
   dt: 1.0,
+};
+
+// Gerstner et al. Table 6.1 AdEx firing patterns. Shared for every row:
+// R=0.5 GOhm, threshold=0 mV, v_rest=-70 mV, delta=2 mV, theta_rh=-50 mV, dt=0.1 ms.
+// CoNeX names: alpha=a, beta=b, w_tau=tau_w, v_reset=u_r.
+export const TABLE61 = {
+  'Tonic':         { tau: 20.0, alpha: 0.0,  w_tau: 30.0,  beta: 60.0, v_reset: -55.0, I: 65.0 },
+  'Adapting':      { tau: 20.0, alpha: 0.0,  w_tau: 100.0, beta: 5.0,  v_reset: -55.0, I: 65.0 },
+  'Initial burst': { tau: 5.0,  alpha: 0.5,  w_tau: 100.0, beta: 7.0,  v_reset: -51.0, I: 65.0 },
+  'Bursting':      { tau: 5.0,  alpha: -0.5, w_tau: 100.0, beta: 7.0,  v_reset: -46.0, I: 65.0 },
+  'Irregular':     { tau: 9.9,  alpha: -0.5, w_tau: 100.0, beta: 7.0,  v_reset: -46.0, I: 65.0 },
+  'Transient':     { tau: 10.0, alpha: 1.0,  w_tau: 100.0, beta: 10.0, v_reset: -60.0, I: 65.0 },
+  'Delayed':       { tau: 5.0,  alpha: -1.0, w_tau: 100.0, beta: 10.0, v_reset: -60.0, I: 25.0 },
 };
 
 function assertPositive(name, value) {
@@ -92,6 +121,29 @@ export function simulate(model, p, I, steps, dt = 1.0, initV = 0.0) {
     if (model === 'aelif') omega.push(r.omega);
   }
   return { v, spikes, omega };
+}
+
+// Spike times (ms) from a simulate() result, given dt.
+export function spikeTimes(spikes, dt) {
+  const t = [];
+  for (let i = 0; i < spikes.length; i++) if (spikes[i]) t.push(i * dt);
+  return t;
+}
+
+// Measurable firing-pattern statistics from spike times (ms).
+// cv: coefficient of variation of ISIs. early/late: mean ISI of the first/last
+// quarter of ISIs. Used to check whether a Table 6.1 pattern reproduces.
+export function firingStats(t) {
+  const isi = [];
+  for (let i = 1; i < t.length; i++) isi.push(t[i] - t[i - 1]);
+  const n = isi.length;
+  if (n < 2) return { n: t.length, first_t: t[0] ?? null, last_t: t[t.length - 1] ?? null, cv: null, early: null, late: null };
+  const mean = isi.reduce((a, b) => a + b, 0) / n;
+  const cv = Math.sqrt(isi.reduce((a, b) => a + (b - mean) ** 2, 0) / n) / mean;
+  const q = Math.max(1, Math.floor(n / 4));
+  const early = isi.slice(0, q).reduce((a, b) => a + b, 0) / q;
+  const late = isi.slice(-q).reduce((a, b) => a + b, 0) / q;
+  return { n: t.length, first_t: t[0], last_t: t[t.length - 1], cv, early, late };
 }
 
 // Smallest constant current that makes a LIF fire: I_rheo = (threshold - v_rest)/R.

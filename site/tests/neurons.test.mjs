@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  DEFAULTS,
+  AU_DEFAULTS,
+  TABLE61,
   lifStep,
   elifStep,
   aelifStep,
@@ -14,6 +15,8 @@ import {
   inherentNoise,
   makeActivityHomeostasis,
   makeVoltageHomeostasis,
+  spikeTimes,
+  firingStats,
 } from '../assets/js/models/neurons.js';
 
 const golden = JSON.parse(readFileSync(new URL('golden/neurons.json', import.meta.url), 'utf8'));
@@ -174,4 +177,83 @@ test('voltage homeostasis matches golden v and exhaustion traces', () => {
   }
   traceClose(vTrace, S.homeostasis_voltage.v);
   traceClose(exhTrace, S.homeostasis_voltage.exhaustion);
+});
+
+// --- Physiological cases (Gerstner Table 6.1 units) ---
+// CoNeX runs in float32, JS in float64, so long traces drift by a few mV.
+// Tolerances are set from the observed JS-vs-CoNeX gap, not tuned to pass.
+const PHYS_TOL = 5.0; // mV, max |dv| over a 5000-step physiological trace
+
+test('physiological LIF matches golden trace (Table 6.1 units)', () => {
+  const g = S.phys_lif;
+  const r = simulate('lif', g.params, g.current, g.steps, g.dt, g.params.v_rest);
+  traceClose(r.v, g.v, PHYS_TOL);
+  assert.deepEqual(r.spikes, g.spikes);
+});
+
+test('physiological ELIF matches golden trace (Table 6.1 units)', () => {
+  const g = S.phys_elif;
+  const r = simulate('elif', g.params, g.current, g.steps, g.dt, g.params.v_rest);
+  traceClose(r.v, g.v, PHYS_TOL);
+  assert.deepEqual(r.spikes, g.spikes);
+});
+
+test('physiological AELIF reproduces each Table 6.1 row spike count', () => {
+  // Spike counts match CoNeX exactly. The exact spike step can shift by <1 step
+  // over 5000 steps (CoNeX float32 vs JS float64), so compare counts, not the trace.
+  for (const [name, g] of Object.entries(S.phys_aelif)) {
+    const r = simulate('aelif', g.params, g.current, g.steps, g.dt, g.params.v_rest);
+    const js = r.spikes.filter(Boolean).length;
+    const cx = g.spikes.filter(Boolean).length;
+    assert.equal(js, cx, `AELIF ${name} spike count: js=${js} conex=${cx}`);
+  }
+});
+
+// Per-row firing-pattern signatures. A row is "reproduced" only if its measured
+// signature holds; otherwise it is labelled not-reproduced (see DOUBTS).
+function rowStats(name) {
+  const g = S.phys_aelif[name];
+  const r = simulate('aelif', g.params, g.current, g.steps, g.dt, g.params.v_rest);
+  return firingStats(spikeTimes(r.spikes, g.dt));
+}
+
+test('Tonic: ISIs nearly constant (low CV)', () => {
+  const s = rowStats('Tonic');
+  assert.ok(s.cv < 0.1, `Tonic CV=${s.cv} should be < 0.1`);
+});
+
+test('Adapting: ISIs increase over time (late > early)', () => {
+  const s = rowStats('Adapting');
+  assert.ok(s.late > s.early, `Adapting late ISI ${s.late} should exceed early ${s.early}`);
+});
+
+test('Initial burst: first ISIs much shorter than late ISIs', () => {
+  const s = rowStats('Initial burst');
+  assert.ok(s.early < 0.6 * s.late, `Initial burst early ${s.early} should be < 0.6*late ${s.late}`);
+});
+
+test('Transient: ISIs increase and firing stops (few spikes, late >> early)', () => {
+  const s = rowStats('Transient');
+  assert.ok(s.n < 40, `Transient should fire few spikes, got ${s.n}`);
+  assert.ok(s.late > 1.5 * s.early, `Transient late ${s.late} should exceed 1.5*early ${s.early}`);
+});
+
+test('Delayed: first spike much later than Tonic', () => {
+  const d = rowStats('Delayed');
+  const t = rowStats('Tonic');
+  assert.ok(d.first_t > 3 * t.first_t, `Delayed first spike ${d.first_t} should be > 3*Tonic ${t.first_t}`);
+});
+
+// Bursting and Irregular do NOT reproduce their named patterns with CoNeX's AELIF
+// at dt=0.1 ms: both fire nearly regularly (low CV, no ISI clusters). These tests
+// assert the ACTUAL (non-bursting, non-irregular) behavior so the plate can label
+// the rows honestly. See DOUBTS.
+test('Bursting: NOT reproduced (fires nearly regularly, low CV)', () => {
+  const s = rowStats('Bursting');
+  assert.ok(s.cv < 0.2, `Bursting CV=${s.cv} is low -> not a two-cluster ISI distribution`);
+});
+
+test('Irregular: NOT reproduced (fires nearly regularly, low CV)', () => {
+  const s = rowStats('Irregular');
+  assert.ok(s.cv < 0.2, `Irregular CV=${s.cv} is low -> ISIs are not irregular`);
 });

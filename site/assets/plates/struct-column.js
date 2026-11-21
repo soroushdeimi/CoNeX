@@ -3,7 +3,9 @@ import { corticalColumnStructure } from '../js/models/tbt.js';
 export const meta = {
   id: 'struct-column',
   title: 'Cortical column structure',
-  conex: ['CorticalColumn', 'Layer', 'Neocortex', 'CorticalLayerConnection'],
+  conex: ['PredictiveCorticalColumn', 'Layer', 'ErrorUnit', 'PrecisionWeighting', 'FreeEnergyMinimization',
+    'PredictionUnit', 'PredictiveCodingLearning', 'PredictiveSynapseInit', 'FeedforwardErrorSynapse',
+    'FeedbackPredictionSynapse', 'PredictiveSynapseLearning'],
   source: 'conex/nn/structure/numenta/predictive_hierarchy.py',
 };
 
@@ -225,11 +227,15 @@ export function mount(root, ui) {
   // --- notes ---
   ui.note(notes, `
     <p>A cortical column is a vertical stack of layers that all process the same
-    patch of input. CoNeX builds the column from <code>Layer</code> containers
-    (each holding one or more neuron groups) joined by
-    <code>CorticalLayerConnection</code> objects, all inside a
-    <code>CorticalColumn</code> container, which itself lives in a
-    <code>Neocortex</code> network.</p>
+    patch of input. <code>PredictiveCorticalColumn</code> builds each layer as a
+    <code>Layer</code> container holding one neuron group, and wires the layers
+    together with plain <code>SynapseGroup</code> objects carrying the predictive
+    coding behaviors. It is an independent class (not a
+    <code>CorticalColumn</code> subclass) and takes any PyMonntorch
+    <code>Network</code>. CoNeX also has the
+    <code>CorticalColumn</code> / <code>CorticalLayer</code> /
+    <code>CorticalLayerConnection</code> / <code>Neocortex</code> containers in
+    <code>conex/nn/structure</code>, but this plate does not use them.</p>
     <p>The predictive coding column wires the layers into the canonical
     microcircuit: <strong>L4</strong> receives feedforward input and computes
     errors, <strong>L2/3</strong> generates predictions and sends them back down,

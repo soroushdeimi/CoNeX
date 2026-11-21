@@ -94,6 +94,7 @@ export function mount(root, ui) {
   [ax, ay, bx, by].forEach((s) => s.onInput(rebuild));
 
   // --- figures: hero arena on top, plots below ---
+  ui.note(figures, '<em>Try this: move <code>B x</code> / <code>B y</code> and watch the vector arrow and the lit displacement cells change as the target moves.</em>');
   const hero = ui.hero(figures, { height: 300 });
   const dispPlot = ui.plot(figures, {
     height: 220, xLabel: 'displacement cell', xUnit: 'index',

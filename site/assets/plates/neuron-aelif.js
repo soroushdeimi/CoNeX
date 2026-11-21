@@ -148,10 +148,11 @@ export function mount(root, ui) {
       ctx.setLineDash([3, 3]);
     }
     ctx.setLineDash([]);
+    // v readout above the bar (the w readout is top-left, the markers are on the right).
     ctx.fillStyle = pal.ink;
     ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, x, bot + 4);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, x, top - 4);
     ctx.fillStyle = ui.color('c4');
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillText(`w = ${wNow.toFixed(2)} pA`, 6, 6);

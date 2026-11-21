@@ -153,10 +153,12 @@ def classifier_golden():
 
 def sp_golden():
     input_size, n_columns = 16, 8
+    # potential_pct=1.0 -> n_potential = input_size, so every column can
+    # connect to every input and the potential map is the identity.
     config = SpatialPoolerConfig(
         input_size=input_size,
         n_columns=n_columns,
-        potential_pct=0.5,
+        potential_pct=1.0,
         local_area_density=0.25,
         syn_perm_connected=0.1,
         syn_perm_active_inc=0.06,
@@ -169,35 +171,42 @@ def sp_golden():
     sp = pooler.spatial_pooler
 
     # Overwrite the random init with fixed values so the golden pins the
-    # compute/learn/duty/boost logic, not torch's random init.
+    # compute/learn/duty/boost logic, not torch's random init. Column c is
+    # connected to inputs 0..(7+c), so overlaps are distinct and the top-k
+    # winners are unambiguous (no tie-breaking to mirror).
     pooler.sp_potential_inputs = torch.arange(input_size).repeat(n_columns).view(n_columns, input_size)
-    pooler.sp_permanences = torch.full((n_columns, input_size), 0.1)
+    perm = torch.zeros(n_columns, input_size)
+    for c in range(n_columns):
+        for i in range(input_size):
+            perm[c, i] = 0.1 if i < (8 + c) else 0.05
+    pooler.sp_permanences = perm
+    assert sp.n_potential == input_size
 
-    x = torch.zeros(input_size)
-    x[0:8] = 1.0
-
-    # Step 1: every column sees 8 active connected inputs -> all tied at 8.
-    active1 = sp.compute(pooler, x, learn=True)
-    perm_after_1 = pooler.sp_permanences[0].tolist()
-    duty_after_1 = [pooler.sp_overlap_duty[0].item(), pooler.sp_active_duty[0].item()]
-
-    # Step 2: same input, no learning.
-    active2 = sp.compute(pooler, x, learn=False)
-
-    # Step 3: disjoint input (bits 8..15).
+    # Input with bits 8..15 active. Column c has (8+c) connected inputs, of
+    # which the active ones are inputs 8..(7+c): count = c. So overlaps are
+    # 0,1,2,...,7 and the top-2 winners are columns 6 and 7.
     y = torch.zeros(input_size)
     y[8:16] = 1.0
-    active3 = sp.compute(pooler, y, learn=True)
-    perm_after_3 = pooler.sp_permanences[0].tolist()
 
-    # Empty input: overlap 0 everywhere, topk still picks n_active columns.
+    active1 = sp.compute(pooler, y, learn=True)
+    perm_after_1 = pooler.sp_permanences[6].tolist()
+    duty_after_1 = [pooler.sp_overlap_duty[6].item(), pooler.sp_active_duty[6].item()]
+
+    # Same input, no learning: winners unchanged.
+    active2 = sp.compute(pooler, y, learn=False)
+
+    # Same input again with learning: permanences drift, winners unchanged.
+    active3 = sp.compute(pooler, y, learn=True)
+    perm_after_3 = pooler.sp_permanences[6].tolist()
+
+    # Empty input: overlap 0 everywhere, nothing active.
     active_empty = sp.compute(pooler, torch.zeros(input_size), learn=False)
 
     # Boosting: boost_strength > 0, run a few steps, read the factors.
     config_b = SpatialPoolerConfig(
         input_size=input_size,
         n_columns=n_columns,
-        potential_pct=0.5,
+        potential_pct=1.0,
         local_area_density=0.25,
         syn_perm_connected=0.1,
         duty_cycle_period=4,
@@ -207,15 +216,19 @@ def sp_golden():
     pooler_b = make_group(n_columns, SpatialPooler(config=config_b), tag="spb")
     spb = pooler_b.spatial_pooler
     pooler_b.sp_potential_inputs = torch.arange(input_size).repeat(n_columns).view(n_columns, input_size)
-    pooler_b.sp_permanences = torch.full((n_columns, input_size), 0.1)
+    perm_b = torch.zeros(n_columns, input_size)
+    for c in range(n_columns):
+        for i in range(input_size):
+            perm_b[c, i] = 0.1 if i < (8 + c) else 0.05
+    pooler_b.sp_permanences = perm_b
     for _ in range(3):
-        spb.compute(pooler_b, x, learn=True)
+        spb.compute(pooler_b, y, learn=True)
     boost = pooler_b.sp_boost_factors.tolist()
 
     return {
         "input_size": input_size,
         "n_columns": n_columns,
-        "potential_pct": 0.5,
+        "potential_pct": 1.0,
         "local_area_density": 0.25,
         "syn_perm_connected": 0.1,
         "syn_perm_active_inc": 0.06,
@@ -223,12 +236,14 @@ def sp_golden():
         "duty_cycle_period": 4,
         "n_active": sp.n_active,
         "n_potential": sp.n_potential,
+        "connected_pattern": "col c connected to inputs 0..(7+c), perm 0.1; else 0.05",
+        "input_active_bits": [8, 9, 10, 11, 12, 13, 14, 15],
         "active_step1": active1.nonzero(as_tuple=True)[0].tolist(),
-        "perm_col0_after_step1": perm_after_1,
-        "duty_col0_after_step1": duty_after_1,
+        "perm_col6_after_step1": perm_after_1,
+        "duty_col6_after_step1": duty_after_1,
         "active_step2": active2.nonzero(as_tuple=True)[0].tolist(),
         "active_step3": active3.nonzero(as_tuple=True)[0].tolist(),
-        "perm_col0_after_step3": perm_after_3,
+        "perm_col6_after_step3": perm_after_3,
         "active_empty": active_empty.nonzero(as_tuple=True)[0].tolist(),
         "boost_factors_after_3": boost,
     }

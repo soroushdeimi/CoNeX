@@ -7,6 +7,31 @@ export const meta = {
   source: 'conex/behaviors/neurons/numenta/sdr.py',
 };
 
+// Pure hero state for the encoder plate. The dial needle sits at the
+// normalized sweep value; the active block slides across the bit strip and the
+// bits shared with the reference are highlighted. t is the player time, in
+// value units (a.u.).
+export function encoderHeroState(run, t) {
+  const { o, ref } = run;
+  const v = o.min_val + t;
+  const cur = encodeScalar(v, o);
+  const refDense = run.base.toDense();
+  const curDense = cur.toDense();
+  const overlap = new Array(o.size).fill(0);
+  let nOverlap = 0;
+  for (let i = 0; i < o.size; i++) {
+    if (refDense[i] && curDense[i]) {
+      overlap[i] = 1;
+      nOverlap++;
+    }
+  }
+  const norm = Math.max(0, Math.min(1, (v - o.min_val) / (o.max_val - o.min_val)));
+  const narration =
+    `value ${v.toFixed(2)} a.u.: block of ${o.n_active} bits, ` +
+    `overlap with reference (${ref.toFixed(2)}) = ${nOverlap} bits`;
+  return { v, norm, refDense, curDense, overlap, nOverlap, narration };
+}
+
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
@@ -17,13 +42,9 @@ export function mount(root, ui) {
   const valueCtl = ui.slider(controls, { key: 'value', label: 'reference value', unit: 'a.u.', min: 0, max: 1, step: 0.01, value: 0.5, onInput: () => recompute() });
   const deltaCtl = ui.slider(controls, { key: 'delta', label: 'distance Δ', unit: 'a.u.', min: 0, max: 0.5, step: 0.01, value: 0.02, onInput: () => recompute() });
 
-  const bitsCanvas = ui.canvas(figures, { height: 90 });
-  // ui.canvas does not expose its <figure>, and site.css is shell-owned, so the
-  // caption is styled inline to match the .ui-figure figcaption look.
-  const bitsCap = document.createElement('div');
-  bitsCap.style.cssText = 'font-style:italic;color:var(--muted);font-size:0.85rem;margin-top:0.3rem;';
-  bitsCap.textContent = 'active bits (teal = reference block, coral = sweeping block)';
-  figures.appendChild(bitsCap);
+  // Hero: a value dial with a sweeping needle above the sliding bit strip.
+  const hero = ui.hero(figures, { height: 150 });
+  const heroCap = { set(text) { hero.narration(text); } };
   const overlapPlot = ui.plot(figures, { height: 220, xLabel: 'input value', yLabel: 'overlap', xUnit: 'a.u.', yUnit: 'bits' });
 
   function opts() {
@@ -41,10 +62,9 @@ export function mount(root, ui) {
   function frame(t) {
     if (!run) return;
     lastT = t;
-    const { o, ref, delta, base, xs, ys } = run;
+    const { o, ref, delta, xs, ys } = run;
     const v = o.min_val + t;
-    const cur = encodeScalar(v, o);
-    drawBitsFig(base, cur);
+    drawHero();
     overlapPlot.draw([{ x: xs, y: ys, label: 'overlap', color: 'c1', style: 'step' }], {
       xRange: [o.min_val, o.max_val],
       yRange: [0, o.n_active],
@@ -53,35 +73,65 @@ export function mount(root, ui) {
     });
   }
 
-  // Two rows: the reference block (fixed) and the sweeping block.
-  function drawBitsFig(base, cur) {
-    const { ctx, width, height } = bitsCanvas;
-    ctx.clearRect(0, 0, width, height);
+  // Hero: a value dial (needle at the normalized sweep value) above two rows
+  // of bits — the reference block (teal) and the sweeping block (coral), with
+  // the shared bits highlighted in ochre.
+  function drawHero() {
+    const st = encoderHeroState(run, lastT);
+    const { ctx, width, height } = hero;
     const pad = 8;
     const rowH = 18;
-    const c1 = ui.color('c1');
-    const c2 = ui.color('c2');
-    const muted = ui.color('muted');
+    const dialH = 40;
     const n = run.o.size;
     const gap = 2;
     const bw = (width - 2 * pad - gap * (n - 1)) / n;
-    const baseDense = base.toDense();
-    const curDense = cur.toDense();
+    const c1 = ui.color('c1');
+    const c2 = ui.color('c2');
+    const c3 = ui.color('c3');
+    const muted = ui.color('muted');
+    const ink = ui.color('ink');
+    ctx.clearRect(0, 0, width, height);
+
+    // Dial: a horizontal track with a needle at the normalized value.
+    const trackY = pad + dialH / 2;
+    ctx.strokeStyle = muted;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(pad, trackY);
+    ctx.lineTo(width - pad, trackY);
+    ctx.stroke();
+    const nx = pad + st.norm * (width - 2 * pad);
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(nx, trackY - 12);
+    ctx.lineTo(nx, trackY + 12);
+    ctx.stroke();
+    ctx.fillStyle = ink;
+    ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(st.v.toFixed(2), nx, trackY - 14);
+
+    // Bit rows below the dial.
+    const topY = pad + dialH;
     for (let i = 0; i < n; i++) {
       const x = pad + i * (bw + gap);
-      ctx.fillStyle = baseDense[i] ? c1 : muted;
-      ctx.fillRect(x, pad, bw, rowH);
-      ctx.fillStyle = curDense[i] ? c2 : muted;
-      ctx.fillRect(x, pad + rowH + 6, bw, rowH);
+      ctx.fillStyle = st.refDense[i] ? c1 : muted;
+      ctx.fillRect(x, topY, bw, rowH);
+      ctx.fillStyle = st.curDense[i] ? c2 : muted;
+      ctx.fillRect(x, topY + rowH + 6, bw, rowH);
+      if (st.overlap[i]) {
+        ctx.strokeStyle = c3;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 1, topY + rowH + 7, bw - 2, rowH - 2);
+      }
     }
+    heroCap.set(st.narration);
   }
-  // Canvas backing store resets on layout/resize, so register the draw via
-  // onResize (called after layout and on every resize) rather than once.
-  if (typeof bitsCanvas.onResize === 'function') bitsCanvas.onResize(() => {
-    if (!run) return;
-    const v = run.o.min_val + lastT;
-    drawBitsFig(run.base, encodeScalar(v, run.o));
-  });
+  // The hero canvas resets its backing store on resize and theme change, so
+  // register the draw via onResize (called after layout and on every resize).
+  hero.onResize(() => { if (run) drawHero(); });
 
   function recompute() {
     const o = opts();

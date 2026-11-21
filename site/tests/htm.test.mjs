@@ -18,6 +18,7 @@ import {
   TemporalMemoryDefaults,
 } from '../assets/js/models/htm.js';
 import { sdrHeroState } from '../assets/plates/htm-sdr.js';
+import { encoderHeroState } from '../assets/plates/htm-encoder.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const golden = JSON.parse(readFileSync(join(here, 'golden', 'htm.json'), 'utf8'));
@@ -467,4 +468,38 @@ test('sdr hero: time is clamped to the last sample at the end of the run', () =>
   assert.equal(st.idx, 1);
   assert.equal(st.next, 1);
   assert.deepEqual(st.sample, [0, 1, 1, 0]);
+});
+
+// Encoder hero: size=10, n_active=4, range [0,1]. center = trunc(norm*6).
+// v=0 -> bits 0-3; v=0.5 -> bits 3-6; v=1 -> bits 6-9. Reference at 0.5.
+function encRun() {
+  const o = { size: 10, n_active: 4, min_val: 0, max_val: 1 };
+  return { o, ref: 0.5, base: encodeScalar(0.5, o) };
+}
+
+test('encoder hero: at the reference value the sweep block fully overlaps', () => {
+  const st = encoderHeroState(encRun(), 0.5);
+  assert.equal(st.v, 0.5);
+  assert.equal(st.norm, 0.5);
+  assert.equal(st.nOverlap, 4); // same block as the reference
+  assert.deepEqual(st.curDense, st.refDense);
+});
+
+test('encoder hero: at the range edge the block shares one bit with the reference', () => {
+  const st = encoderHeroState(encRun(), 0); // v=0 -> bits 0-3, ref bits 3-6
+  assert.equal(st.nOverlap, 1); // only bit 3
+  assert.equal(st.overlap[3], 1);
+  assert.equal(st.overlap[0], 0);
+});
+
+test('encoder hero: the needle position is the normalized value', () => {
+  assert.equal(encoderHeroState(encRun(), 0).norm, 0);
+  assert.equal(encoderHeroState(encRun(), 1).norm, 1);
+});
+
+test('encoder hero: narration names the value, block size and overlap', () => {
+  const st = encoderHeroState(encRun(), 0.5);
+  assert.match(st.narration, /value 0\.50 a\.u\./);
+  assert.match(st.narration, /block of 4 bits/);
+  assert.match(st.narration, /overlap with reference \(0\.50\) = 4 bits/);
 });

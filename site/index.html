@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CoNeX — Cortical network for everything</title>
+  <link rel="stylesheet" href="assets/css/site.css">
+</head>
+<body>
+  <div class="page">
+    <div class="topbar">
+      <span class="brand"><a href="index.html">CoNeX</a></span>
+      <nav>
+        <a href="atlas/index.html">Atlas</a>
+        <a href="https://github.com/cnrl/CoNeX">GitHub</a>
+      </nav>
+      <span class="spacer"></span>
+      <button id="theme-toggle" class="ui-button" type="button">Dark</button>
+    </div>
+
+    <section class="hero">
+      <h1>CoNeX</h1>
+      <p>
+        CoNeX is a Python framework for building, simulating, and experimenting
+        with spiking neural networks, with a focus on modeling cortical
+        structures. Built on PyTorch and Pymonntorch, it provides a high-level
+        API to design network architectures inspired by the neocortex, such as
+        cortical layers and columns.
+      </p>
+      <p>
+        It is designed for researchers and developers in computational
+        neuroscience to create intricate models, define custom neuronal
+        behaviors, and apply learning rules such as Spike-Timing Dependent
+        Plasticity (STDP).
+      </p>
+      <p class="install-line">pip install cnrl-conex</p>
+    </section>
+
+    <section>
+      <h2>A short, real example</h2>
+      <p>
+        The example below is the HTM sequence-learning script that ships with
+        the library (<code>Example/numenta/htm_sequence_learning.py</code>).
+        Symbols are encoded as sparse distributed representations (SDRs), a
+        Spatial Pooler turns them into a stable set of active columns, and
+        Temporal Memory learns which element follows which. The anomaly score
+        starts at 1.0 (nothing is predicted yet) and falls to 0 once the
+        sequence <code>A B C D</code> is learned; an unexpected symbol
+        (<code>X</code>) spikes it back up.
+      </p>
+      <pre><code>import torch
+from pymonntorch import Network, NeuronGroup
+from conex import (
+    SDR, SpatialPooler, SpatialPoolerConfig,
+    TemporalMemory, TemporalMemoryConfig, TimeResolution,
+)
+
+net = Network(behavior={1: TimeResolution(dt=1.0)},
+              dtype=torch.float32, device="cpu")
+# ... build a SpatialPooler and TemporalMemory, then:
+net.initialize()
+net.simulate_iterations(12 * 4)   # 12 epochs of the A B C D sequence</code></pre>
+      <p>
+        Run it with <code>python Example/numenta/htm_sequence_learning.py</code>.
+        The output we got (CoNeX 0.1.5, Python 3.15):
+      </p>
+      <pre><code>epoch  mean anomaly  bursting columns
+    0         1.000              10.0
+    4         0.275               2.8
+    7         0.000               0.0
+   11         0.000               0.0
+
+Now break the pattern: A B X D
+symbol  anomaly  bursting columns
+     A    0.000                 0
+     X    1.000                10
+     D    1.000                10</code></pre>
+    </section>
+
+    <section>
+      <h2>Core concepts</h2>
+      <p>
+        A CoNeX model is built from a small set of nested structures. The
+        <code>Neocortex</code> is the top-level network; it holds
+        <code>CorticalColumn</code>s, each of which groups
+        <code>Layer</code>s (e.g. a cortical layer with excitatory and
+        inhibitory populations). Layers hold <code>NeuronGroup</code>s, and
+        <code>SynapseGroup</code>s connect neuron groups to each other.
+        <code>Behavior</code>s are the classes that give a group its dynamics
+        (for example an LIF neuron model or an STDP learning rule).
+      </p>
+      <figure class="ui-figure">
+        <svg viewBox="0 0 640 300" role="img"
+             aria-label="Nesting diagram: Neocortex contains CorticalColumn, which contains Layer, which contains NeuronGroup; SynapseGroup connects NeuronGroups; Behavior is attached to a group.">
+          <style>
+            .box { fill: var(--card); stroke: var(--rule); stroke-width: 1.5; }
+            .lbl { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; fill: var(--ink); }
+            .sub { font: 11px system-ui, sans-serif; fill: var(--muted); }
+            .edge { stroke: var(--muted); stroke-width: 1.2; fill: none; }
+          </style>
+          <rect class="box" x="10" y="10" width="620" height="280" rx="6"/>
+          <text class="lbl" x="24" y="34">Neocortex</text>
+          <rect class="box" x="40" y="52" width="360" height="220" rx="6"/>
+          <text class="lbl" x="54" y="76">CorticalColumn</text>
+          <rect class="box" x="70" y="92" width="300" height="160" rx="6"/>
+          <text class="lbl" x="84" y="116">Layer</text>
+          <rect class="box" x="100" y="132" width="120" height="100" rx="6"/>
+          <text class="lbl" x="112" y="156">NeuronGroup</text>
+          <text class="sub" x="112" y="176">LIF, ELIF, AELIF</text>
+          <rect class="box" x="240" y="132" width="120" height="100" rx="6"/>
+          <text class="lbl" x="252" y="156">NeuronGroup</text>
+          <text class="sub" x="252" y="176">inhibitory</text>
+          <path class="edge" d="M 220 182 H 240" marker-end="url(#arr)"/>
+          <path class="edge" d="M 240 196 H 220" marker-end="url(#arr)"/>
+          <text class="sub" x="200" y="216" text-anchor="middle">SynapseGroup</text>
+          <rect class="box" x="430" y="132" width="180" height="100" rx="6"/>
+          <text class="lbl" x="444" y="156">Behavior</text>
+          <text class="sub" x="444" y="176">dynamics attached to a</text>
+          <text class="sub" x="444" y="192">group (LIF, STDP, ...)</text>
+          <path class="edge" d="M 430 182 H 222" marker-end="url(#arr)"/>
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5"
+                    markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)"/>
+            </marker>
+          </defs>
+        </svg>
+        <figcaption>How the structures nest: Neocortex &gt; CorticalColumn &gt; Layer &gt; NeuronGroup, with SynapseGroups between groups and Behaviors attached to them.</figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2>Explore the atlas</h2>
+      <p>
+        The atlas is a set of interactive plates, grouped into four areas.
+        Each plate mirrors a piece of the CoNeX code and lets you adjust every
+        parameter.
+      </p>
+      <div class="area-cards">
+        <a class="plate-card" href="atlas/index.html#neurons">
+          <div class="title">Neurons</div>
+          <div class="summary">Neuron models: LIF, ELIF, AELIF and their voltage dynamics.</div>
+        </a>
+        <a class="plate-card" href="atlas/index.html#plasticity">
+          <div class="title">Plasticity</div>
+          <div class="summary">Synaptic learning rules: STDP, RSTDP and iSTDP.</div>
+        </a>
+        <a class="plate-card" href="atlas/index.html#htm">
+          <div class="title">HTM</div>
+          <div class="summary">Hierarchical Temporal Memory: spatial pooler and temporal memory.</div>
+        </a>
+        <a class="plate-card" href="atlas/index.html#tbt">
+          <div class="title">Thousand Brains Theory</div>
+          <div class="summary">Grid cells, active dendrites, column voting and predictive coding.</div>
+        </a>
+      </div>
+    </section>
+
+    <section>
+      <h2>Links</h2>
+      <p>
+        <a href="https://github.com/cnrl/CoNeX">GitHub</a>
+        &middot;
+        <a href="https://pypi.org/project/cnrl-conex/">PyPI</a>
+        &middot;
+        <a href="https://github.com/cnrl/CoNeX/tree/main/docs">Documentation</a>
+      </p>
+      <p>
+        CoNeX is developed by the CNRL lab. Authors: Ashena Gorgan Mohammadi,
+        Ali Rahimi, Amir Hosein Ebrahimi, Saman Arzaghi, Amin Zeinali and
+        Amir Naderi.
+      </p>
+    </section>
+
+    <footer class="site-footer">
+      CoNeX — a teaching site for the <a href="https://github.com/cnrl/CoNeX">CoNeX</a> library.
+    </footer>
+  </div>
+
+  <script type="module">
+    import ui from './assets/js/ui.js';
+    const themeBtn = document.getElementById('theme-toggle');
+    function syncThemeBtn() {
+      themeBtn.textContent = ui.getTheme() === 'light' ? 'Dark' : 'Light';
+    }
+    themeBtn.addEventListener('click', () => {
+      ui.setTheme(ui.getTheme() === 'light' ? 'dark' : 'light');
+      syncThemeBtn();
+    });
+    syncThemeBtn();
+  </script>
+</body>
+</html>

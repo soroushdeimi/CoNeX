@@ -82,7 +82,14 @@ export function mount(root, ui) {
       xRange: [0, run.classIdx.length],
       yRange: [0, maxBar * 1.1],
     });
-    readout.textContent = st.narration;
+    // During inference, name the current prediction (argmax of the scores).
+    let pred = '';
+    if (st.phase === 'infer' && st.kbits > 0) {
+      let best = 0;
+      for (let c = 1; c < st.bars.length; c++) if (st.bars[c] > st.bars[best]) best = c;
+      pred = ` · current prediction: class ${best}`;
+    }
+    readout.textContent = st.narration + pred;
   }
 
   // Hero: a row of class buckets. The current SDR (teal bits) flies into its

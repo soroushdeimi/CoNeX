@@ -76,8 +76,10 @@ export function mount(root, ui) {
       yRange: [0, o.n_active],
     });
 
+    if (!dynNotes) return;
+    dynNotes.innerHTML = '';
     ui.note(
-      notes,
+      dynNotes,
       `<p>The scalar encoder maps a value to a contiguous block of <b>${o.n_active}</b> active bits whose center tracks the ` +
         `normalized value, wrapping around at the end. Value <b>${value.toFixed(2)}</b> and value <b>${(value + delta).toFixed(2)}</b> ` +
         `(Δ = ${delta.toFixed(2)} a.u.) share <b>${overlap}</b> bits.</p>` +
@@ -85,6 +87,21 @@ export function mount(root, ui) {
         `This is how a continuous quantity becomes a sparse code that HTM can compare by overlap. ` +
         `Values are clamped to [<b>${o.min_val}</b>, <b>${o.max_val}</b>]. All values are dimensionless (a.u.).</p>`
     );
+    ui.code(dynNotes, () =>
+      `from conex import SDREncoder\n` +
+      `enc = SDREncoder(size=${o.size}, n_active=${o.n_active}, encoder_type="scalar",\n` +
+      `                 min_val=${o.min_val}, max_val=${o.max_val})\n` +
+      `a = enc.encode_scalar(${value.toFixed(2)})\n` +
+      `b = enc.encode_scalar(${(value + delta).toFixed(2)})\n` +
+      `a.overlap(b)   # ${overlap} bits`
+    );
+  }
+
+  // Dynamic notes (readout + code) live in their own box, cleared each update
+  // so they do not accumulate as the student changes controls.
+  let dynNotes = null;
+
+  function staticNotes() {
     ui.equation(
       notes,
       `<div>center = ⌊ <var>norm</var>(<var>v</var>) · (<var>n</var> − <var>w</var>) ⌋, &nbsp; norm(v) = clamp((v − min)/(max − min), 0, 1)</div>`
@@ -96,16 +113,11 @@ export function mount(root, ui) {
         `<b>ML analogy:</b> a quantizer / one-hot with a soft neighborhood. ` +
         `The analogy breaks because the wrap-around makes the space circular, so the two ends of the range are neighbors.</p>`
     );
-    ui.code(notes, () =>
-      `from conex import SDREncoder\n` +
-      `enc = SDREncoder(size=${o.size}, n_active=${o.n_active}, encoder_type="scalar",\n` +
-      `                 min_val=${o.min_val}, max_val=${o.max_val})\n` +
-      `a = enc.encode_scalar(${value.toFixed(2)})\n` +
-      `b = enc.encode_scalar(${(value + delta).toFixed(2)})\n` +
-      `a.overlap(b)   # ${overlap} bits`
-    );
+    dynNotes = document.createElement('div');
+    notes.appendChild(dynNotes);
   }
 
+  staticNotes();
   redraw();
   ui.onTheme(redraw);
   return { destroy() {} };

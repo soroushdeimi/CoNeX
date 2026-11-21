@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   encodeHash, decodeHash, rng, computeTicks, niceNum, dataRange, fmtTick,
-  formatValue, listenerList,
+  formatValue, listenerList, clampTime, playerAdvance,
 } from '../assets/js/core.js';
 
 // --- URL-hash encode/decode ------------------------------------------------
@@ -233,4 +233,47 @@ test('listenerList.emit is safe with no listeners and after unsubscribe', () => 
   const off = ll.add(() => {});
   off();
   ll.emit(4); // all unsubscribed: no throw
+});
+
+// --- clampTime / playerAdvance (backing ui.player) -------------------------
+
+test('clampTime keeps t within [0, duration]', () => {
+  assert.equal(clampTime(5, 100), 5);
+  assert.equal(clampTime(-5, 100), 0);
+  assert.equal(clampTime(150, 100), 100);
+});
+
+test('clampTime maps non-finite input to 0', () => {
+  assert.equal(clampTime(NaN, 100), 0);
+  assert.equal(clampTime(Infinity, 100), 0);
+  assert.equal(clampTime(-Infinity, 100), 0);
+});
+
+test('playerAdvance advances at speed * duration / playSeconds per real second', () => {
+  // duration 100 over 5 real seconds at 1x => 20 model units per real second
+  assert.equal(playerAdvance(0, 1000, 100, 5, 1, false), 20);
+  assert.equal(playerAdvance(0, 500, 100, 5, 1, false), 10);
+  assert.equal(playerAdvance(10, 500, 100, 5, 1, false), 20);
+});
+
+test('playerAdvance scales with speed', () => {
+  assert.equal(playerAdvance(0, 1000, 100, 5, 2, false), 40);
+  assert.equal(playerAdvance(0, 1000, 100, 5, 0.5, false), 10);
+});
+
+test('playerAdvance clamps at duration when not looping', () => {
+  assert.equal(playerAdvance(90, 1000, 100, 5, 1, false), 100);
+  assert.equal(playerAdvance(0, 10000, 100, 5, 1, false), 100);
+});
+
+test('playerAdvance wraps past the end when looping', () => {
+  assert.equal(playerAdvance(90, 1000, 100, 5, 1, true), 10);
+  assert.equal(playerAdvance(95, 2000, 100, 5, 1, true), 35);
+  // wraps more than once in a single large step
+  assert.equal(playerAdvance(95, 6000, 100, 5, 1, true), 15);
+});
+
+test('playerAdvance with a zero step stays put', () => {
+  assert.equal(playerAdvance(30, 0, 100, 5, 1, false), 30);
+  assert.equal(playerAdvance(30, 0, 100, 5, 1, true), 30);
 });

@@ -41,6 +41,7 @@ export function mount(root, ui) {
   });
 
   let model = buildModel();
+  let lastActive = [];
   function buildModel() {
     const nc = nCells.get();
     const ns = nSegments.get();
@@ -75,7 +76,7 @@ export function mount(root, ui) {
   // --- figures ---
   const segCanvas = ui.canvas(figures, { height: 260 });
   const depolPlot = ui.plot(figures, {
-    height: 200, xLabel: 'cell', xUnit: '', yLabel: 'depolarization', yUnit: 'a.u.',
+    height: 200, xLabel: 'cell', xUnit: 'index', yLabel: 'depolarization', yUnit: 'a.u.',
   });
 
   function contextSdr() {
@@ -93,8 +94,9 @@ export function mount(root, ui) {
     seg.computeSegmentActivation(active);
     seg.computeDepolarization();
     context.updatePredictions(null, seg.depolarization);
+    lastActive = active;
 
-    drawSegments(active);
+    drawSegments();
     depolPlot.draw(
       [
         { x: Array.from({ length: nc }, (_, i) => i), y: Array.from(seg.depolarization), label: 'depolarization', color: 'c1' },
@@ -104,7 +106,8 @@ export function mount(root, ui) {
     void nS;
   }
 
-  function drawSegments(active) {
+  function drawSegments() {
+    const active = lastActive;
     const { ctx, width, height } = segCanvas;
     ctx.clearRect(0, 0, width, height);
     const { seg, nc, ns } = model;
@@ -162,6 +165,9 @@ export function mount(root, ui) {
     void c2; void c5;
   }
 
+  // The segment canvas must draw inside onResize (called after layout and on
+  // every resize); drawing once at mount with a 0 width would leave it empty.
+  segCanvas.onResize(drawSegments);
   render();
   ui.onTheme(render);
 
@@ -204,12 +210,12 @@ config = DendriticSegmentConfig(
     n_synapses_per_segment=${nSyn.get()},
     activation_threshold=${actThresh.get()},
     learning_threshold=${learnThresh.get()},
-    connected_permanence=${connPerm.get()},
+    connected_permanence=${fmt(connPerm.get())},
 )
 segments = DendriticSegment(
     n_segments=${nSegments.get()}, n_cells=${nCells.get()}, config=config,
 )
-context = ContextualPrediction(depolarization_threshold=${depolThresh.get()})
+context = ContextualPrediction(depolarization_threshold=${fmt(depolThresh.get())})
 
 net = Network(behavior={1: TimeResolution(dt=1.0)}, dtype=torch.float32, device="cpu")
 neurons = NeuronGroup(
@@ -249,4 +255,10 @@ function pickDistinct(rng, n, k) {
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
   return pool.slice(0, Math.min(k, n));
+}
+
+// At most 4 significant digits for numbers shown in text and code snippets.
+function fmt(v) {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return String(v);
+  return Number(v.toPrecision(4)).toString();
 }

@@ -97,6 +97,7 @@ function makeUi() {
     _code: [],    // code() functions
     _sliders: [], // { control, min, max }
     _buttons: [],
+    _canvasResizes: [], // onResize handlers, fired after mount (initial layout)
   };
 
   ui.layout = (root) => {
@@ -163,7 +164,11 @@ function makeUi() {
     const ctx = makeCtx();
     canvas.getContext = () => ctx;
     parent.appendChild(canvas);
-    return { canvas, ctx, width: 400, height: opts.height };
+    const st = { canvas, ctx, width: 400, height: opts.height };
+    // The real ui calls the onResize handler after layout and on every resize.
+    // We record it and fire it once after mount (the initial layout pass).
+    st.onResize = (fn) => { ui._canvasResizes.push(fn); };
+    return st;
   };
 
   ui.note = (parent, html) => {
@@ -263,6 +268,13 @@ async function checkPlate(platePath) {
   const root = makeEl('div');
   const handle = mod.mount(root, ui);
   assert.equal(typeof handle.destroy, 'function', `${id}: mount did not return {destroy()}`);
+
+  // Simulate the initial layout pass: the real ui calls each canvas.onResize
+  // handler once after layout (and on every resize). A canvas that only draws
+  // at mount with a 0 width would be empty; drawing inside onResize is the fix.
+  for (const fn of ui._canvasResizes) {
+    assert.doesNotThrow(fn, `${id}: canvas onResize handler threw`);
+  }
 
   // Every created plot/raster/heatmap got at least one draw, all finite.
   // (A plate may legitimately use only ui.canvas, in which case there are none.)

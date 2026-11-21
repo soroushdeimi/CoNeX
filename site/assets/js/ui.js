@@ -691,7 +691,7 @@ export function equation(parent, html) {
   const div = document.createElement('div');
   div.className = 'ui-equation';
   div.innerHTML = html;
-  parent.appendChild(div);
+  parent.insertBefore(div, parent.firstChild);
   return div;
 }
 
@@ -1074,6 +1074,23 @@ export function hero(parent, { height = 320 } = {}) {
   };
 }
 
+// A short "Try this" experiment line: one sentence naming what to change and
+// what to watch. Inserted at the top of the figures column, above the hero.
+export function tryThis(parent, text) {
+  const div = document.createElement('div');
+  div.className = 'ui-trythis';
+  const icon = document.createElement('span');
+  icon.className = 'ui-trythis-icon';
+  icon.innerHTML =
+    '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">' +
+    '<path d="M8 1l1.6 5.4L15 8l-5.4 1.6L8 15 6.4 9.6 1 8l5.4-1.6z" fill="currentColor"/></svg>';
+  const p = document.createElement('span');
+  p.textContent = text;
+  div.append(icon, p);
+  parent.insertBefore(div, parent.firstChild);
+  return div;
+}
+
 // AMENDMENT 5: a one-line narration caption, driven by the model state.
 export function narration(parent) {
   const p = document.createElement('p');
@@ -1091,7 +1108,7 @@ export function narration(parent) {
 
 const ui = {
   layout, section, slider, number, select, toggle, button,
-  plot, raster, heatmap, canvas, hero, narration,
+  plot, raster, heatmap, canvas, hero, narration, tryThis,
   note, equation, code,
   rng, color, onTheme, animate, player, live, ease,
   setTheme, getTheme, keyedParams,

@@ -85,6 +85,14 @@ with no scrubber. Slider changes apply on the next step without a reset; control
 that change sizes or seeds call `reset()`. It autoplays on mount, pauses while the
 tab is hidden, and starts paused for users who prefer reduced motion.
 
+## Try-this experiment line
+
+`ui.tryThis(figures, text)` adds a short highlighted "Try this" line — a star
+icon plus one sentence naming what to change and what to watch — at the top of
+the figures column, above the hero. Call it once in `mount`, before creating
+the hero, e.g. `ui.tryThis(figures, 'Raise I; watch threshold crossings become
+more frequent.')`.
+
 ## Hero animation and narration
 
 `ui.hero(parent, {height})` is the large animated diagram at the top of the

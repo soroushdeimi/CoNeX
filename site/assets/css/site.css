@@ -294,6 +294,25 @@ pre {
   background: var(--card);
 }
 
+/* "Try this" experiment line: a short highlighted prompt above the hero */
+.ui-trythis {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--c3);
+  border-left: 3px solid var(--c3);
+  border-radius: 4px;
+  background: var(--card);
+  font-size: 0.92rem;
+}
+.ui-trythis-icon {
+  flex: none;
+  margin-top: 0.2rem;
+  color: var(--c3);
+}
+
 /* Narration line (AMENDMENT 5): one line under the hero, driven by the model */
 .ui-narration {
   margin-top: 0.4rem;

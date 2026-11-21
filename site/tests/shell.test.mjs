@@ -424,3 +424,55 @@ test('ease clamps out-of-range and non-finite input', () => {
   assert.equal(ease(NaN), 0); // NaN maps to 0
   assert.equal(ease(Infinity), 1); // +Infinity clamps to 1
 });
+
+// --- ui.tryThis (real ui.js, minimal DOM stub) ------------------------------
+
+function fakeEl(tag = 'div') {
+  const e = {
+    tagName: tag,
+    children: [],
+    className: '',
+    textContent: '',
+    _innerHTML: '',
+    append(...cs) { e.children.push(...cs); },
+    insertBefore(c, ref) {
+      const i = ref ? e.children.indexOf(ref) : 0;
+      e.children.splice(i === -1 ? 0 : i, 0, c);
+      return c;
+    },
+  };
+  Object.defineProperty(e, 'innerHTML', {
+    get() { return e._innerHTML; },
+    set(v) { e._innerHTML = String(v); },
+  });
+  return e;
+}
+
+test('ui.tryThis inserts the experiment line at the top of the figures column', async () => {
+  globalThis.document = {
+    documentElement: { setAttribute() {} },
+    createElement: (t) => fakeEl(t),
+  };
+  const ui = await import('../assets/js/ui.js');
+  const figures = fakeEl('div');
+  const existing = fakeEl('div');
+  figures.children.push(existing);
+
+  const line = ui.tryThis(figures, 'Raise I; watch threshold crossings become more frequent.');
+
+  assert.equal(figures.children[0], line, 'try-this line must be first child');
+  assert.equal(figures.children[1], existing, 'existing children keep their order');
+  assert.equal(line.className, 'ui-trythis');
+  assert.equal(line.children.length, 2, 'icon + text');
+  assert.equal(line.children[0].className, 'ui-trythis-icon');
+  assert.ok(line.children[0]._innerHTML.includes('<svg'), 'icon is an inline svg');
+  assert.equal(line.children[1].textContent, 'Raise I; watch threshold crossings become more frequent.');
+});
+
+test('ui.tryThis works on an empty figures column', async () => {
+  const ui = await import('../assets/js/ui.js');
+  const figures = fakeEl('div');
+  const line = ui.tryThis(figures, 'Watch the trace.');
+  assert.equal(figures.children.length, 1);
+  assert.equal(figures.children[0], line);
+});

@@ -61,10 +61,15 @@ test('dendritic segment: step activations and permanences match golden', () => {
     assert.deepEqual(actRes.matching, stepData.matching_segments);
     close(actRes.depolarization[0], stepData.depolarization);
 
+    const grownTargets = stepData.targets_before[0].includes(-1)
+      ? stepData.targets_after[0].slice(15)
+      : null;
+
     model.learnOnSegments({
       activeCells: [true],
       winnerCells: [true],
       presynapticActivity: stepData.presynaptic_activity,
+      newTargets: grownTargets,
     });
 
     for (let s = 0; s < 2; s++) {

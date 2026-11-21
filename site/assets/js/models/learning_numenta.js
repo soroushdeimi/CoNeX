@@ -143,7 +143,7 @@ export class DendriticSegmentModel {
     }
   }
 
-  learnOnSegments({ activeCells, winnerCells, presynapticActivity, rng }) {
+  learnOnSegments({ activeCells, winnerCells, presynapticActivity, rng, newTargets }) {
     const totalSegs = this.nCells * this.nSegments;
     const actions = [];
 
@@ -236,9 +236,9 @@ export class DendriticSegmentModel {
       // Grow new synapses into empty slots if room
       if (emptySlots.length > 0 && activePresynaptic.length > 0 && this.maxNewSynapses > 0) {
         const nToGrow = Math.min(emptySlots.length, this.maxNewSynapses, activePresynaptic.length);
-        // Select presynaptic candidates (using rng if provided, or first n)
-        let candidates = [...activePresynaptic];
-        if (rng && typeof rng.next === 'function') {
+        // Select presynaptic candidates (using newTargets if provided, else rng/activePresynaptic)
+        let candidates = newTargets || [...activePresynaptic];
+        if (!newTargets && rng && typeof rng.next === 'function') {
           // Fisher-Yates shuffle
           for (let i = candidates.length - 1; i > 0; i--) {
             const j = Math.floor(rng.next() * (i + 1));

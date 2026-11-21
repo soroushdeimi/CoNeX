@@ -1,0 +1,42 @@
+{
+  "area": "plasticity",
+  "title": "Plasticity & encoding",
+  "order": 2,
+  "plates": [
+    {
+      "id": "enc-poisson",
+      "title": "Poisson & latency encoding",
+      "summary": "Turn a 16x16 grayscale pattern into spikes with SimplePoisson, Poisson and Intensity2Latency.",
+      "level": "intro",
+      "conex": ["SimplePoisson", "Poisson", "Intensity2Latency"]
+    },
+    {
+      "id": "syn-stdp",
+      "title": "Spike-timing dependent plasticity",
+      "summary": "Two neurons, pre/post spike trains, the STDP window and the weight change.",
+      "level": "intro",
+      "conex": ["SimpleSTDP", "PreTrace", "PostTrace"]
+    },
+    {
+      "id": "syn-istdp",
+      "title": "Inhibitory STDP",
+      "summary": "Symmetric iSTDP drives the postsynaptic rate toward a target.",
+      "level": "core",
+      "conex": ["SimpleiSTDP"]
+    },
+    {
+      "id": "syn-rstdp",
+      "title": "Reward-modulated STDP",
+      "summary": "Eligibility, dopamine and payoff gate the STDP weight change.",
+      "level": "core",
+      "conex": ["SimpleRSTDP", "Dopamine", "Payoff"]
+    },
+    {
+      "id": "syn-connections",
+      "title": "Dendritic connection types",
+      "summary": "Weight patterns and currents for dense, sparse, one-to-one, conv2d, local2d, lateral and average-pool inputs.",
+      "level": "core",
+      "conex": ["SimpleDendriticInput", "SparseDendriticInput", "One2OneDendriticInput", "Conv2dDendriticInput", "Local2dDendriticInput", "LateralDendriticInput", "AveragePool2D"]
+    }
+  ]
+}

@@ -44,6 +44,10 @@ export function mount(root, ui) {
   input is strong enough that no stable fixed point sits below threshold, the voltage runs away and fires.
   The vertical axis is clipped to a readable window; above <var>theta</var><sub>rh</sub> the exponential term makes
   d<var>v</var>/d<var>t</var> grow without bound, so the curve leaves the top of the window there.
+  In the voltage trace the spike peaks look like they only reach about −25 mV even though the
+  detection threshold is 0 mV: at dt=0.1 ms the upstroke is a single Euler step, so the step that
+  crosses threshold is reset before it is recorded and the plotted peak is the last value below
+  threshold, not the true peak.
   ML analogy: the exponential term is like a soft, self-reinforcing "excitation" — the analogy breaks
   because it is a deterministic dynamical term, not a learned weight.`);
   ui.code(notes, () => codeSnippet());

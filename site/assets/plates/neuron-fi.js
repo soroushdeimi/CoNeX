@@ -82,7 +82,7 @@ export function mount(root, ui) {
       x: CURRENTS.slice(),
       y: CURRENTS.map((c) => lifRateAnalytic(lif, c) * 1000),
       label: 'LIF analytic',
-      color: 'c1',
+      color: 'ink',
       style: 'dots',
     });
     // Rate curves start at 0; pin the axis to 0 so the onset is readable.

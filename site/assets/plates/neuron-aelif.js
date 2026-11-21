@@ -88,8 +88,9 @@ export function mount(root, ui) {
     const s = firingStats(spikeTimes(spikes, p.dt));
     const name = cPattern.get();
     const reproduced = !NOT_REPRODUCED.has(name);
-    status.textContent = `${name}: ${s.n} spikes in ${STEPS * p.dt} ms, CV=${s.cv?.toFixed(3) ?? '—'}, ` +
-      `first spike ${s.first_t ?? '—'} ms — ${reproduced ? 'pattern reproduced' : 'not reproduced at this dt'}`;
+    const first = s.first_t == null ? '—' : s.first_t.toPrecision(4);
+    status.textContent = `${name}: ${s.n} spikes in ${(STEPS * p.dt).toPrecision(4)} ms, CV=${s.cv?.toPrecision(3) ?? '—'}, ` +
+      `first spike ${first} ms — ${reproduced ? 'pattern reproduced' : 'not reproduced at this dt'}`;
   }
 
   function codeSnippet() {

@@ -5,6 +5,7 @@
 // SimpleRSTDP, One2OneRSTDP, SparseRSTDP, Conv2dRSTDP, Local2dRSTDP.
 
 import * as M from '../js/models/learning.js';
+import * as A from '../js/anim.js';
 
 export const meta = {
   id: 'learn-stdp-family',
@@ -274,6 +275,8 @@ function drawHeatmap(canvasObj, ui, matrix, rows, cols, { rowLabel, colLabel, ru
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
+  const hero = ui.hero(figures, { height: 300 });
+
   const state = {
     rule: 'STDP',
     connection: 'Simple',
@@ -407,6 +410,94 @@ export function mount(root, ui) {
     }
   }
 
+  // Hero: the weight matrix / kernel as a grid of synapses whose size and colour
+  // morph with the weights; pre/post spikes flash on their rows/cols; for Conv2d
+  // a single kernel is shown sliding across the 4x4 input.
+  function drawHero(t) {
+    const ctx = hero.ctx, W = hero.width, H = hero.height;
+    const c1 = ui.color('c1'), c2 = ui.color('c2'), c5 = ui.color('c5');
+    const ink = ui.color('ink'), muted = ui.color('muted'), rule = ui.color('rule');
+    ctx.clearRect(0, 0, W, H);
+    const topo = cachedTopology;
+    const weights = cachedSimulation.history_weights[t];
+    const preRow = cachedPreSpikes[t];
+    const postRow = cachedPostSpikes[t];
+    const range = (cachedRunMax - cachedRunMin) || 1e-6;
+
+    const isConv = topo.is_conv;
+    const isLocal = topo.is_local;
+
+    if (isConv || isLocal) {
+      // input 4x4 grid (left) with the kernel window (right)
+      const cell = Math.min(W * 0.16, H * 0.22);
+      const gx0 = W * 0.06, gy0 = (H - 4 * cell) / 2;
+      const nPre = cachedPreSpikes[0].length; // 16
+      for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+        const i = r * 4 + c;
+        const on = preRow[i] === 1;
+        ctx.fillStyle = on ? c2 : rule;
+        ctx.globalAlpha = on ? 1 : 0.4;
+        ctx.fillRect(gx0 + c * cell, gy0 + r * cell, cell, cell);
+      }
+      ctx.globalAlpha = 1;
+      // the sliding kernel window (Conv2d: one shared kernel; Local2d: the
+      // kernel of the output position the window covers)
+      const kh = topo.kh, kw = topo.kw;
+      const win = Math.floor(t / 2) % 2; // window slides one cell every 2 steps
+      const wx0 = gx0 + win * cell, wy0 = gy0 + win * cell;
+      ctx.strokeStyle = c5; ctx.lineWidth = 3;
+      ctx.strokeRect(wx0, wy0, kh * cell, kw * cell);
+      // the kernel weights as a small grid (right)
+      const kcell = cell * 0.8;
+      const kx0 = W * 0.62, ky0 = (H - kh * kcell) / 2;
+      for (let a = 0; a < kh; a++) for (let b = 0; b < kw; b++) {
+        const wv = isLocal ? weights[(t % 4) * kh * kw + a * kw + b] : weights[a * kw + b];
+        const frac = A.stdpFamCellFrac(wv, cachedRunMin, cachedRunMax);
+        ctx.fillStyle = mixHex(ui.color('paper'), c1, frac);
+        ctx.fillRect(kx0 + b * kcell, ky0 + a * kcell, kcell, kcell);
+        ctx.strokeStyle = rule; ctx.lineWidth = 1;
+        ctx.strokeRect(kx0 + b * kcell, ky0 + a * kcell, kcell, kcell);
+      }
+      ctx.fillStyle = ink; ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillText('4x4 input (spikes flash)', gx0 + 2 * cell, H * 0.94);
+      ctx.fillText(isLocal ? 'local kernel' : 'shared kernel', kx0 + (kw * kcell) / 2, H * 0.94);
+      return;
+    }
+
+    // matrix / diagonal layouts: rows = post, cols = pre
+    const rows = topo.rows, cols = topo.cols;
+    const mat = topo.toMatrix(weights); // proper rows x cols matrix (sparse -> dense)
+    const cell = Math.min(W * 0.12, H * 0.16);
+    const gx0 = W * 0.28, gy0 = (H - rows * cell) / 2;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const wv = mat[r * cols + c];
+      const frac = A.stdpFamCellFrac(wv, cachedRunMin, cachedRunMax);
+      const size = cell * (0.35 + 0.65 * frac);
+      const cx = gx0 + (c + 0.5) * cell, cy = gy0 + (r + 0.5) * cell;
+      ctx.fillStyle = mixHex(ui.color('paper'), c1, frac);
+      ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
+      ctx.strokeStyle = rule; ctx.lineWidth = 1;
+      ctx.strokeRect(cx - size / 2, cy - size / 2, size, size);
+    }
+    // pre spikes flash on their columns, post spikes on their rows
+    ctx.fillStyle = c2;
+    for (let c = 0; c < cols; c++) if (preRow[c] === 1) {
+      ctx.globalAlpha = 0.5;
+      ctx.fillRect(gx0 + c * cell, gy0 - 6, cell, 4);
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = c5;
+    for (let r = 0; r < rows; r++) {
+      if (postRow[r] === 1) {
+        ctx.globalAlpha = 0.5;
+        ctx.fillRect(gx0 - 6, gy0 + r * cell, 4, cell);
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = ink; ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(`${topo.rowLabel} (rows)  x  ${topo.colLabel} (cols)`, W / 2, H * 0.94);
+  }
+
   function renderAt(step) {
     if (!cachedSimulation || !cachedTopology) recompute();
     const t = Math.max(0, Math.min(Math.floor(step), state.steps - 1));
@@ -463,6 +554,10 @@ export function mount(root, ui) {
         hlines: [{ y: state.w0, label: 'w0' }],
       }
     );
+
+    // 4. Hero: the weight matrix / kernel morphing with the weights
+    drawHero(t);
+    hero.narration(A.stdpFamNarration(state.rule, state.connection));
   }
 
   function update() {
@@ -471,6 +566,7 @@ export function mount(root, ui) {
   }
 
   heatCanvas.onResize(() => renderAt(currentStep));
+  hero.onResize(() => renderAt(currentStep));
 
   // --- Controls ---
   const secSetup = ui.section(controls, 'Model selection');

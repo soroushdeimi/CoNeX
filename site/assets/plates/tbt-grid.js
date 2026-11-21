@@ -68,6 +68,11 @@ export function mount(root, ui) {
     min: 0, max: 2, step: 0.05, value: 0.5,
   });
   const autoWalk = ui.toggle(sec, { key: 'autoWalk', label: 'auto-walk', value: true });
+  const heroModule = ui.select(sec, {
+    key: 'heroModule', label: 'hero firing map (module)',
+    options: [0, 1, 2, 3].map((m) => ({ value: String(m), label: `module ${m}` })),
+    value: '0',
+  });
 
   // Fixed phases so the pattern is reproducible (torch.rand in CoNeX).
   const phases = buildPhases(nModules, cellsPerModule, 1234);
@@ -82,7 +87,7 @@ export function mount(root, ui) {
   }
 
   // --- figures: hero arena on top, one small firing map per module below ---
-  ui.note(figures, '<em>Try this: raise <code>turn rate</code> and watch the agent spiral &mdash; the glow brightens each time it crosses a lattice vertex.</em>');
+  ui.note(figures, '<em>Try this: raise <code>turn rate</code> and watch the agent spiral &mdash; the glow brightens where the agent sits on a bright patch of the firing-rate map.</em>');
   const hero = ui.hero(figures, { height: 300 });
   const maps = ui.canvas(figures, { height: 220 });
 
@@ -129,13 +134,34 @@ export function mount(root, ui) {
     const c1 = ui.color('c1');
     const sx = (x) => PAD + ((x + SPAN / 2) / SPAN) * (width - 2 * PAD);
     const sy = (y) => height - PAD - ((y + SPAN / 2) / SPAN) * (height - 2 * PAD);
-    ctx.strokeStyle = muted;
-    ctx.globalAlpha = 0.25;
-    for (let g = -3; g <= 3; g++) {
-      ctx.beginPath(); ctx.moveTo(sx(g), sy(-3)); ctx.lineTo(sx(g), sy(3)); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(sx(-3), sy(g)); ctx.lineTo(sx(3), sy(g)); ctx.stroke();
+    // Background: the REAL firing-rate map of the selected module (same data as
+    // the small maps below), drawn at low opacity so the agent passes through
+    // firing fields. No square lattice lines (the model does not claim them).
+    const cell = Number(heroModule.get()) * cellsPerModule;
+    const N = 64;
+    const cw = (width - 2 * PAD) / N;
+    for (let r = 0; r < N; r++) {
+      const wy = -SPAN / 2 + (r / (N - 1)) * SPAN;
+      for (let c = 0; c < N; c++) {
+        const wx = -SPAN / 2 + (c / (N - 1)) * SPAN;
+        const a = cellActivation(module, cell, wx, wy);
+        if (a > 0.03) {
+          ctx.globalAlpha = 0.35 * a;
+          ctx.fillStyle = c1;
+          ctx.fillRect(PAD + c * cw, PAD + r * cw, cw + 0.5, cw + 0.5);
+        }
+      }
     }
     ctx.globalAlpha = 1;
+    // light frame + axis scale in a.u.
+    ctx.strokeStyle = muted;
+    ctx.strokeRect(PAD, PAD, width - 2 * PAD, height - 2 * PAD);
+    ctx.fillStyle = muted;
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.fillText('-3', PAD - 2, height - PAD + 14);
+    ctx.fillText('0', (width / 2) - 3, height - PAD + 14);
+    ctx.fillText('+3', width - PAD - 12, height - PAD + 14);
+    ctx.fillText('a.u.', width - PAD - 22, height - 4);
     // fading trail (skip segments that cross the wrap)
     ctx.strokeStyle = c1;
     ctx.lineWidth = 2;
@@ -234,6 +260,7 @@ export function mount(root, ui) {
   speed.onInput(render);
   turn.onInput(render);
   autoWalk.onInput(render);
+  heroModule.onInput(render);
 
   // The live runner steps the real model each frame (path integration).
   const live = ui.live(figures, {
@@ -283,10 +310,12 @@ export function mount(root, ui) {
     reference frame the Thousand Brains Theory uses to let each column track
     where an object is.</p>
     <p>The hero shows the agent walking with a fading trail (the last 5 s of
-    model time). The glow around the agent is the <em>mean activation of all
-    grid cells at its position</em> &mdash; it brightens where the agent sits on
-    a lattice vertex. The four small maps are the firing fields of one cell per
-    module; the dot is the agent's position on each map.</p>
+    model time) over the <em>real firing-rate map of the selected module</em>
+    (the same data as the small maps below, at low opacity). The glow around the
+    agent is the <em>mean activation of all grid cells at its position</em>
+    &mdash; it brightens where the agent sits on a bright patch of the map. The
+    four small maps are the firing fields of one cell per module; the dot is the
+    agent's position on each map.</p>
     <p><strong>Important:</strong> the hexagonal periodicity is <em>built into the
     model</em>. The wave vectors are fixed by the scale and orientation, so the
     lattice is imposed by construction &mdash; it is not learned from experience.

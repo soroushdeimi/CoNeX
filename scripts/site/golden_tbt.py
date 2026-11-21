@@ -422,6 +422,40 @@ def predictive_scenario():
     }
 
 
+def hierarchy_scenario():
+    """HierarchicalPredictiveCoding: two levels, fixed weights, one forward pass."""
+    torch.manual_seed(42)
+    level_sizes = [8, 4]
+    ff = torch.randn(level_sizes[0], level_sizes[1]) * 0.1
+    fb = torch.randn(level_sizes[1], level_sizes[0]) * 0.1
+    sensory = torch.rand(level_sizes[0])
+
+    from conex.behaviors.neurons.numenta.predictive_coding import (
+        HierarchicalPredictiveCoding,
+    )
+
+    net = make_net()
+    module = HierarchicalPredictiveCoding(n_levels=2, level_sizes=level_sizes)
+    neurons = NeuronGroup(net=net, size=level_sizes[0], behavior={100: module}, tag="hier")
+    net.initialize()
+    # Overwrite the random weights with our fixed ones for reproducibility.
+    neurons.feedforward_weights[0] = ff
+    neurons.feedback_weights[0] = fb
+    neurons.activity = sensory
+
+    module.forward(neurons)
+
+    return {
+        "seed": 42,
+        "level_sizes": level_sizes,
+        "feedforward_weights": vec(ff),
+        "feedback_weights": vec(fb),
+        "sensory": vec(sensory),
+        "level_predictions": [vec(p) for p in neurons.level_predictions],
+        "level_errors": [vec(e) for e in neurons.level_errors],
+    }
+
+
 def structure_scenario():
     """PredictiveCorticalColumn: layer sizes and the connections it builds."""
     torch.manual_seed(11)
@@ -444,6 +478,7 @@ def main():
         "dendrites": dendrites_scenario(),
         "voting": voting_scenario(),
         "predictive": predictive_scenario(),
+        "hierarchy": hierarchy_scenario(),
         "structure": structure_scenario(),
     }
     out = os.path.normpath(OUT)

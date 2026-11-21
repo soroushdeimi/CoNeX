@@ -8,10 +8,19 @@ export const meta = {
   source: 'conex/behaviors/neurons/numenta/sequence_memory.py',
 };
 
+// Map a set of active column indices to the symbol whose columns they are.
+function symbolOfColumns(activeCols) {
+  for (const [sym, cols] of Object.entries(SYMBOLS)) {
+    if (cols.length === activeCols.length && cols.every((c) => activeCols.includes(c))) return sym;
+  }
+  return '?';
+}
+
 // Pure hero state for the Temporal Memory plate. The prediction shown before
-// this step's input is the one computed at the previous step; the segment
-// links run from the current winner cells to the previous winner cells (the
-// dendritic targets the model grows). t is the player time, in steps.
+// this step's input is the one computed at the previous step. The eased
+// progress f drives the two-phase motion: the predictive cells glow in the
+// first half, then the input lights the active cells and bursting columns
+// flash in the second half.
 export function tmHeroState(run, t) {
   const N = run.steps.length;
   const idx = Math.max(0, Math.min(N - 1, Math.floor(t)));
@@ -19,21 +28,23 @@ export function tmHeroState(run, t) {
   const st = run.steps[idx];
   const prev = idx > 0 ? run.steps[idx - 1] : null;
   const prediction = prev ? prev.predictive : new Array(run.nCells).fill(false);
-  const links = [];
-  if (prev) {
-    for (let i = 0; i < st.winners.length; i++) {
-      if (!st.winners[i]) continue;
-      for (let j = 0; j < prev.winners.length; j++) {
-        if (prev.winners[j]) links.push([j, i]);
-      }
-    }
-  }
   const nBurst = st.bursting.filter(Boolean).length;
   const nPred = prediction.filter(Boolean).length;
+  // Current symbol from the active columns; predicted symbols from the
+  // prediction's columns.
+  const activeCols = [];
+  for (let c = 0; c < run.nCols; c++) if (st.active[c * run.cells]) activeCols.push(c);
+  const currentSymbol = symbolOfColumns(activeCols);
+  const predCols = new Set();
+  for (let i = 0; i < prediction.length; i++) if (prediction[i]) predCols.add(Math.floor(i / run.cells));
+  const predSymbols = Object.keys(SYMBOLS).filter((s) => SYMBOLS[s].some((c) => predCols.has(c)));
   const narration =
     `step ${idx + 1}/${N} (${st.symbol}): ${nPred} predicted cells glow, then the input arrives — ` +
     `${nBurst} column${nBurst === 1 ? '' : 's'} burst, anomaly ${st.anomaly.toFixed(2)}`;
-  return { idx, f, prediction, active: st.active, bursting: st.bursting, anomaly: st.anomaly, links, narration };
+  return {
+    idx, f, prediction, active: st.active, bursting: st.bursting, anomaly: st.anomaly,
+    currentSymbol, predSymbols, narration,
+  };
 }
 
 // Six 3-column symbols over 18 columns, matching the golden scenario.
@@ -96,57 +107,92 @@ export function mount(root, ui) {
     updateNotes(idx);
   }
 
-  // Hero: the columns x cells grid. Predicted cells glow (ochre) before the
-  // input arrives; the input lights the active cells (teal); a bursting column
-  // is outlined in coral. Segment links (thin lines) run from the current
-  // winner cells to the previous step's winner cells — the dendritic targets.
+  // Hero: the current symbol large on the left, the predicted next symbol(s),
+  // and the columns as vertical stacks of small circles. Inactive cells are
+  // very faint; active cells are teal; predictive cells get an ochre glowing
+  // ring in the first half of the step; bursting columns flash coral in the
+  // second half, then settle.
   function drawGrid() {
     const st = tmHeroState(run, lastT);
     const { ctx, width, height } = hero;
     ctx.clearRect(0, 0, width, height);
-    const nCols = 18;
+    const pad = 8;
+    const nCols = run.nCols;
     const nCells = run.cells;
-    const pad = 6;
-    const cellW = (width - 2 * pad) / nCols;
-    const cellH = (height - 2 * pad) / nCells;
     const c1 = ui.color('c1'); // active
     const c3 = ui.color('c3'); // predictive
-    const c2 = ui.color('c2'); // bursting column
+    const c2 = ui.color('c2'); // bursting
     const muted = ui.color('muted');
-    const cellXY = (cell) => {
-      const c = Math.floor(cell / nCells);
-      const k = cell % nCells;
-      return [pad + c * cellW + cellW / 2, pad + (nCells - 1 - k) * cellH + cellH / 2];
-    };
+    const ink = ui.color('ink');
 
-    // Segment links: current winners -> previous winners (drawn first, behind).
-    ctx.strokeStyle = ui.color('c4');
-    ctx.globalAlpha = 0.4;
-    ctx.lineWidth = 1;
-    for (const [from, to] of st.links) {
-      const [x0, y0] = cellXY(from);
-      const [x1, y1] = cellXY(to);
-      ctx.beginPath();
-      ctx.moveTo(x0, y0);
-      ctx.lineTo(x1, y1);
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
+    // Left panel: the current symbol and the predicted next symbol(s).
+    const panelW = Math.min(150, width * 0.22);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = muted;
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.fillText('now', pad, pad);
+    ctx.fillStyle = ink;
+    ctx.font = 'bold 40px ui-serif, Georgia, serif';
+    ctx.fillText(st.currentSymbol, pad, pad + 14);
+    ctx.fillStyle = muted;
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.fillText('predicts', pad, pad + 66);
+    ctx.fillStyle = c3;
+    ctx.font = 'bold 20px ui-serif, Georgia, serif';
+    ctx.fillText(st.predSymbols.length ? st.predSymbols.join(' / ') : 'nothing', pad, pad + 80);
+
+    // Columns: vertical stacks of small circles to the right of the panel.
+    const gridX = panelW + pad;
+    const gridW = width - gridX - pad;
+    const colW = gridW / nCols;
+    const cellR = Math.min(colW * 0.42, (height - 2 * pad) / nCells * 0.42);
+    // Two-phase motion: predictive glow in the first half, burst flash in the
+    // second half, both eased over the step.
+    const glow = st.f < 0.5 ? ease(st.f * 2) : 1;
+    const flash = st.f < 0.5 ? 0 : ease((st.f - 0.5) * 2);
 
     for (let c = 0; c < nCols; c++) {
       const bursting = st.bursting[c];
+      const cx = gridX + c * colW + colW / 2;
       for (let k = 0; k < nCells; k++) {
         const cell = c * nCells + k;
-        const x = pad + c * cellW;
-        const y = pad + (nCells - 1 - k) * cellH;
-        let fill = muted;
-        if (st.prediction[cell]) fill = c3;
-        if (st.active[cell]) fill = c1;
-        ctx.fillStyle = fill;
-        ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
-        if (bursting) {
+        const cy = pad + (nCells - 1 - k) * ((height - 2 * pad) / nCells) + (height - 2 * pad) / nCells / 2;
+        const active = st.active[cell];
+        const predicted = st.prediction[cell];
+        // Inactive cells stay quiet (very faint) so the active ones stand out.
+        if (!active && !predicted) {
+          ctx.globalAlpha = 0.12;
+          ctx.fillStyle = muted;
+          ctx.beginPath();
+          ctx.arc(cx, cy, cellR, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+          continue;
+        }
+        ctx.fillStyle = active ? c1 : muted;
+        ctx.beginPath();
+        ctx.arc(cx, cy, cellR, 0, Math.PI * 2);
+        ctx.fill();
+        // Predictive cells: an ochre glowing ring (brightest in the first half).
+        if (predicted) {
+          ctx.strokeStyle = c3;
+          ctx.lineWidth = 2;
+          ctx.globalAlpha = 0.4 + 0.6 * glow;
+          ctx.beginPath();
+          ctx.arc(cx, cy, cellR + 2, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+        // Bursting columns: the whole column flashes coral in the second half.
+        if (bursting && flash > 0) {
           ctx.strokeStyle = c2;
-          ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
+          ctx.lineWidth = 2;
+          ctx.globalAlpha = flash;
+          ctx.beginPath();
+          ctx.arc(cx, cy, cellR + 3, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
         }
       }
     }
@@ -181,7 +227,7 @@ export function mount(root, ui) {
         });
       }
     }
-    run = { cells: cellsCtl.get(), nCells: tm.n_cells, steps };
+    run = { cells: cellsCtl.get(), nCells: tm.n_cells, nCols: tm.n_columns, steps };
     if (player) {
       player.setDuration(steps.length);
       // Keep the current position (clamped) so a parameter change does not restart the replay.

@@ -20,6 +20,7 @@ import {
 import { sdrHeroState } from '../assets/plates/htm-sdr.js';
 import { encoderHeroState } from '../assets/plates/htm-encoder.js';
 import { spHeroState } from '../assets/plates/htm-sp.js';
+import { tmHeroState } from '../assets/plates/htm-tm.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const golden = JSON.parse(readFileSync(join(here, 'golden', 'htm.json'), 'utf8'));
@@ -555,4 +556,44 @@ test('sp hero: narration names the step and the number of active columns', () =>
   assert.match(st.narration, /1 active columns/);
   const st1 = spHeroState(spRun(), 1, 0.1, 2);
   assert.match(st1.narration, /2 active columns/);
+});
+
+// TM hero: 4 cells (one column), 2 steps.
+function tmRun() {
+  return {
+    nCells: 4,
+    steps: [
+      { symbol: 'A', active: [true, false, true, false], predictive: [false, false, false, false], bursting: [true], winners: [true, false, false, false], anomaly: 1.0 },
+      { symbol: 'B', active: [false, true, false, true], predictive: [true, false, true, false], bursting: [false], winners: [false, true, false, false], anomaly: 0.0 },
+    ],
+  };
+}
+
+test('tm hero: at the first step there is no prior prediction and no links', () => {
+  const st = tmHeroState(tmRun(), 0);
+  assert.equal(st.idx, 0);
+  assert.deepEqual(st.prediction, [false, false, false, false]);
+  assert.deepEqual(st.links, []);
+  assert.match(st.narration, /step 1\/2 \(A\)/);
+});
+
+test('tm hero: the prediction shown is the previous step\'s prediction', () => {
+  const st = tmHeroState(tmRun(), 1);
+  // step 1 shows step 0's predictive cells
+  assert.deepEqual(st.prediction, [false, false, false, false]);
+});
+
+test('tm hero: segment links run from the current winners to the previous winners', () => {
+  const st = tmHeroState(tmRun(), 1);
+  // step1 winner = cell 1; step0 winner = cell 0 -> link [0, 1]
+  assert.deepEqual(st.links, [[0, 1]]);
+});
+
+test('tm hero: narration names the step, symbol, burst count and anomaly', () => {
+  const st = tmHeroState(tmRun(), 0);
+  assert.match(st.narration, /1 column? burst/);
+  assert.match(st.narration, /anomaly 1\.00/);
+  const st1 = tmHeroState(tmRun(), 1);
+  assert.match(st1.narration, /0 columns? burst/);
+  assert.match(st1.narration, /anomaly 0\.00/);
 });

@@ -1,4 +1,5 @@
 import { TemporalMemory, TemporalMemoryDefaults } from '../js/models/htm.js';
+import { ease } from '../js/core.js';
 
 export const meta = {
   id: 'htm-tm',
@@ -6,6 +7,34 @@ export const meta = {
   conex: ['TemporalMemory', 'TemporalMemoryConfig', 'SegmentStorage'],
   source: 'conex/behaviors/neurons/numenta/sequence_memory.py',
 };
+
+// Pure hero state for the Temporal Memory plate. The prediction shown before
+// this step's input is the one computed at the previous step; the segment
+// links run from the current winner cells to the previous winner cells (the
+// dendritic targets the model grows). t is the player time, in steps.
+export function tmHeroState(run, t) {
+  const N = run.steps.length;
+  const idx = Math.max(0, Math.min(N - 1, Math.floor(t)));
+  const f = ease(t - idx);
+  const st = run.steps[idx];
+  const prev = idx > 0 ? run.steps[idx - 1] : null;
+  const prediction = prev ? prev.predictive : new Array(run.nCells).fill(false);
+  const links = [];
+  if (prev) {
+    for (let i = 0; i < st.winners.length; i++) {
+      if (!st.winners[i]) continue;
+      for (let j = 0; j < prev.winners.length; j++) {
+        if (prev.winners[j]) links.push([j, i]);
+      }
+    }
+  }
+  const nBurst = st.bursting.filter(Boolean).length;
+  const nPred = prediction.filter(Boolean).length;
+  const narration =
+    `step ${idx + 1}/${N} (${st.symbol}): ${nPred} predicted cells glow, then the input arrives — ` +
+    `${nBurst} column${nBurst === 1 ? '' : 's'} burst, anomaly ${st.anomaly.toFixed(2)}`;
+  return { idx, f, prediction, active: st.active, bursting: st.bursting, anomaly: st.anomaly, links, narration };
+}
 
 // Six 3-column symbols over 18 columns, matching the golden scenario.
 const SYMBOLS = {
@@ -37,17 +66,13 @@ export function mount(root, ui) {
   const stepBtn = ui.button(controls, { label: 'Step', onClick: () => { if (player) player.seek(Math.min(run ? run.steps.length : 0, Math.floor(lastT) + 1)); } });
   const resetBtn = ui.button(controls, { label: 'Reset', onClick: () => recompute() });
 
-  const gridCanvas = ui.canvas(figures, { height: 220 });
-  // ui.canvas does not expose its <figure>, and site.css is shell-owned, so the
-  // caption is styled inline to match the .ui-figure figcaption look.
-  const gridCap = document.createElement('div');
-  gridCap.style.cssText = 'font-style:italic;color:var(--muted);font-size:0.85rem;margin-top:0.3rem;';
-  gridCap.textContent = 'cells (teal = active, ochre = predictive, coral outline = bursting column)';
-  figures.appendChild(gridCap);
+  // Hero: the columns x cells grid. Predicted cells glow before the input
+  // arrives, then the input lights the columns; segment links run from the
+  // current winners to the previous winners.
+  const hero = ui.hero(figures, { height: 240 });
+  const heroCap = { set(text) { hero.narration(text); } };
   const anomalyPlot = ui.plot(figures, { height: 180, xLabel: 'step', yLabel: 'anomaly score', xUnit: 'steps', yUnit: 'a.u.' });
-  // Register the redraw on resize when the ui supports it (the real ui.js does);
-  // the direct drawGrid() call in frame() covers the no-onResize case.
-  if (typeof gridCanvas.onResize === 'function') gridCanvas.onResize(() => { if (run) drawGrid(Math.max(0, Math.min(run.steps.length - 1, Math.floor(lastT)))); });
+  hero.onResize(() => { if (run) drawGrid(); });
 
   let run = null; // precomputed replay run (state recorded per step)
   let lastT = 0; // current player time, in steps
@@ -62,7 +87,7 @@ export function mount(root, ui) {
     lastT = t;
     const N = run.steps.length;
     const idx = Math.max(0, Math.min(N - 1, Math.floor(t)));
-    drawGrid(idx);
+    drawGrid();
     anomalyPlot.draw([{ x: run.steps.map((_, i) => i), y: run.steps.map((s) => s.anomaly), label: 'anomaly', color: 'c2', style: 'line' }], {
       yRange: [0, 1],
       revealX: idx,
@@ -70,9 +95,13 @@ export function mount(root, ui) {
     updateNotes(idx);
   }
 
-  function drawGrid(idx) {
-    const st = run.steps[idx];
-    const { ctx, width, height } = gridCanvas;
+  // Hero: the columns x cells grid. Predicted cells glow (ochre) before the
+  // input arrives; the input lights the active cells (teal); a bursting column
+  // is outlined in coral. Segment links (thin lines) run from the current
+  // winner cells to the previous step's winner cells — the dendritic targets.
+  function drawGrid() {
+    const st = tmHeroState(run, lastT);
+    const { ctx, width, height } = hero;
     ctx.clearRect(0, 0, width, height);
     const nCols = 18;
     const nCells = run.cells;
@@ -83,6 +112,26 @@ export function mount(root, ui) {
     const c3 = ui.color('c3'); // predictive
     const c2 = ui.color('c2'); // bursting column
     const muted = ui.color('muted');
+    const cellXY = (cell) => {
+      const c = Math.floor(cell / nCells);
+      const k = cell % nCells;
+      return [pad + c * cellW + cellW / 2, pad + (nCells - 1 - k) * cellH + cellH / 2];
+    };
+
+    // Segment links: current winners -> previous winners (drawn first, behind).
+    ctx.strokeStyle = ui.color('c4');
+    ctx.globalAlpha = 0.4;
+    ctx.lineWidth = 1;
+    for (const [from, to] of st.links) {
+      const [x0, y0] = cellXY(from);
+      const [x1, y1] = cellXY(to);
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
     for (let c = 0; c < nCols; c++) {
       const bursting = st.bursting[c];
       for (let k = 0; k < nCells; k++) {
@@ -90,7 +139,7 @@ export function mount(root, ui) {
         const x = pad + c * cellW;
         const y = pad + (nCells - 1 - k) * cellH;
         let fill = muted;
-        if (st.predictive[cell]) fill = c3;
+        if (st.prediction[cell]) fill = c3;
         if (st.active[cell]) fill = c1;
         ctx.fillStyle = fill;
         ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
@@ -100,6 +149,7 @@ export function mount(root, ui) {
         }
       }
     }
+    heroCap.set(st.narration);
   }
 
   function recompute() {
@@ -125,11 +175,12 @@ export function mount(root, ui) {
           active: tm.active_cells.slice(),
           predictive: tm.predictive_cells.slice(),
           bursting: tm.bursting_columns.slice(),
+          winners: tm.winner_cells.slice(),
           anomaly: tm.anomaly_score,
         });
       }
     }
-    run = { cells: cellsCtl.get(), steps };
+    run = { cells: cellsCtl.get(), nCells: tm.n_cells, steps };
     if (player) {
       player.setDuration(steps.length);
       // Keep the current position (clamped) so a parameter change does not restart the replay.

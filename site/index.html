@@ -32,7 +32,11 @@
         </div>
       </div>
       <figure class="ui-figure hero-figure">
-        <canvas id="hero-canvas" style="width:100%;height:220px;display:block;background:var(--card);border:1px solid var(--rule);border-radius:4px"></canvas>
+        <div class="hero-canvas-row">
+          <canvas id="hero-canvas" style="width:100%;height:220px;display:block;background:var(--card);border:1px solid var(--rule);border-radius:4px"></canvas>
+          <button id="hero-pause" class="ui-button ui-button-small hero-pause" type="button"
+                  aria-pressed="false" aria-label="Pause the neuron animation">Pause</button>
+        </div>
         <figcaption>
           A single leaky integrate-and-fire neuron: membrane voltage (teal) and
           its spikes (coral), driven by a constant 65 pA input. Same parameters
@@ -338,13 +342,23 @@ symbol  anomaly  bursting columns
       draw();
 
       const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (!reduced) {
+      const pauseBtn = document.getElementById('hero-pause');
+      if (reduced && pauseBtn) pauseBtn.hidden = true; // static frame: nothing to pause
+      if (!reduced && pauseBtn) {
         // scroll at ~50 ms of model time per real second
         const anim = ui.animate((dtMs) => {
           step(Math.min(dtMs, 50) * 0.05);
           draw();
         });
         anim.start();
+        pauseBtn.addEventListener('click', () => {
+          const paused = anim.running();
+          if (paused) anim.stop();
+          else anim.start();
+          pauseBtn.textContent = paused ? 'Play' : 'Pause';
+          pauseBtn.setAttribute('aria-pressed', String(paused));
+          pauseBtn.setAttribute('aria-label', paused ? 'Play the neuron animation' : 'Pause the neuron animation');
+        });
       }
       window.addEventListener('resize', draw);
       ui.onTheme(draw);

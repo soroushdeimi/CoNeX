@@ -454,6 +454,16 @@ pre {
   filter: brightness(1.08);
 }
 
+/* pause toggle floats in the corner of the hero canvas */
+.hero-canvas-row {
+  position: relative;
+}
+.hero-pause {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
 .install-line {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   background: var(--card);

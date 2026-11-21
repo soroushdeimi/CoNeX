@@ -12,21 +12,6 @@ const STEPS = 5000;
 // Rows whose named pattern is NOT reproduced by CoNeX's AELIF at dt=0.1 ms.
 const NOT_REPRODUCED = new Set(['Bursting', 'Irregular']);
 
-// Use ui.player when the shell provides it; otherwise fall back to a stub that
-// reveals the whole run once, so figures are never empty in the test mock.
-function makePlayer(ui, parent, onFrame) {
-  if (typeof ui.player === 'function') {
-    return ui.player(parent, { duration: 0, unit: 'ms', playSeconds: 5, loop: true, onFrame });
-  }
-  let t = 0;
-  return {
-    play() {}, pause() {},
-    seek(x) { t = x; }, // no player to animate; setDuration reveals the full run
-    playing() { return false; },
-    setDuration(d) { t = d; onFrame(d); },
-  };
-}
-
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
@@ -51,15 +36,49 @@ export function mount(root, ui) {
   const cDt = ui.slider(sec, { key: 'dt', label: 'dt', unit: 'ms', min: 0.01, max: 1, step: 0.01, value: P.dt });
   const cI = ui.slider(sec, { key: 'I', label: 'I (constant)', unit: 'pA', min: 0, max: 120, step: 1, value: 65.0 });
 
+  function params() {
+    return {
+      R: cR.get(), tau: cTau.get(), threshold: cTh.get(), v_reset: cReset.get(),
+      v_rest: cRest.get(), delta: cDelta.get(), theta_rh: cTheta.get(),
+      alpha: cAlpha.get(), beta: cBeta.get(), w_tau: cWTau.get(), dt: cDt.get(),
+    };
+  }
+
+  const status = document.createElement('p');
+  status.style.fontStyle = 'italic';
+  figures.appendChild(status);
+
+  // Compute the whole run once; the player reveals it frame by frame.
+  let runData = null;
+  function computeRun() {
+    const p = params();
+    const I = cI.get();
+    const t = [], v = [], w = [], spikes = [];
+    let state = { v: p.v_rest, omega: 0.0 };
+    for (let n = 0; n < STEPS; n++) {
+      const r = aelifStep(state, p, I, p.dt);
+      state = { v: r.v, omega: r.omega };
+      t.push(n * p.dt); v.push(r.v); w.push(r.omega); spikes.push(r.spike);
+    }
+    runData = { p, t, v, w, spikes };
+
+    // Full-run summary (a property of the whole run, not a per-frame value).
+    const s = firingStats(spikeTimes(spikes, p.dt));
+    const name = cPattern.get();
+    const reproduced = !NOT_REPRODUCED.has(name);
+    const first = s.first_t == null ? '—' : s.first_t.toPrecision(4);
+    status.textContent = `${name}: ${s.n} spikes in ${(STEPS * p.dt).toPrecision(4)} ms, CV=${s.cv?.toPrecision(3) ?? '—'}, ` +
+      `first spike ${first} ms — ${reproduced ? 'pattern reproduced' : 'not reproduced at this dt'}`;
+    return t[t.length - 1];
+  }
+
   const figV = ui.plot(figures, { height: 220, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
   const figW = ui.plot(figures, { height: 160, xLabel: 't', yLabel: 'w (omega)', xUnit: 'ms', yUnit: 'pA' });
   // Membrane gauge: a vertical bar from v_rest to threshold filled to the current v,
   // plus a readout of the adaptation current w at the same time.
   const gauge = ui.canvas(figures, { height: 220 });
-  const player = makePlayer(ui, figures, frame);
-  const status = document.createElement('p');
-  status.style.fontStyle = 'italic';
-  figures.appendChild(status);
+  // Build the run before the player: ui.player may call onFrame synchronously.
+  const player = ui.player(figures, { duration: computeRun(), unit: 'ms', playSeconds: 5, loop: true, onFrame: frame });
 
   ui.note(notes, `The AELIF adds an adaptation current <var>w</var> (called <var>omega</var> in CoNeX) to the ELIF.
   It has two drivers: a subthreshold term <var>alpha</var>·(<var>v</var>−<var>v</var><sub>rest</sub>) that builds up while the neuron is
@@ -75,14 +94,6 @@ export function mount(root, ui) {
   activity; the analogy breaks because it is a continuous dynamical variable, not a discrete counter.`);
   ui.code(notes, () => codeSnippet());
 
-  function params() {
-    return {
-      R: cR.get(), tau: cTau.get(), threshold: cTh.get(), v_reset: cReset.get(),
-      v_rest: cRest.get(), delta: cDelta.get(), theta_rh: cTheta.get(),
-      alpha: cAlpha.get(), beta: cBeta.get(), w_tau: cWTau.get(), dt: cDt.get(),
-    };
-  }
-
   function applyPattern() {
     const row = TABLE61[cPattern.get()];
     cTau.set(row.tau); cAlpha.set(row.alpha); cWTau.set(row.w_tau);
@@ -90,30 +101,9 @@ export function mount(root, ui) {
     run();
   }
 
-  let runData = null;
-
-  // Recompute the whole run once; the player then reveals it frame by frame.
+  // On a parameter change: recompute the run and continue from the current t (clamped).
   function run() {
-    const p = params();
-    const I = cI.get();
-    const t = [], v = [], w = [], spikes = [];
-    let state = { v: p.v_rest, omega: 0.0 };
-    for (let n = 0; n < STEPS; n++) {
-      const r = aelifStep(state, p, I, p.dt);
-      state = { v: r.v, omega: r.omega };
-      t.push(n * p.dt); v.push(r.v); w.push(r.omega); spikes.push(r.spike);
-    }
-    runData = { p, t, v, w, spikes };
-    player.setDuration(t[t.length - 1]);
-    player.seek(0); // reveals the first frame (also covers reduced-motion, which starts paused)
-
-    // Full-run summary (a property of the whole run, not a per-frame value).
-    const s = firingStats(spikeTimes(spikes, p.dt));
-    const name = cPattern.get();
-    const reproduced = !NOT_REPRODUCED.has(name);
-    const first = s.first_t == null ? '—' : s.first_t.toPrecision(4);
-    status.textContent = `${name}: ${s.n} spikes in ${(STEPS * p.dt).toPrecision(4)} ms, CV=${s.cv?.toPrecision(3) ?? '—'}, ` +
-      `first spike ${first} ms — ${reproduced ? 'pattern reproduced' : 'not reproduced at this dt'}`;
+    player.setDuration(computeRun());
   }
 
   // Reveal the v and w traces up to time t and draw the gauge at the real v(t), w(t).
@@ -190,7 +180,6 @@ net.simulate_iterations(${STEPS})`;
   cPattern.onInput(applyPattern);
   for (const c of [cR, cTau, cTh, cReset, cRest, cDelta, cTheta, cAlpha, cBeta, cWTau, cDt, cI]) c.onInput(run);
   ui.onTheme(run);
-  run();
 
   return { destroy() {} };
 }

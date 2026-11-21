@@ -11,21 +11,6 @@ const P = { ...DEFAULTS };
 const SIZE = 8;
 const STEPS = 200;
 
-// Use ui.player when the shell provides it; otherwise fall back to a stub that
-// reveals the whole run once, so figures are never empty in the test mock.
-function makePlayer(ui, parent, onFrame) {
-  if (typeof ui.player === 'function') {
-    return ui.player(parent, { duration: 0, unit: 'ms', playSeconds: 5, loop: true, onFrame });
-  }
-  let t = 0;
-  return {
-    play() {}, pause() {},
-    seek(x) { t = x; }, // no player to animate; setDuration reveals the full run
-    playing() { return false; },
-    setDuration(d) { t = d; onFrame(d); },
-  };
-}
-
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
@@ -46,12 +31,24 @@ export function mount(root, ui) {
   const secK = ui.section(controls, 'KWTA');
   const cK = ui.slider(secK, { key: 'k', label: 'k (winners)', unit: '', min: 1, max: SIZE, step: 1, value: 2 });
 
+  // Compute both runs once; the player reveals them frame by frame.
+  let runData = null;
+  function computeRun() {
+    const p = params();
+    const tMax = STEPS * p.dt;
+    const before = simRun(false);
+    const after = simRun(true);
+    runData = { p, tMax, before, after };
+    return tMax;
+  }
+
   const figBefore = ui.raster(figures, { height: 200, xLabel: 't', xUnit: 'ms' });
   const figAfter = ui.raster(figures, { height: 200, xLabel: 't', xUnit: 'ms' });
   const figCount = ui.plot(figures, { height: 160, xLabel: 't', yLabel: 'spiking neurons', xUnit: 'ms', yUnit: 'count' });
   // Bar chart of the group's voltages at the current step; the k winners are highlighted.
   const figWin = ui.canvas(figures, { height: 160 });
-  const player = makePlayer(ui, figures, frame);
+  // Build the run before the player: ui.player may call onFrame synchronously.
+  const player = ui.player(figures, { duration: computeRun(), unit: 'ms', playSeconds: 5, loop: true, onFrame: frame });
 
   ui.note(notes, `KWTA keeps only the <var>k</var> strongest neurons active. In CoNeX, <code>KWTA.forward</code>
   checks which neurons are above threshold; if more than <var>k</var> are, it keeps the top-<var>k</var> by voltage and
@@ -77,7 +74,7 @@ export function mount(root, ui) {
   // Returns {spikes: [t, index][], counts: {t, n}[], voltages: [v[] per step],
   // winners: [Set of winner indices per step]}. voltages/winners are only filled
   // for the KWTA run (useKwta) and are the post-KWTA voltages before the reset.
-  function run(useKwta) {
+  function simRun(useKwta) {
     const p = params();
     const rng = ui.rng(cSeed.get());
     const I = cI.get();
@@ -111,17 +108,9 @@ export function mount(root, ui) {
     return { spikes, counts, voltages, winners };
   }
 
-  let runData = null;
-
-  // Recompute both runs once; the player then reveals them frame by frame.
-  function draw() {
-    const p = params();
-    const tMax = STEPS * p.dt;
-    const before = run(false);
-    const after = run(true);
-    runData = { p, tMax, before, after };
-    player.setDuration(tMax);
-    player.seek(0); // reveals the first frame (also covers reduced-motion, which starts paused)
+  // On a parameter change: recompute both runs and continue from the current t (clamped).
+  function run() {
+    player.setDuration(computeRun());
   }
 
   // Reveal both rasters and the count plot up to time t, and highlight the k
@@ -202,9 +191,8 @@ net.simulate_iterations(${STEPS})`;
   }
 
   const all = [cR, cTau, cTh, cReset, cRest, cDt, cSeed, cI, cScale, cOffset, cK];
-  for (const c of all) c.onInput(draw);
-  ui.onTheme(draw);
-  draw();
+  for (const c of all) c.onInput(run);
+  ui.onTheme(run);
 
   return { destroy() {} };
 }

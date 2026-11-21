@@ -12,21 +12,6 @@ const STEPS = 5000;
 const CURRENTS = [20, 40, 60, 80, 100, 120]; // pA
 const TRACE_STEPS = 500; // steps for the small voltage trace at a given I
 
-// Use ui.player when the shell provides it; otherwise fall back to a stub that
-// reveals the whole sweep once, so figures are never empty in the test mock.
-function makePlayer(ui, parent, onFrame) {
-  if (typeof ui.player === 'function') {
-    return ui.player(parent, { duration: 0, unit: 'pA', playSeconds: 5, loop: true, onFrame });
-  }
-  let t = 0;
-  return {
-    play() {}, pause() {},
-    seek(x) { t = x; }, // no player to animate; setDuration reveals the full sweep
-    playing() { return false; },
-    setDuration(d) { t = d; onFrame(d); },
-  };
-}
-
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
@@ -44,27 +29,6 @@ export function mount(root, ui) {
   const cWTau = ui.slider(sec, { key: 'w_tau', label: 'w_tau', unit: 'ms', min: 5, max: 300, step: 5, value: P.w_tau });
   const cDt = ui.slider(sec, { key: 'dt', label: 'dt', unit: 'ms', min: 0.01, max: 1, step: 0.01, value: P.dt });
 
-  const fig = ui.plot(figures, { height: 300, xLabel: 'I', yLabel: 'f', xUnit: 'pA', yUnit: 'Hz' });
-  // Small voltage trace of the neuron at the current sweep current I.
-  const figV = ui.plot(figures, { height: 160, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
-  const player = makePlayer(ui, figures, frame);
-
-  ui.note(notes, `The f-I curve plots the steady firing rate <var>f</var> (Hz) against the input current <var>I</var> (pA).
-  Each point is measured by simulating that current for a fixed number of steps and counting spikes, so the
-  curves are the real CoNeX dynamics, not a formula. The dots are the analytic LIF rate
-  <var>f</var> = 1 / (<var>tau</var>·ln((<var>v</var><sub>ss</sub>−<var>v</var><sub>reset</sub>)/(<var>v</var><sub>ss</sub>−<var>threshold</var>))), <var>v</var><sub>ss</sub> = <var>v</var><sub>rest</sub> + <var>R</var>·<var>I</var>.
-  Units: v in mV, t in ms, I in pA, R in GOhm.`);
-  ui.note(notes, `For the default parameters the measured rheobases (smallest current that fires) are
-  LIF ≈ 40 pA, ELIF ≈ 36 pA and AELIF ≈ 36 pA. So ELIF and AELIF start firing at a lower current than
-  LIF: the exponential term pushes them over threshold sooner. AELIF's adaptation current <var>w</var> does
-  not lower the onset but slows the rate once firing starts, so its curve sits below ELIF's. CoNeX has
-  no refractory period, which is why the LIF reaches ~400 Hz at 120 pA. The <b>dt slider</b> shows the
-  Euler discretization: a large <var>dt</var> changes the measured rate and can even change whether a neuron
-  fires at all, because the update is a first-order approximation.
-  ML analogy: the f-I curve is the neuron's "activation function" relating input to output rate; the
-  analogy breaks because it is a dynamical, history-dependent rate, not a static function of the input.`);
-  ui.code(notes, () => codeSnippet());
-
   function base() {
     return {
       R: cR.get(), tau: cTau.get(), v_reset: cReset.get(), v_rest: cRest.get(),
@@ -79,11 +43,10 @@ export function mount(root, ui) {
     return r.spikes.reduce((a, b) => a + (b ? 1 : 0), 0) / (STEPS * dt / 1000);
   }
 
+  // Compute the f-I curves and a voltage trace per current once; the player then
+  // sweeps I and reveals the curves point by point.
   let runData = null;
-
-  // Recompute the f-I curves and a voltage trace per current once; the player
-  // then sweeps I and reveals the curves point by point.
-  function run() {
+  function computeRun() {
     const b = base();
     const dt = b.dt;
     const lif = { ...b, threshold: cThLif.get() };
@@ -116,8 +79,36 @@ export function mount(root, ui) {
       return { c, t: r.v.map((_, n) => n * dt), v: r.v };
     });
     runData = { lif, series, maxRate, traces };
-    player.setDuration(CURRENTS[CURRENTS.length - 1]);
-    player.seek(0); // reveals the first frame (also covers reduced-motion, which starts paused)
+  }
+
+  const fig = ui.plot(figures, { height: 300, xLabel: 'I', yLabel: 'f', xUnit: 'pA', yUnit: 'Hz' });
+  // Small voltage trace of the neuron at the current sweep current I.
+  const figV = ui.plot(figures, { height: 160, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
+  // Build the run before the player: ui.player may call onFrame synchronously.
+  // The sweep runs from 0 to the largest current, so the duration is that current.
+  computeRun();
+  const player = ui.player(figures, { duration: CURRENTS[CURRENTS.length - 1], unit: 'pA', playSeconds: 5, loop: true, onFrame: frame });
+
+  ui.note(notes, `The f-I curve plots the steady firing rate <var>f</var> (Hz) against the input current <var>I</var> (pA).
+  Each point is measured by simulating that current for a fixed number of steps and counting spikes, so the
+  curves are the real CoNeX dynamics, not a formula. The dots are the analytic LIF rate
+  <var>f</var> = 1 / (<var>tau</var>·ln((<var>v</var><sub>ss</sub>−<var>v</var><sub>reset</sub>)/(<var>v</var><sub>ss</sub>−<var>threshold</var>))), <var>v</var><sub>ss</sub> = <var>v</var><sub>rest</sub> + <var>R</var>·<var>I</var>.
+  Units: v in mV, t in ms, I in pA, R in GOhm.`);
+  ui.note(notes, `For the default parameters the measured rheobases (smallest current that fires) are
+  LIF ≈ 40 pA, ELIF ≈ 36 pA and AELIF ≈ 36 pA. So ELIF and AELIF start firing at a lower current than
+  LIF: the exponential term pushes them over threshold sooner. AELIF's adaptation current <var>w</var> does
+  not lower the onset but slows the rate once firing starts, so its curve sits below ELIF's. CoNeX has
+  no refractory period, which is why the LIF reaches ~400 Hz at 120 pA. The <b>dt slider</b> shows the
+  Euler discretization: a large <var>dt</var> changes the measured rate and can even change whether a neuron
+  fires at all, because the update is a first-order approximation.
+  ML analogy: the f-I curve is the neuron's "activation function" relating input to output rate; the
+  analogy breaks because it is a dynamical, history-dependent rate, not a static function of the input.`);
+  ui.code(notes, () => codeSnippet());
+
+  // On a parameter change: recompute the curves and re-render at the current I.
+  function run() {
+    computeRun();
+    player.setDuration(CURRENTS[CURRENTS.length - 1]); // re-fires onFrame at the clamped I
   }
 
   // Reveal the f-I curves up to the sweep current I, and show the LIF voltage
@@ -160,7 +151,6 @@ aelif = fi(AELIF(R=${b.R}, threshold=${cThExp.get()}, tau=${b.tau}, v_reset=${b.
 
   for (const c of [cR, cTau, cThLif, cThExp, cReset, cRest, cDelta, cTheta, cAlpha, cBeta, cWTau, cDt]) c.onInput(run);
   ui.onTheme(run);
-  run();
 
   return { destroy() {} };
 }

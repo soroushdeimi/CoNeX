@@ -207,11 +207,12 @@ tryThis.style.fontStyle = 'italic';
       const ty = cy + rad - thFrac * 2 * rad;
       ctx.strokeStyle = pal.ochre; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(cx - rad - 4, ty); ctx.lineTo(cx + rad + 4, ty); ctx.stroke();
-      // print the value for one neuron (j=0) so the scale is readable
+      // print the value for one neuron (j=0) so the scale is readable; placed
+      // to the right of the tick row, clear of the tick line itself
       if (j === 0) {
         ctx.fillStyle = pal.ochre; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
-        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillText(`${th.toFixed(1)} mV`, cx + rad + 6, ty);
+        ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+        ctx.fillText(`${th.toFixed(1)} mV`, cx + rad + 12, ty - 3);
       }
       ctx.fillStyle = pal.muted; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';

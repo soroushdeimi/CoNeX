@@ -239,17 +239,26 @@ export function elifFixedPoints(p, I, vMin, vMax, n = 4000) {
   return out;
 }
 
-// ELIF hero narration, driven by the real quantities. While splashing it reports
-// the reset; otherwise it compares the exponential inflow (delta*exp(...)/tau,
-// mV/ms) to the input flow (R*I/tau, mV/ms) — the take-off begins when the
-// exponential term rivals the input.
+// ELIF hero narration, derived from the phase line f(v) on the same range the
+// hero draws (v_rest-5 .. threshold). While splashing it reports the reset;
+// otherwise: if v is above the unstable fixed point, the exponential term
+// dominates and v takes off to threshold; if f has a stable zero, input and
+// leak balance there; if f has no zero at all, v always rises toward take-off.
 export function elifNarration({ v, p, I, splashing }) {
   if (splashing) return 'threshold crossed: spike, reset to v_reset';
-  const pump = elifExpTerm(v, p) / p.tau;
-  const input = (p.R * I) / p.tau;
-  return pump > input
-    ? 'exponential term takes over: v accelerates to threshold'
-    : 'v below take-off: input and leak balance';
+  const fp = elifFixedPoints(p, I, p.v_rest - 5, p.threshold);
+  const stable = fp.find((f) => f.stable);
+  const unstable = fp.find((f) => !f.stable);
+  // Above the unstable fixed point f(v) > 0 and the exponential term takes
+  // over: v accelerates to threshold. Below it, v is drawn to the stable
+  // fixed point (or, with no fixed point at all, always rises).
+  if (unstable && v > unstable.v) {
+    return 'exponential take-off: spike';
+  }
+  if (stable) {
+    return `input and leak balance at v* = ${stable.v.toFixed(2)} mV`;
+  }
+  return 'no balance point: v always rises toward take-off';
 }
 
 // AELIF hero narration, driven by the real quantities. While splashing it reports

@@ -296,11 +296,11 @@ tryThis.style.fontStyle = 'italic';
     ctx.stroke();
     ctx.fillStyle = pal.pump; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillText(`pump ${pump.toFixed(2)} mV/ms`, cx, yBot + 28);
-    // v readout: inside the water (top-left of the fill) so it never overlaps the
-    // v_reset / threshold reference lines on the left wall.
-    ctx.fillStyle = pal.ink; ctx.font = mono;
+    // v readout: inside the water (white on the teal fill), clamped so it stays
+    // in the bucket even when the level is low.
+    ctx.fillStyle = '#ffffff'; ctx.font = mono;
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, bx0 + 6, yWater + 4);
+    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, bx0 + 6, Math.min(yWater + 4, yBot - 14));
     // spike rim flash
     if (splashing) {
       ctx.strokeStyle = pal.coral; ctx.lineWidth = 3;

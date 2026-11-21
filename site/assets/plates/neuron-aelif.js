@@ -192,11 +192,12 @@ tryThis.style.fontStyle = 'italic';
     ctx.lineWidth = tapW;
     ctx.beginPath(); ctx.moveTo(cx, 44); ctx.lineTo(cx, yWater - 2); ctx.stroke();
     ctx.fillStyle = pal.tap; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`input ${input.toFixed(2)}`, cx, 34);
-    // v readout
-    ctx.fillStyle = pal.ink; ctx.font = mono;
-    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, bx + 6, yWater - 4);
+    ctx.fillText(`input R·I/τ = ${input.toFixed(2)} mV/ms`, cx, 34);
+    // v readout inside the water (white on the teal fill), clamped so it stays
+    // in the bucket even when the level is low.
+    ctx.fillStyle = '#ffffff'; ctx.font = mono;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, bx + 6, Math.min(yWater + 4, yBot - 14));
     // spike rim flash
     if (splashing) {
       ctx.strokeStyle = pal.coral; ctx.lineWidth = 3;
@@ -249,7 +250,7 @@ tryThis.style.fontStyle = 'italic';
     ctx.stroke();
     ctx.fillStyle = pal.adapt; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`R·w = ${(p.R * wNow).toFixed(2)} mV`, (tx + bx + bw) / 2, pipeY - 34);
+    ctx.fillText(`R·w = ${(p.R * wNow).toFixed(2)} mV`, (tx + bx + bw) / 2, pipeY - 48);
   }
 
   // --- frame ---

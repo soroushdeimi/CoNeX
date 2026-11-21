@@ -204,15 +204,19 @@ test('elifFixedPoints: fixed points by hand for the defaults (stable/unstable)',
   assert.equal(elifFixedPoints(p, 65, vMin, vMax).length, 0, 'I=65 has no fixed point');
 });
 
-test('elifNarration: take-off vs balance, driven by the real terms (hand-computed)', () => {
+test('elifNarration: derived from the phase line, three regimes (hand-computed)', () => {
   const p = { R: 0.5, tau: 20, v_rest: -70, threshold: 0, delta: 2, theta_rh: -50 };
-  const I = 65;
   // just spiked -> reset line
-  assert.equal(elifNarration({ v: -55, p, I, splashing: true }), 'threshold crossed: spike, reset to v_reset');
-  // v=-50: exp term = 2 mV -> /tau = 0.1 mV/ms; input = 0.5*65/20 = 1.625 -> balance
-  assert.equal(elifNarration({ v: -50, p, I, splashing: false }), 'v below take-off: input and leak balance');
-  // v=-40: exp term = 2*exp(5) = 204 mV -> /tau = 10.2 mV/ms > input 1.625 -> take-off
-  assert.equal(elifNarration({ v: -40, p, I, splashing: false }), 'exponential term takes over: v accelerates to threshold');
+  assert.equal(elifNarration({ v: -55, p, I: 65, splashing: true }), 'threshold crossed: spike, reset to v_reset');
+  // I=65: f(v) = (-(v+70) + 2*exp((v+50)/2) + 32.5)/20 > 0 for every v in
+  // [-75, 0] (at v=-75 it is (5+32.5)/20 = 1.875; at v=0 it is huge), so there
+  // is no fixed point -> v always rises toward take-off.
+  assert.equal(elifNarration({ v: -65, p, I: 65, splashing: false }), 'no balance point: v always rises toward take-off');
+  // I=20: two fixed points, stable v* = -59.99 mV and unstable -46.13 mV.
+  // v=-60 is below the unstable point -> drawn to the stable fixed point.
+  assert.equal(elifNarration({ v: -60, p, I: 20, splashing: false }), 'input and leak balance at v* = -59.99 mV');
+  // v=-45 is above the unstable point (-46.13) -> exponential take-off.
+  assert.equal(elifNarration({ v: -45, p, I: 20, splashing: false }), 'exponential take-off: spike');
 });
 
 test('ELIF: N live steps equal the precomputed run bit-for-bit', () => {

@@ -5,7 +5,7 @@ import {
   encodeHash, decodeHash, rng, computeTicks, niceNum, dataRange, fmtTick,
   formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime,
   playerSpeedFromPos, playerPosFromSpeed, liveSteps, LIVE_MAX_STEPS, ease,
-  readoutText,
+  readoutText, colorBarLabels,
 } from '../assets/js/core.js';
 
 // --- URL-hash encode/decode ------------------------------------------------
@@ -456,6 +456,23 @@ test('readoutText: a custom readout(t) function fully replaces the default', () 
   assert.equal(readoutText(4, { readout: (t) => `step ${t}/16: C` }), 'step 4/16: C');
   // the custom function receives the (already shown) time value
   assert.equal(readoutText(7.5, { unit: 'ms', readout: (t) => `t=${t}` }), 't=7.5');
+});
+
+// --- colorBarLabels (heatmap colour bar min/max) ----------------------------
+
+test('colorBarLabels formats whole-number ranges without decimals', () => {
+  assert.deepEqual(colorBarLabels(0, 1), { lo: '0', hi: '1' });
+  assert.deepEqual(colorBarLabels(0, 100), { lo: '0', hi: '100' });
+  assert.deepEqual(colorBarLabels(0, 10), { lo: '0', hi: '10' });
+});
+
+test('colorBarLabels keeps decimals when the range needs them', () => {
+  assert.deepEqual(colorBarLabels(0, 0.5), { lo: '0', hi: '0.5' });
+  assert.deepEqual(colorBarLabels(2, 7), { lo: '2', hi: '7' });
+});
+
+test('colorBarLabels handles a degenerate range (lo === hi)', () => {
+  assert.deepEqual(colorBarLabels(5, 5), { lo: '5', hi: '5' });
 });
 
 // --- ui.tryThis (real ui.js, minimal DOM stub) ------------------------------

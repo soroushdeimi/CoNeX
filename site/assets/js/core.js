@@ -221,6 +221,13 @@ export function ease(f) {
   return x * x * (3 - 2 * x);
 }
 
+// The min/max labels for a heatmap colour bar, formatted from the range's own
+// tick step so 0..1 shows "0"/"1" and 0..100 shows "0"/"100".
+export function colorBarLabels(lo, hi) {
+  const { step } = computeTicks(lo, hi, 4);
+  return { lo: fmtTick(lo, step), hi: fmtTick(hi, step) };
+}
+
 // Format a tick value with decimals derived from the step. Trailing zeros are
 // trimmed only after a decimal point, so 10 stays "10" (not "1").
 export function fmtTick(v, step) {

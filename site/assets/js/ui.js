@@ -1,5 +1,5 @@
 // Shared UI + plotting API for the CoNeX site. See .worker/CONTRACT.md.
-import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime, playerSpeedFromPos, playerPosFromSpeed, liveSteps, LIVE_MAX_STEPS, ease, readoutText } from './core.js';
+import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime, playerSpeedFromPos, playerPosFromSpeed, liveSteps, LIVE_MAX_STEPS, ease, readoutText, colorBarLabels } from './core.js';
 
 const THEME_KEY = 'conex-theme';
 const SPEED_KEY = 'conex-speed';
@@ -29,10 +29,12 @@ const PALETTES = {
   light: {
     paper: '#fbfaf5', ink: '#1f2a2c', muted: '#5f6b6d', rule: '#dcdccd',
     c1: '#0f7b7f', c2: '#d95b43', c3: '#b98a1f', c4: '#3d4f9f', c5: '#5b8a3c', c6: '#8b3f73',
+    heatLow: '#7fc4c6',
   },
   dark: {
     paper: '#141b1c', ink: '#e5ebe7', muted: '#9aa7a6', rule: '#2c3738',
     c1: '#3cb4b9', c2: '#ef7d66', c3: '#d9ab3f', c4: '#8294dd', c5: '#86b468', c6: '#c26fa9',
+    heatLow: '#2f8a8f',
   },
 };
 
@@ -599,7 +601,7 @@ export function raster(parent, { height = 200, xLabel = 'time', xUnit = 'ms' }) 
   };
 }
 
-export function heatmap(parent, { rows, cols, label = '', height = 200 }) {
+export function heatmap(parent, { rows, cols, label = '', height = 200, colorBar = false }) {
   const st = makeCanvas(parent, height);
   const M = { left: 48, right: 12, top: 8, bottom: 34 };
   let last = null;
@@ -617,23 +619,48 @@ export function heatmap(parent, { rows, cols, label = '', height = 200 }) {
       for (const v of values) { if (v < lo) lo = v; if (v > hi) hi = v; }
       if (lo === hi) hi = lo + 1;
     }
-    const cw = (w - M.left - M.right) / cols;
-    const ch = (h - M.top - M.bottom) / rows;
+    // reserve room for the colour bar on the right when requested
+    const barW = 14, barGap = 8, labelW = 36;
+    const gridRight = colorBar ? w - (barW + barGap + labelW + 6) : w - M.right;
+    const gridLeft = M.left, gridTop = M.top, gridBot = h - M.bottom;
+    const cw = (gridRight - gridLeft) / cols;
+    const ch = (gridBot - gridTop) / rows;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const v = values[r * cols + c];
         const f = (v - lo) / (hi - lo);
-        ctx.fillStyle = mix(pal.paper, pal.c1, Math.max(0, Math.min(1, f)));
-        ctx.fillRect(M.left + c * cw, M.top + r * ch, cw + 0.5, ch + 0.5);
+        ctx.fillStyle = mix(pal.heatLow, pal.c1, Math.max(0, Math.min(1, f)));
+        ctx.fillRect(gridLeft + c * cw, gridTop + r * ch, cw + 0.5, ch + 0.5);
       }
     }
     ctx.strokeStyle = pal.ink;
-    ctx.strokeRect(M.left, M.top, cols * cw, rows * ch);
+    ctx.strokeRect(gridLeft, gridTop, cols * cw, rows * ch);
+
+    if (colorBar) {
+      const bx = gridRight + barGap;
+      const bh = gridBot - gridTop;
+      // gradient: low (bottom) -> high (top), matching the cell ramp
+      const grad = ctx.createLinearGradient(0, gridBot, 0, gridTop);
+      grad.addColorStop(0, pal.heatLow);
+      grad.addColorStop(1, pal.c1);
+      ctx.fillStyle = grad;
+      ctx.fillRect(bx, gridTop, barW, bh);
+      ctx.strokeStyle = pal.ink;
+      ctx.strokeRect(bx, gridTop, barW, bh);
+      const { lo: loLbl, hi: hiLbl } = colorBarLabels(lo, hi);
+      ctx.fillStyle = pal.ink;
+      ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(hiLbl, bx + barW + 4, gridTop);
+      ctx.fillText(loLbl, bx + barW + 4, gridBot);
+    }
+
     ctx.fillStyle = pal.ink;
     ctx.font = '11px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(label, (M.left + w - M.right) / 2, h - 2);
+    ctx.fillText(label, (gridLeft + gridRight) / 2, h - 2);
   }
 
   // redraw on resize (the RO resets the canvas) and on theme change

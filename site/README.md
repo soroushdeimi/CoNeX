@@ -99,6 +99,15 @@ the figures column, above the hero. Call it once in `mount`, before creating
 the hero, e.g. `ui.tryThis(figures, 'Raise I; watch threshold crossings become
 more frequent.')`.
 
+## Heatmap colour bar
+
+`ui.heatmap(parent, {rows, cols, label, height, colorBar})` draws a grid of
+cells. Pass `colorBar: true` to add a vertical colour bar on the right with the
+range's min and max labelled (formatted from the range's own tick step, so
+`0..1` shows "0"/"1" and `0..100` shows "0"/"100"). The cell ramp blends from a
+brighter low end (`heatLow`) up to the series colour, so low values stay
+visible in dark mode. The colour bar is off by default.
+
 ## Hero animation and narration
 
 `ui.hero(parent, {height})` is the large animated diagram at the top of the

@@ -56,20 +56,23 @@ def make_net(dt=1.0):
 # ---------------------------------------------------------------------------
 
 def dendritic_segment_scenario():
-    """DendriticSegment.learn_on_segments multi-step test.
+    """DendriticSegment.learn_on_segments multi-step test with CoNeX defaults.
 
-    Tests deterministic reinforcement (+perm_inc), punishment (-perm_dec),
-    and clamping [0, 1] on a cell with 2 segments x 4 synapses.
+    Demonstrates crossing the learning threshold with context overlap:
+    - Step 0: context overlap = 10 (>= learning_threshold 8) -> matches, reinforces active,
+      punishes inactive, and grows new synapses into empty slots.
+    - Step 1: context overlap = 5 (< learning_threshold 8) -> does NOT match, no weight changes.
+    - Step 2: context overlap = 12 (>= learning_threshold 8) -> matches again, further learning.
     """
     cfg = DendriticSegmentConfig(
-        n_synapses_per_segment=4,
-        activation_threshold=2,
-        learning_threshold=1,
+        n_synapses_per_segment=20,
+        activation_threshold=10,
+        learning_threshold=8,
         permanence_increment=0.1,
         permanence_decrement=0.02,
         initial_permanence=0.21,
         connected_permanence=0.2,
-        max_new_synapses=2,
+        max_new_synapses=5,
     )
     net = make_net()
     ds = DendriticSegment(n_segments=2, n_cells=1, config=cfg)
@@ -77,24 +80,35 @@ def dendritic_segment_scenario():
     net.initialize()
 
     # Initial state for cell 0:
-    # Segment 0: targets [0, 1, 2, 3], perms [0.30, 0.15, 0.25, 0.10]
-    # Segment 1: targets [1, 3, 4, 0], perms [0.22, 0.18, 0.10, 0.05]
-    neurons.segment_targets[0] = torch.tensor([0, 1, 2, 3], dtype=torch.long)
-    neurons.segment_permanences[0] = torch.tensor([0.30, 0.15, 0.25, 0.10], dtype=torch.float32)
+    # Segment 0: 15 initialized synapses to targets 0..14 (perm 0.25) + 5 empty slots (-1, perm 0.0)
+    # Segment 1: 15 initialized synapses to targets 15..29 (perm 0.25) + 5 empty slots (-1, perm 0.0)
+    s0_targets = list(range(15)) + [-1] * 5
+    s0_perms = [0.25] * 15 + [0.0] * 5
+    s1_targets = list(range(15, 30)) + [-1] * 5
+    s1_perms = [0.25] * 15 + [0.0] * 5
 
-    neurons.segment_targets[1] = torch.tensor([1, 3, 4, 0], dtype=torch.long)
-    neurons.segment_permanences[1] = torch.tensor([0.22, 0.18, 0.10, 0.05], dtype=torch.float32)
+    neurons.segment_targets[0] = torch.tensor(s0_targets, dtype=torch.long)
+    neurons.segment_permanences[0] = torch.tensor(s0_perms, dtype=torch.float32)
+
+    neurons.segment_targets[1] = torch.tensor(s1_targets, dtype=torch.long)
+    neurons.segment_permanences[1] = torch.tensor(s1_perms, dtype=torch.float32)
 
     steps_data = []
 
-    # Step 0: inputs 0 and 2 are active (size 5).
-    # Step 1: inputs 1 and 2 are active.
-    # Step 2: inputs 0 and 1 are active.
-    pre_steps = [
-        torch.tensor([True, False, True, False, False]),
-        torch.tensor([False, True, True, False, False]),
-        torch.tensor([True, True, False, False, False]),
-    ]
+    # Step 0: overlap 10 (targets 0..9 active) + novel 35..39 active (total 15 active cells)
+    pre0 = torch.zeros(40, dtype=torch.bool)
+    pre0[0:10] = True
+    pre0[35:40] = True
+
+    # Step 1: overlap 5 (targets 0..4 active) -> total active < 8 -> no match
+    pre1 = torch.zeros(40, dtype=torch.bool)
+    pre1[0:5] = True
+
+    # Step 2: overlap 12 (targets 0..11 active) -> matches
+    pre2 = torch.zeros(40, dtype=torch.bool)
+    pre2[0:12] = True
+
+    pre_steps = [pre0, pre1, pre2]
 
     for step_idx, pre in enumerate(pre_steps):
         targets_before = [ivec(neurons.segment_targets[s]) for s in range(2)]
@@ -111,6 +125,7 @@ def dendritic_segment_scenario():
         active_cells = torch.tensor([True])
         winner_cells = torch.tensor([True])
 
+        torch.manual_seed(100 + step_idx)
         ds.learn_on_segments(neurons, active_cells, winner_cells, pre)
 
         targets_after = [ivec(neurons.segment_targets[s]) for s in range(2)]
@@ -129,37 +144,20 @@ def dendritic_segment_scenario():
             "permanences_after": perms_after,
         })
 
-    # Dedicated grow test: 1 empty slot, exactly 1 active presynaptic candidate (deterministic randperm(1))
-    net_grow = make_net()
-    ds_grow = DendriticSegment(n_segments=1, n_cells=1, config=cfg)
-    ng_grow = NeuronGroup(net=net_grow, size=1, behavior={10: ds_grow})
-    net_grow.initialize()
-    ng_grow.segment_targets[0] = torch.tensor([0, 1, 2, -1], dtype=torch.long)
-    ng_grow.segment_permanences[0] = torch.tensor([0.4, 0.4, 0.4, 0.0], dtype=torch.float32)
-    # Only input 0 is active
-    pre_grow = torch.tensor([True, False, False, False])
-    ds_grow.compute_segment_activation(ng_grow, pre_grow)
-    ds_grow.learn_on_segments(ng_grow, torch.tensor([True]), torch.tensor([True]), pre_grow)
-    grow_test = {
-        "targets_after": ivec(ng_grow.segment_targets[0]),
-        "perms_after": vec(ng_grow.segment_permanences[0]),
-    }
-
     return {
         "params": {
             "n_cells": 1,
             "n_segments": 2,
-            "n_synapses_per_segment": 4,
-            "activation_threshold": 2,
-            "learning_threshold": 1,
+            "n_synapses_per_segment": 20,
+            "activation_threshold": 10,
+            "learning_threshold": 8,
             "permanence_increment": 0.1,
             "permanence_decrement": 0.02,
             "initial_permanence": 0.21,
             "connected_permanence": 0.2,
-            "max_new_synapses": 2,
+            "max_new_synapses": 5,
         },
         "steps": steps_data,
-        "grow_test": grow_test,
     }
 
 

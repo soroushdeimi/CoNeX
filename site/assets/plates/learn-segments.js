@@ -56,6 +56,10 @@ export function mount(root, ui) {
   });
 
   const patSec = ui.section(controls, 'Simulation setup');
+  const contextOverlap = ui.slider(patSec, {
+    key: 'contextOverlap', label: 'context overlap with segment 0', unit: 'cells',
+    min: 0, max: 15, step: 1, value: 10,
+  });
   const seedCtrl = ui.number(patSec, { key: 'seed', label: 'seed', unit: '', value: 42 });
 
   // --- Figures ---
@@ -69,6 +73,7 @@ export function mount(root, ui) {
     yLabel: 'synapse permanence',
     yUnit: 'a.u.',
   });
+  const legendNote = ui.note(figures, '<em>Permanence trajectories for 6 representative synapses on Segment 0: active inputs (Syn 0, 2, 5: reinforced), inactive inputs (Syn 10, 12: punished), and newly grown synapse (Syn 15).</em>');
 
   let currentStep = 0;
   let simData = null;
@@ -88,8 +93,9 @@ export function mount(root, ui) {
       maxNewSynapses: maxNew.get(),
     });
 
-    // Initialize 2 segments with initial targets and permanences
-    // Each segment has 15 pre-connected synapses (some above connPerm, some below) and 5 empty slots
+    // Initialize 2 segments:
+    // Segment 0: targets 0..14 initialized to 0.25 (connected >= 0.2) + 5 empty slots (-1)
+    // Segment 1: targets 15..29 initialized to 0.25 (connected >= 0.2) + 5 empty slots (-1)
     const seg0Targets = [];
     const seg0Perms = [];
     const seg1Targets = [];
@@ -98,9 +104,9 @@ export function mount(root, ui) {
     for (let i = 0; i < N_SYN_PER_SEG; i++) {
       if (i < 15) {
         seg0Targets.push(i);
-        seg0Perms.push(0.15 + (rng() * 0.25)); // 0.15 to 0.40
-        seg1Targets.push(10 + i);
-        seg1Perms.push(0.12 + (rng() * 0.25));
+        seg0Perms.push(0.25);
+        seg1Targets.push(15 + i);
+        seg1Perms.push(0.25);
       } else {
         seg0Targets.push(-1);
         seg0Perms.push(0.0);
@@ -112,17 +118,23 @@ export function mount(root, ui) {
     model.setSegment(0, seg0Targets, seg0Perms);
     model.setSegment(1, seg1Targets, seg1Perms);
 
-    // Pre-generate input patterns for NUM_STEPS
+    const overlap = contextOverlap.get();
+
+    // Generate input patterns for NUM_STEPS:
+    // Segment 0 sees `overlap` active presynaptic cells (targets 0..overlap-1)
+    // Plus 5 novel presynaptic cells (35..39) active to trigger synaptogenesis into empty slots
+    // Segment 1 sees 0 active cells
     const inputPatterns = [];
     for (let t = 0; t < NUM_STEPS; t++) {
       const active = new Array(N_PRE_CELLS).fill(false);
-      // Pick 12 to 18 active presynaptic neurons per step
-      const nAct = 12 + Math.floor(rng() * 7);
-      const chosen = new Set();
-      while (chosen.size < nAct) {
-        chosen.add(Math.floor(rng() * N_PRE_CELLS));
+      // Active targets matching Segment 0
+      for (let i = 0; i < overlap; i++) {
+        active[i] = true;
       }
-      for (const idx of chosen) active[idx] = true;
+      // Active novel inputs for growth
+      for (let i = 35; i < 40; i++) {
+        active[i] = true;
+      }
       inputPatterns.push(active);
     }
 
@@ -174,11 +186,12 @@ export function mount(root, ui) {
     let actDetails = [];
     for (let s = 0; s < 2; s++) {
       const segAct = sData.actions[s] || [];
-      const reinforced = segAct.filter((a) => a.action === 'reinforced').map((a) => `${a.synapseIdx} (pre ${a.target})`);
-      const punished = segAct.filter((a) => a.action === 'punished').map((a) => `${a.synapseIdx} (pre ${a.target})`);
-      const grown = segAct.filter((a) => a.action === 'grown').map((a) => `${a.synapseIdx} (pre ${a.target})`);
+      const reinforced = segAct.filter((a) => a.action === 'reinforced').map((a) => `Syn ${a.synapseIdx}`);
+      const punished = segAct.filter((a) => a.action === 'punished').map((a) => `Syn ${a.synapseIdx}`);
+      const grown = segAct.filter((a) => a.action === 'grown').map((a) => `Syn ${a.synapseIdx}`);
 
-      let summary = `<strong>Segment ${s}</strong> (active connected = ${sData.activation[s]}, ${sData.matching[s] ? 'matched' : 'not matched'}): `;
+      let statusMsg = sData.matching[s] ? 'matched' : 'not matched: no weight changes';
+      let summary = `<strong>Segment ${s}</strong> (active connected = ${sData.activation[s]}, threshold ${learnThresh.get()}: <em>${statusMsg}</em>): `;
       const parts = [];
       if (reinforced.length) parts.push(`<span style="color:var(--c5,#5b8a3c)">reinforced [${reinforced.slice(0, 5).join(', ')}${reinforced.length > 5 ? '…' : ''}]</span>`);
       if (punished.length) parts.push(`<span style="color:var(--c2,#d95b43)">punished [${punished.slice(0, 5).join(', ')}${punished.length > 5 ? '…' : ''}]</span>`);
@@ -187,36 +200,43 @@ export function mount(root, ui) {
       actDetails.push(summary + parts.join('; '));
     }
 
-    const activePre = [];
-    sData.presynapticActivity.forEach((isActive, idx) => {
-      if (isActive) activePre.push(idx);
-    });
+    const overlapVal = contextOverlap.get();
+    const lThresh = learnThresh.get();
+    const matchState = overlapVal >= lThresh
+      ? `<span style="color:var(--c5,#5b8a3c);font-weight:bold;">&ge; ${lThresh} (MATCHED &rarr; Learning active)</span>`
+      : `<span style="color:var(--c2,#d95b43);font-weight:bold;">&lt; ${lThresh} (SUBTHRESHOLD &rarr; No learning)</span>`;
 
     statusNote.innerHTML = `
       <div style="font-family:ui-monospace,monospace;font-size:0.85rem;line-height:1.4;">
-        <div><strong>Step ${clampedStep}</strong>: Active presynaptic inputs = [${activePre.slice(0, 10).join(', ')}${activePre.length > 10 ? '…' : ''}] &bull; Soma depolarization = ${(sData.depolarization * 100).toFixed(0)}%</div>
+        <div><strong>Step ${clampedStep}</strong>: Context overlap with Segment 0 = ${overlapVal} cells ${matchState} &bull; Soma depolarization = ${(sData.depolarization * 100).toFixed(0)}%</div>
         <div>${actDetails.join('<br>')}</div>
       </div>
     `;
 
     // 3. Draw permanences plot over all steps with revealX
-    const series = [];
-    const colors = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'];
-    // Show 6 sample synapses from Segment 0
-    const sampleSynapses = [0, 2, 4, 8, 12, 16];
-    sampleSynapses.forEach((syn, i) => {
+    // Plot exactly 6 representative synapses from Segment 0 with concise labels
+    const representative = [
+      { syn: 0, label: 'Syn 0 (active)', color: 'c1' },
+      { syn: 2, label: 'Syn 2 (active)', color: 'c5' },
+      { syn: 5, label: 'Syn 5 (active)', color: 'c4' },
+      { syn: 10, label: 'Syn 10 (inactive)', color: 'c2' },
+      { syn: 12, label: 'Syn 12 (inactive)', color: 'c3' },
+      { syn: 15, label: 'Syn 15 (grown)', color: 'c6' },
+    ];
+
+    const series = representative.map((r) => {
       const xs = [];
       const ys = [];
       for (let t = 0; t < NUM_STEPS; t++) {
         xs.push(t);
-        ys.push(simData.steps[t].seg0After.permanences[syn]);
+        ys.push(simData.steps[t].seg0After.permanences[r.syn]);
       }
-      series.push({
+      return {
         x: xs,
         y: ys,
-        label: `Seg 0 Syn ${syn} (target ${sData.seg0After.targets[syn]})`,
-        color: colors[i % colors.length],
-      });
+        label: r.label,
+        color: r.color,
+      };
     });
 
     permPlot.draw(series, {
@@ -224,7 +244,7 @@ export function mount(root, ui) {
       yRange: [0, 1],
       revealX: clampedStep,
       hlines: [
-        { y: connPerm.get(), label: `conn threshold (${connPerm.get()})` },
+        { y: connPerm.get(), label: `conn (${connPerm.get()})` },
       ],
     });
   }
@@ -337,7 +357,7 @@ export function mount(root, ui) {
     ctx.restore();
   }
 
-  // --- Animation / Player (direct integration per AMENDMENT 2, no fallback guards) ---
+  // --- Animation / Player (direct integration per AMENDMENT 2) ---
   const player = ui.player(figures, {
     duration: NUM_STEPS - 1,
     unit: 'step',
@@ -354,7 +374,7 @@ export function mount(root, ui) {
     renderAt(currentStep);
   }
 
-  [permInc, permDec, initPerm, connPerm, actThresh, learnThresh, maxNew, seedCtrl].forEach((c) => {
+  [permInc, permDec, initPerm, connPerm, actThresh, learnThresh, maxNew, contextOverlap, seedCtrl].forEach((c) => {
     c.onInput(rebuild);
   });
 

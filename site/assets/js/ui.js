@@ -1,5 +1,5 @@
 // Shared UI + plotting API for the CoNeX site. See .worker/CONTRACT.md.
-import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList, clampTime, playerAdvance } from './core.js';
+import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime } from './core.js';
 
 const THEME_KEY = 'conex-theme';
 
@@ -750,13 +750,14 @@ export function animate(fn) {
 
 // A time player: reveals a precomputed run over model time. Model time advances
 // at speed * duration / playSeconds per real second. See AMENDMENT 2.
-export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = true, onFrame }) {
+export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = true, integer, onFrame }) {
   let dur = duration;
   let t = 0;
   let speed = 1;
   let playing = false;
   let raf = 0;
   let lastTs = 0;
+  const isInt = playerInteger(unit, integer);
 
   const wrap = document.createElement('div');
   wrap.className = 'ui-player';
@@ -801,6 +802,7 @@ export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = 
   parent.appendChild(wrap);
 
   function fmtTime(v) {
+    if (isInt) return `t = ${v} ${unit}`;
     const dec = dur < 10 ? 2 : 1;
     let s = v.toFixed(dec);
     if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
@@ -809,7 +811,7 @@ export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = 
 
   function update() {
     scrub.value = String(t);
-    readout.textContent = fmtTime(t);
+    readout.textContent = fmtTime(playerShownTime(t, isInt));
   }
 
   function frame(ts) {
@@ -819,7 +821,7 @@ export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = 
     if (dtMs > 0) {
       t = playerAdvance(t, dtMs, dur, playSeconds, speed, loop);
       update();
-      if (onFrame) onFrame(t);
+      if (onFrame) onFrame(playerShownTime(t, isInt));
     }
     if (!loop && t >= dur) {
       pause();
@@ -846,7 +848,7 @@ export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = 
   function seek(nt) {
     t = clampTime(nt, dur);
     update();
-    if (onFrame) onFrame(t);
+    if (onFrame) onFrame(playerShownTime(t, isInt));
   }
 
   function setDuration(d) {
@@ -855,7 +857,7 @@ export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = 
     scrub.step = String(dur / 1000);
     t = clampTime(t, dur);
     update();
-    if (onFrame) onFrame(t);
+    if (onFrame) onFrame(playerShownTime(t, isInt));
   }
 
   playBtn.addEventListener('click', () => (playing ? pause() : play()));
@@ -881,7 +883,7 @@ export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = 
   if (reduced) {
     t = dur;
     update();
-    if (onFrame) onFrame(t);
+    if (onFrame) onFrame(playerShownTime(t, isInt));
   } else {
     play();
   }

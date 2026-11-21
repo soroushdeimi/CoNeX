@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   encodeHash, decodeHash, rng, computeTicks, niceNum, dataRange, fmtTick,
-  formatValue, listenerList, clampTime, playerAdvance,
+  formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime,
 } from '../assets/js/core.js';
 
 // --- URL-hash encode/decode ------------------------------------------------
@@ -276,4 +276,29 @@ test('playerAdvance wraps past the end when looping', () => {
 test('playerAdvance with a zero step stays put', () => {
   assert.equal(playerAdvance(30, 0, 100, 5, 1, false), 30);
   assert.equal(playerAdvance(30, 0, 100, 5, 1, true), 30);
+});
+
+// --- playerInteger / playerShownTime (discrete-unit readout) ---------------
+
+test('playerInteger is on by default for discrete units only', () => {
+  for (const u of ['steps', 'samples', 'epochs', 'step']) {
+    assert.equal(playerInteger(u, undefined), true, `${u} should default to integer`);
+  }
+  for (const u of ['ms', 's', 'a.u.', 'rad']) {
+    assert.equal(playerInteger(u, undefined), false, `${u} should default to fractional`);
+  }
+});
+
+test('playerInteger lets an explicit option override the unit default', () => {
+  assert.equal(playerInteger('ms', true), true);
+  assert.equal(playerInteger('steps', false), false);
+  assert.equal(playerInteger('ms', undefined), false);
+});
+
+test('playerShownTime floors in integer mode and passes through otherwise', () => {
+  assert.equal(playerShownTime(13999.2, true), 13999);
+  assert.equal(playerShownTime(14.9, true), 14);
+  assert.equal(playerShownTime(0, true), 0);
+  assert.equal(playerShownTime(13999.2, false), 13999.2);
+  assert.equal(playerShownTime(14.9, false), 14.9);
 });

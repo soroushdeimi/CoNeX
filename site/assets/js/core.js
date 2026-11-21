@@ -135,6 +135,22 @@ export function listenerList() {
   };
 }
 
+// Units whose player time is a count, not a continuous quantity.
+const DISCRETE_UNITS = new Set(['steps', 'samples', 'epochs', 'step']);
+
+// Whether a player should show whole-number time. An explicit `integer` wins;
+// otherwise it is on for discrete units (steps, samples, epochs, step).
+export function playerInteger(unit, integer) {
+  if (integer !== undefined) return !!integer;
+  return DISCRETE_UNITS.has(unit);
+}
+
+// The time handed to onFrame / the readout: floored to an integer in integer
+// mode, otherwise the raw value.
+export function playerShownTime(t, integer) {
+  return integer ? Math.floor(t) : t;
+}
+
 // Clamp model time to [0, duration]. Non-finite input becomes 0.
 export function clampTime(t, duration) {
   if (!Number.isFinite(t)) return 0;

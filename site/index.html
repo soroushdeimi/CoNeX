@@ -37,6 +37,14 @@
           <button id="hero-pause" class="ui-button ui-button-small hero-pause" type="button"
                   aria-pressed="false" aria-label="Pause the neuron animation">Pause</button>
         </div>
+        <div class="hero-speed-row">
+          <label class="hero-speed">
+            <span>speed</span>
+            <span id="hero-speed-readout" class="ui-readout">1.0x</span>
+            <input id="hero-speed" type="range" min="0" max="1" step="0.01" value="0.5"
+                   aria-label="Playback speed">
+          </label>
+        </div>
         <figcaption>
           A single leaky integrate-and-fire neuron: membrane voltage (teal) and
           its spikes (coral), driven by a constant 65 pA input. Same parameters
@@ -234,6 +242,7 @@ symbol  anomaly  bursting columns
 
   <script type="module">
     import ui from './assets/js/ui.js';
+    import { playerSpeedFromPos, playerPosFromSpeed } from './assets/js/core.js';
     const themeBtn = document.getElementById('theme-toggle');
     function syncThemeBtn() {
       themeBtn.textContent = ui.getTheme() === 'light' ? 'Dark' : 'Light';
@@ -348,11 +357,28 @@ symbol  anomaly  bursting columns
 
       const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       const pauseBtn = document.getElementById('hero-pause');
+      const speedSlider = document.getElementById('hero-speed');
+      const speedReadout = document.getElementById('hero-speed-readout');
+      // start from the last chosen speed (shared with the plates)
+      let heroSpeed = 1;
+      try {
+        const saved = Number(localStorage.getItem('conex-speed'));
+        if (Number.isFinite(saved) && saved >= 0.1 && saved <= 10) heroSpeed = saved;
+      } catch {}
+      if (speedSlider) {
+        speedSlider.value = String(playerPosFromSpeed(heroSpeed));
+        speedReadout.textContent = `${heroSpeed.toFixed(1)}x`;
+        speedSlider.addEventListener('input', () => {
+          heroSpeed = playerSpeedFromPos(Number(speedSlider.value));
+          speedReadout.textContent = `${heroSpeed.toFixed(1)}x`;
+          try { localStorage.setItem('conex-speed', String(heroSpeed)); } catch {}
+        });
+      }
       if (reduced && pauseBtn) pauseBtn.hidden = true; // static frame: nothing to pause
       if (!reduced && pauseBtn) {
-        // scroll at ~50 ms of model time per real second
+        // scroll at ~50 ms of model time per real second, scaled by heroSpeed
         const anim = ui.animate((dtMs) => {
-          step(Math.min(dtMs, 50) * 0.05);
+          step(Math.min(dtMs, 50) * 0.05 * heroSpeed);
           draw();
         });
         anim.start();

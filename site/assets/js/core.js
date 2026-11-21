@@ -157,6 +157,21 @@ export function clampTime(t, duration) {
   return Math.min(duration, Math.max(0, t));
 }
 
+// Map a speed-slider position (0..1) to a playback speed on a log scale:
+// 0 -> 0.1x, 0.5 -> 1x, 1 -> 10x. Non-finite input becomes the middle (1x).
+export function playerSpeedFromPos(pos) {
+  if (!Number.isFinite(pos)) return 1;
+  const p = Math.min(1, Math.max(0, pos));
+  return Math.pow(10, p * 2 - 1);
+}
+
+// Inverse of playerSpeedFromPos: a speed -> slider position (0..1).
+export function playerPosFromSpeed(speed) {
+  if (!Number.isFinite(speed) || speed <= 0) return 0.5;
+  const s = Math.min(10, Math.max(0.1, speed));
+  return (Math.log10(s) + 1) / 2;
+}
+
 // Advance model time by dtMs of real time. Model time advances at
 // speed * duration / playSeconds per real second. With loop, the excess
 // beyond duration wraps to the start; without, it clamps at duration.

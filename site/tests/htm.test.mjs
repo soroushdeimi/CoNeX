@@ -19,6 +19,7 @@ import {
 } from '../assets/js/models/htm.js';
 import { sdrHeroState } from '../assets/plates/htm-sdr.js';
 import { encoderHeroState } from '../assets/plates/htm-encoder.js';
+import { spHeroState } from '../assets/plates/htm-sp.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const golden = JSON.parse(readFileSync(join(here, 'golden', 'htm.json'), 'utf8'));
@@ -502,4 +503,56 @@ test('encoder hero: narration names the value, block size and overlap', () => {
   assert.match(st.narration, /value 0\.50 a\.u\./);
   assert.match(st.narration, /block of 4 bits/);
   assert.match(st.narration, /overlap with reference \(0\.50\) = 4 bits/);
+});
+
+// SP hero: 2 columns, 2 potential inputs each, 2 steps.
+// Step 0: col0 overlap 1 (winner), perms [0.1, 0.3]; col1 overlap 0, perms [0.05, 0.2].
+// Step 1: col0 overlap 2, perms [0.2, 0.4]; col1 overlap 1, perms [0.15, 0.3].
+function spRun() {
+  return {
+    n: 2,
+    nPotential: 2,
+    input: [1, 0],
+    potential_inputs: [[0, 1], [0, 1]],
+    steps: [
+      { overlap: [1, 0], perm: [0.1, 0.3, 0.05, 0.2], activeSet: new Set([0]) },
+      { overlap: [2, 1], perm: [0.2, 0.4, 0.15, 0.3], activeSet: new Set([0, 1]) },
+    ],
+  };
+}
+
+test('sp hero: at an integer step the overlap and permanences are that step', () => {
+  const st = spHeroState(spRun(), 0, 0.1, 2);
+  assert.equal(st.idx, 0);
+  assert.equal(st.cols[0].overlap, 1);
+  assert.equal(st.cols[0].winner, true);
+  assert.equal(st.cols[1].winner, false);
+  assert.equal(st.cols[0].syn[0].perm, 0.1);
+  assert.equal(st.cols[0].syn[1].perm, 0.3);
+});
+
+test('sp hero: at the midpoint the overlap and permanences ease between steps', () => {
+  const st = spHeroState(spRun(), 0.5, 0.1, 2);
+  assert.ok(Math.abs(st.cols[0].overlap - 1.5) < 1e-9); // (1+2)/2
+  assert.ok(Math.abs(st.cols[0].syn[0].perm - 0.15) < 1e-9); // (0.1+0.2)/2
+  assert.ok(Math.abs(st.cols[1].overlap - 0.5) < 1e-9); // (0+1)/2
+});
+
+test('sp hero: a synapse is connected when its eased permanence crosses the threshold', () => {
+  // At step 0, col0 syn0 perm=0.1 is exactly at threshold 0.1 -> connected.
+  const at = spHeroState(spRun(), 0, 0.1, 2);
+  assert.equal(at.cols[0].syn[0].connected, true);
+  // col1 syn0 perm=0.05 < 0.1 -> not connected.
+  assert.equal(at.cols[1].syn[0].connected, false);
+  // At the midpoint col1 syn0 perm=0.1 -> now connected (crossed the threshold).
+  const mid = spHeroState(spRun(), 0.5, 0.1, 2);
+  assert.equal(mid.cols[1].syn[0].connected, true);
+});
+
+test('sp hero: narration names the step and the number of active columns', () => {
+  const st = spHeroState(spRun(), 0, 0.1, 2);
+  assert.match(st.narration, /step 1\/2/);
+  assert.match(st.narration, /1 active columns/);
+  const st1 = spHeroState(spRun(), 1, 0.1, 2);
+  assert.match(st1.narration, /2 active columns/);
 });

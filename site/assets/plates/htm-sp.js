@@ -1,4 +1,5 @@
 import { SpatialPooler, SpatialPoolerDefaults } from '../js/models/htm.js';
+import { ease } from '../js/core.js';
 
 export const meta = {
   id: 'htm-sp',
@@ -6,6 +7,37 @@ export const meta = {
   conex: ['SpatialPooler', 'SpatialPoolerConfig'],
   source: 'conex/behaviors/neurons/numenta/spatial_pooler.py',
 };
+
+// Number of columns shown in the hero (a display window, not a model parameter).
+const HERO_COLS = 16;
+
+// Pure hero state for the Spatial Pooler plate. For each shown column it
+// eases the overlap count and every synapse permanence between step idx and
+// idx+1, and flags a synapse connected when its eased permanence crosses
+// syn_perm_connected (so lines appear/disappear as permanences morph).
+export function spHeroState(run, t, connectedPerm, heroN = HERO_COLS) {
+  const N = run.steps.length;
+  const idx = Math.max(0, Math.min(N - 1, Math.floor(t)));
+  const next = Math.min(N - 1, idx + 1);
+  const f = ease(t - idx);
+  const nP = run.nPotential;
+  const cols = [];
+  for (let c = 0; c < heroN; c++) {
+    const overlap = run.steps[idx].overlap[c] * (1 - f) + run.steps[next].overlap[c] * f;
+    const winner = run.steps[idx].activeSet.has(c);
+    const syn = [];
+    for (let p = 0; p < nP; p++) {
+      const perm = run.steps[idx].perm[c * nP + p] * (1 - f) + run.steps[next].perm[c * nP + p] * f;
+      syn.push({ input: run.potential_inputs[c][p], perm, connected: perm >= connectedPerm });
+    }
+    cols.push({ c, overlap, winner, syn });
+  }
+  const nWin = run.steps[idx].activeSet.size;
+  const narration =
+    `step ${idx + 1}/${N}: ${nWin} active columns; overlap = connected synapses on active inputs ` +
+    `(connected when permanence ≥ ${connectedPerm})`;
+  return { idx, f, cols, input: run.input, narration };
+}
 
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
@@ -25,6 +57,11 @@ export function mount(root, ui) {
   const stepsCtl = ui.number(controls, { key: 'steps', label: 'learning steps', unit: 'steps', value: 20, onInput: () => recompute() });
 
   const resetBtn = ui.button(controls, { label: 'Reset', onClick: () => recompute() });
+
+  // Hero: input bits (left), columns (right) and the connected synapses as
+  // thin lines. Fixed size (HERO_COLS), so it is created once, not rebuilt.
+  const hero = ui.hero(figures, { height: 240 });
+  const heroCap = { set(text) { hero.narration(text); } };
 
   // Figures are rebuilt on recompute because their size depends on n_columns.
   const figBox = document.createElement('div');
@@ -61,8 +98,73 @@ export function mount(root, ui) {
     });
 
     drawActive(idx);
+    drawHero();
     updateNotes(idx);
   }
+
+  // Hero: active input bits (left) connect via thin lines to the columns they
+  // feed (right); a line is drawn only for a connected synapse, so lines
+  // appear/disappear as permanences cross syn_perm_connected. Column bar
+  // height is the eased overlap count; winners pulse.
+  function drawHero() {
+    const st = spHeroState(run, lastT, connectedCtl.get());
+    const { ctx, width, height } = hero;
+    ctx.clearRect(0, 0, width, height);
+    const pad = 8;
+    const nIn = run.input.length;
+    const leftW = Math.min(120, width * 0.28);
+    const rightX = pad + leftW + 24;
+    const rightW = width - rightX - pad;
+    const colW = rightW / HERO_COLS;
+    const c1 = ui.color('c1');
+    const c2 = ui.color('c2');
+    const c5 = ui.color('c5');
+    const muted = ui.color('muted');
+
+    // Input bits (left), active ones lit.
+    const inH = (height - 2 * pad) / nIn;
+    for (let i = 0; i < nIn; i++) {
+      const y = pad + i * inH;
+      ctx.fillStyle = run.input[i] ? c5 : muted;
+      ctx.fillRect(pad, y + 1, leftW, Math.max(1, inH - 2));
+    }
+
+    // Synapse lines: from each active input to the columns it feeds, only for
+    // connected synapses.
+    for (const col of st.cols) {
+      const cx = rightX + col.c * colW + colW / 2;
+      for (const s of col.syn) {
+        if (!s.connected) continue;
+        if (!run.input[s.input]) continue;
+        const iy = pad + s.input * inH + inH / 2;
+        ctx.strokeStyle = c1;
+        ctx.globalAlpha = 0.35;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(pad + leftW, iy);
+        ctx.lineTo(cx, pad + (height - 2 * pad) / 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Columns (right): bar height = eased overlap, winners outlined in coral.
+    const maxOv = Math.max(1, ...st.cols.map((c) => c.overlap));
+    const barArea = height - 2 * pad;
+    for (const col of st.cols) {
+      const x = rightX + col.c * colW;
+      const h = (col.overlap / maxOv) * barArea;
+      ctx.fillStyle = col.winner ? c2 : c1;
+      ctx.fillRect(x + 1, pad + barArea - h, colW - 2, h);
+      if (col.winner) {
+        ctx.strokeStyle = c2;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 1, pad + 1, colW - 2, barArea - 2);
+      }
+    }
+    heroCap.set(st.narration);
+  }
+  hero.onResize(() => { if (run) drawHero(); });
 
   // Input bits (fixed for the whole run) and the winning columns at a step.
   function drawInput() {
@@ -164,7 +266,7 @@ export function mount(root, ui) {
         perm: sp.permanences.flat(),
       });
     }
-    run = { n: n_columns, nPotential: n_potential, input, steps };
+    run = { n: n_columns, nPotential: n_potential, input, steps, potential_inputs: sp.potential_inputs };
     rebuildFigures();
     drawInput();
     if (player) {

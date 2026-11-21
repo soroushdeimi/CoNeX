@@ -1,0 +1,601 @@
+{
+  "sdr": {
+    "size": 64,
+    "a_indices": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "b_indices": [
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    "n_active": [
+      8,
+      8,
+      0
+    ],
+    "sparsity": [
+      0.125,
+      0.125,
+      0.0
+    ],
+    "overlap_ab": 4,
+    "overlap_ac": 0,
+    "overlap_score_ab": 0.5,
+    "overlap_score_ac": 0.0,
+    "jaccard_ab": 0.3333333333333333,
+    "union_n_active": 12,
+    "union_indices": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    "intersection_indices": [
+      4,
+      5,
+      6,
+      7
+    ],
+    "difference_indices": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "match_threshold_ab_4": true,
+    "match_threshold_ab_5": false,
+    "config_n_active": [
+      40,
+      1
+    ]
+  },
+  "false_match": [
+    {
+      "n": 64,
+      "w": 8,
+      "theta": 4,
+      "p": 0.00616926543174742,
+      "expected_overlap": 1.0
+    },
+    {
+      "n": 64,
+      "w": 8,
+      "theta": 5,
+      "p": 0.00036055792482085137,
+      "expected_overlap": 1.0
+    },
+    {
+      "n": 64,
+      "w": 8,
+      "theta": 6,
+      "p": 9.843509308303819e-06,
+      "expected_overlap": 1.0
+    },
+    {
+      "n": 2048,
+      "w": 40,
+      "theta": 10,
+      "p": 1.367964899462178e-09,
+      "expected_overlap": 0.78125
+    },
+    {
+      "n": 2048,
+      "w": 40,
+      "theta": 15,
+      "p": 3.5590609498581474e-17,
+      "expected_overlap": 0.78125
+    },
+    {
+      "n": 2048,
+      "w": 40,
+      "theta": 20,
+      "p": 2.4912506097762944e-26,
+      "expected_overlap": 0.78125
+    }
+  ],
+  "encoder": {
+    "size": 64,
+    "n_active": 8,
+    "min_val": 0.0,
+    "max_val": 1.0,
+    "codes": {
+      "0.0": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "0.5": [
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35
+      ],
+      "0.52": [
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36
+      ],
+      "1.0": [
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63
+      ],
+      "-5.0": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "5.0": [
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63
+      ]
+    },
+    "overlap_0.5_0.52": 7,
+    "overlap_0.5_0.0": 0,
+    "overlap_0.52_1.0": 0,
+    "clamp_equal": true
+  },
+  "classifier": {
+    "n_classes": 3,
+    "sdr_size": 64,
+    "learning_rate": 0.01,
+    "n_examples_per_class": 5,
+    "predict_0": 0,
+    "scores_0": [
+      0.07999998331069946,
+      0.0,
+      0.0
+    ],
+    "predict_1": 1,
+    "scores_1": [
+      0.0,
+      0.07999998331069946,
+      0.0
+    ],
+    "class_counts": [
+      5.0,
+      5.0,
+      5.0
+    ]
+  },
+  "spatial_pooler": {
+    "input_size": 16,
+    "n_columns": 8,
+    "potential_pct": 0.5,
+    "local_area_density": 0.25,
+    "syn_perm_connected": 0.1,
+    "syn_perm_active_inc": 0.06,
+    "syn_perm_inactive_dec": 0.01,
+    "duty_cycle_period": 4,
+    "n_active": 2,
+    "n_potential": 8,
+    "active_step1": [
+      0,
+      1
+    ],
+    "perm_col0_after_step1": [
+      0.1599999964237213,
+      0.1599999964237213,
+      0.1599999964237213,
+      0.1599999964237213,
+      0.1599999964237213,
+      0.1599999964237213,
+      0.1599999964237213,
+      0.1599999964237213,
+      0.09000000357627869,
+      0.09000000357627869,
+      0.09000000357627869,
+      0.09000000357627869,
+      0.09000000357627869,
+      0.09000000357627869,
+      0.09000000357627869,
+      0.09000000357627869
+    ],
+    "duty_col0_after_step1": [
+      1.0,
+      1.0
+    ],
+    "active_step2": [
+      0,
+      1
+    ],
+    "active_step3": [
+      4,
+      6
+    ],
+    "perm_col0_after_step3": [
+      0.1599999964237213,
+      0.1599999964237213,
+      0.1599999964237213,
+      0.1599999964237213,
+      0.1599999964237213,
+      0.1599999964237213,
+      0.1599999964237213,
+      0.1599999964237213,
+      0.09000000357627869,
+      0.09000000357627869,
+      0.09000000357627869,
+      0.09000000357627869,
+      0.09000000357627869,
+      0.09000000357627869,
+      0.09000000357627869,
+      0.09000000357627869
+    ],
+    "active_empty": [],
+    "boost_factors_after_3": [
+      0.9200444221496582,
+      0.9200444221496582,
+      1.2840254306793213,
+      1.2840254306793213,
+      0.9200444221496582,
+      0.9200444221496582,
+      0.9200444221496582,
+      0.9200444221496582
+    ]
+  },
+  "temporal_memory": {
+    "n_columns": 18,
+    "cells_per_column": 4,
+    "activation_threshold": 3,
+    "learning_threshold": 2,
+    "max_new_synapses": 5,
+    "permanence_increment": 0.12,
+    "permanence_decrement": 0.04,
+    "symbols": {
+      "A": [
+        0,
+        1,
+        2
+      ],
+      "X": [
+        3,
+        4,
+        5
+      ],
+      "B": [
+        6,
+        7,
+        8
+      ],
+      "C": [
+        9,
+        10,
+        11
+      ],
+      "D": [
+        12,
+        13,
+        14
+      ],
+      "Y": [
+        15,
+        16,
+        17
+      ]
+    },
+    "segment_counts": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0
+    ],
+    "replay": [
+      {
+        "active_cells": [
+          0,
+          4,
+          8
+        ],
+        "winner_cells": [
+          0,
+          4,
+          8
+        ],
+        "predictive_cells": [
+          24,
+          28,
+          32
+        ],
+        "bursting_columns": [],
+        "anomaly": 0.0
+      },
+      {
+        "active_cells": [
+          24,
+          28,
+          32
+        ],
+        "winner_cells": [
+          24,
+          28,
+          32
+        ],
+        "predictive_cells": [
+          36,
+          40,
+          44
+        ],
+        "bursting_columns": [],
+        "anomaly": 0.0
+      },
+      {
+        "active_cells": [
+          36,
+          40,
+          44
+        ],
+        "winner_cells": [
+          36,
+          40,
+          44
+        ],
+        "predictive_cells": [
+          48,
+          52,
+          56,
+          60,
+          64,
+          68
+        ],
+        "bursting_columns": [],
+        "anomaly": 0.0
+      },
+      {
+        "active_cells": [
+          48,
+          52,
+          56
+        ],
+        "winner_cells": [
+          48,
+          52,
+          56
+        ],
+        "predictive_cells": [
+          12,
+          16,
+          20
+        ],
+        "bursting_columns": [],
+        "anomaly": 0.0
+      },
+      {
+        "active_cells": [
+          12,
+          16,
+          20
+        ],
+        "winner_cells": [
+          12,
+          16,
+          20
+        ],
+        "predictive_cells": [
+          25,
+          29,
+          33
+        ],
+        "bursting_columns": [],
+        "anomaly": 0.0
+      },
+      {
+        "active_cells": [
+          25,
+          29,
+          33
+        ],
+        "winner_cells": [
+          25,
+          29,
+          33
+        ],
+        "predictive_cells": [
+          36,
+          40,
+          44
+        ],
+        "bursting_columns": [],
+        "anomaly": 0.0
+      },
+      {
+        "active_cells": [
+          36,
+          40,
+          44
+        ],
+        "winner_cells": [
+          36,
+          40,
+          44
+        ],
+        "predictive_cells": [
+          48,
+          52,
+          56,
+          60,
+          64,
+          68
+        ],
+        "bursting_columns": [],
+        "anomaly": 0.0
+      },
+      {
+        "active_cells": [
+          60,
+          64,
+          68
+        ],
+        "winner_cells": [
+          60,
+          64,
+          68
+        ],
+        "predictive_cells": [
+          0,
+          4,
+          8
+        ],
+        "bursting_columns": [],
+        "anomaly": 0.0
+      }
+    ],
+    "fresh": {
+      "bursting_columns": [
+        0,
+        1,
+        2
+      ],
+      "winner_cells": [
+        0,
+        4,
+        8
+      ],
+      "anomaly": 1.0
+    }
+  },
+  "union": {
+    "size": 64,
+    "n_active_after_3": 20,
+    "sparsity_after_3": 0.3125,
+    "n_members_after_3": 3,
+    "contains_a": true,
+    "n_active_after_remove_a": 16,
+    "union_indices_after_remove_a": [
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67
+    ]
+  }
+}

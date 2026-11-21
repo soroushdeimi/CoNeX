@@ -29,9 +29,28 @@ export function mount(root, ui) {
   const samplesCtl = ui.number(controls, { key: 'samples', label: 'Monte-Carlo samples', unit: '', value: 20000, onInput: () => redraw() });
 
   const bitsCanvas = ui.canvas(figures, { height: 120 });
-  const probPlot = ui.plot(figures, { height: 220, xLabel: 'overlap b (bits)', yLabel: 'P(B = b)', xUnit: 'bits', yUnit: 'a.u.' });
+  const probPlot = ui.plot(figures, { height: 220, xLabel: 'overlap b', yLabel: 'P(B = b)', xUnit: 'bits', yUnit: 'a.u.' });
 
   let last = {};
+
+  // The canvas backing store is reset on layout/resize, so register the draw
+  // via onResize (called after layout and on every resize) rather than once.
+  function drawBitsFig() {
+    if (!last.a) return;
+    const { ctx, width, height } = bitsCanvas;
+    const rowH = 18;
+    const pad = 8;
+    ctx.clearRect(0, 0, width, height);
+    const c1 = ui.color('c1');
+    const c2 = ui.color('c2');
+    const c3 = ui.color('c3');
+    const muted = ui.color('muted');
+    drawBits(ctx, last.a.toDense(), pad, pad, width - 2 * pad, rowH, c1, muted);
+    drawBits(ctx, last.b.toDense(), pad, pad + rowH + 6, width - 2 * pad, rowH, c2, muted);
+    drawBits(ctx, last.union.toDense(), pad, pad + 2 * (rowH + 6), width - 2 * pad, rowH, c3, muted);
+    drawBits(ctx, last.inter.toDense(), pad, pad + 3 * (rowH + 6), width - 2 * pad, rowH, ui.color('ink'), muted);
+  }
+  bitsCanvas.onResize(drawBitsFig);
 
   function redraw() {
     const n = sizeCtl.get();
@@ -48,20 +67,6 @@ export function mount(root, ui) {
     const union = a.union(b);
     const inter = a.intersection(b);
     const overlap = a.overlap(b);
-
-    // Bits figure.
-    const { canvas, ctx, width } = bitsCanvas;
-    const rowH = 18;
-    const pad = 8;
-    ctx.clearRect(0, 0, width, bitsCanvas.height);
-    const c1 = ui.color('c1');
-    const c2 = ui.color('c2');
-    const c3 = ui.color('c3');
-    const muted = ui.color('muted');
-    drawBits(ctx, a.toDense(), pad, pad, width - 2 * pad, rowH, c1, muted);
-    drawBits(ctx, b.toDense(), pad, pad + rowH + 6, width - 2 * pad, rowH, c2, muted);
-    drawBits(ctx, union.toDense(), pad, pad + 2 * (rowH + 6), width - 2 * pad, rowH, c3, muted);
-    drawBits(ctx, inter.toDense(), pad, pad + 3 * (rowH + 6), width - 2 * pad, rowH, ui.color('ink'), muted);
 
     // Hypergeometric PMF P(B=b) and the false-match tail P(B>=theta).
     const pmf = [];
@@ -87,18 +92,21 @@ export function mount(root, ui) {
     }
     const pMC = hits / m;
 
+    const maxPmf = Math.max(...pmf.map((p) => p.y), 1e-12);
     probPlot.draw(
       [
         { x: pmf.map((p) => p.x), y: pmf.map((p) => p.y), label: 'P(B=b)', color: 'c1', style: 'bars' },
       ],
       {
         xRange: [0, w],
+        yRange: [0, maxPmf * 1.1],
         hlines: [{ y: pMatch, label: `P(B≥θ)=${pMatch.toExponential(2)}` }],
         vlines: [{ x: theta, label: `θ=${theta}` }],
       }
     );
 
-    last = { n, w, theta, overlap, unionN: union.n_active, interN: inter.n_active, pMatch, pMC, pExp };
+    last = { a, b, union, inter, n, w, theta, overlap, unionN: union.n_active, interN: inter.n_active, pMatch, pMC, pExp };
+    drawBitsFig();
     updateNotes();
   }
 

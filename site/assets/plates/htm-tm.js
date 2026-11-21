@@ -77,9 +77,10 @@ export function mount(root, ui) {
   let run = null; // precomputed replay run (state recorded per step)
   let lastT = 0; // current player time, in steps
 
-  // The player replays the recorded steps one by one.
+  // The player replays the recorded steps one by one. integer:false so
+  // onFrame gets the fractional time and the hero eases between steps.
   const player = typeof ui.player === 'function'
-    ? ui.player(figures, { duration: 1, unit: 'steps', playSeconds: 5, loop: true, onFrame: frame })
+    ? ui.player(figures, { duration: 1, unit: 'steps', playSeconds: 5, loop: true, integer: false, onFrame: frame })
     : null;
 
   function frame(t) {

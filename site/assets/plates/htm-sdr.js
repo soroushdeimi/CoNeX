@@ -54,9 +54,10 @@ export function mount(root, ui) {
   let run = null; // precomputed sampling run
   let lastT = 0; // current player time, in samples
 
-  // The player reveals the precomputed run sample by sample.
+  // The player reveals the precomputed run sample by sample. integer:false so
+  // onFrame gets the fractional time and the hero eases between samples.
   const player = typeof ui.player === 'function'
-    ? ui.player(figures, { duration: 1, unit: 'samples', playSeconds: 5, loop: true, onFrame: frame })
+    ? ui.player(figures, { duration: 1, unit: 'samples', playSeconds: 5, loop: true, integer: false, onFrame: frame })
     : null;
 
   function frame(t) {

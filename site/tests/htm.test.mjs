@@ -576,25 +576,31 @@ test('sp hero: narration names the step and the number of active columns', () =>
   assert.match(st1.narration, /2 active columns/);
 });
 
-// TM hero: the real 18-column layout (6 symbols x 3 columns), 2 cells each.
-// A = cols 0-2, B = cols 6-8. Step 0 predicts B (a cell in col 6), so step 1
-// shows that prediction.
+// TM hero: the real 18-column layout (6 symbols x 3 columns), 4 cells each.
+// A = cols 0-2, B = cols 6-8, C = cols 9-11, D = cols 12-14.
 function tmRun() {
-  const nCells = 18 * 2;
+  const cells = 4;
+  const nCells = 18 * cells;
   const allFalse = new Array(nCells).fill(false);
-  const activeA = new Array(nCells).fill(false); // cols 0,1,2
-  for (const c of [0, 1, 2]) { activeA[c * 2] = true; activeA[c * 2 + 1] = true; }
-  const activeB = new Array(nCells).fill(false); // cols 6,7,8
-  for (const c of [6, 7, 8]) { activeB[c * 2] = true; activeB[c * 2 + 1] = true; }
-  const predB = new Array(nCells).fill(false); // one cell in col 6
-  predB[6 * 2] = true;
+  const activeOf = (cols) => {
+    const a = new Array(nCells).fill(false);
+    for (const c of cols) for (let k = 0; k < cells; k++) a[c * cells + k] = true;
+    return a;
+  };
+  const predOf = (cols) => {
+    const p = new Array(nCells).fill(false);
+    for (const c of cols) p[c * cells] = true; // one predictive cell per column
+    return p;
+  };
   return {
-    cells: 2,
+    cells,
     nCells,
     nCols: 18,
     steps: [
-      { symbol: 'A', active: activeA, predictive: predB.slice(), bursting: new Array(18).fill(false), anomaly: 0.0 },
-      { symbol: 'B', active: activeB, predictive: allFalse.slice(), bursting: new Array(18).fill(false), anomaly: 0.0 },
+      // step 0: input B, the model predicts C for the next step.
+      { symbol: 'B', active: activeOf([6, 7, 8]), predictive: predOf([9, 10, 11]), bursting: new Array(18).fill(false), anomaly: 0.0 },
+      // step 1: input C (in context A-B), the model predicts D for the next step.
+      { symbol: 'C', active: activeOf([9, 10, 11]), predictive: predOf([12, 13, 14]), bursting: new Array(18).fill(false), anomaly: 0.0 },
     ],
   };
 }
@@ -602,30 +608,30 @@ function tmRun() {
 test('tm hero: at the first step there is no prior prediction', () => {
   const st = tmHeroState(tmRun(), 0);
   assert.equal(st.idx, 0);
-  assert.deepEqual(st.prediction, new Array(36).fill(false));
-  assert.deepEqual(st.predSymbols, []);
-  assert.match(st.narration, /step 1\/2 \(A\)/);
+  assert.deepEqual(st.prediction, new Array(72).fill(false));
+  assert.deepEqual(st.wasPredictedSymbols, []);
+  assert.match(st.narration, /step 1\/2 \(B\)/);
 });
 
 test('tm hero: the prediction shown is the previous step\'s prediction', () => {
   const st = tmHeroState(tmRun(), 1);
-  // step 1 shows step 0's predictive cells (a cell in col 6)
-  assert.equal(st.prediction[6 * 2], true);
-  assert.equal(st.prediction.filter(Boolean).length, 1);
+  // step 1 shows step 0's predictive cells (one cell in each of cols 9,10,11)
+  assert.equal(st.prediction[9 * 4], true);
+  assert.equal(st.prediction.filter(Boolean).length, 3);
 });
 
-test('tm hero: the current and predicted symbols are derived from the columns', () => {
-  const st0 = tmHeroState(tmRun(), 0);
-  assert.equal(st0.currentSymbol, 'A');
-  const st1 = tmHeroState(tmRun(), 1);
-  assert.equal(st1.currentSymbol, 'B');
-  // step 1 shows step 0's prediction (col 6) -> predicts B
-  assert.deepEqual(st1.predSymbols, ['B']);
+test('tm hero: input C in context A-B predicts next D only (hand-derived)', () => {
+  const st = tmHeroState(tmRun(), 1);
+  assert.equal(st.currentSymbol, 'C');
+  // "was predicted" is what the previous step (B) predicted for this step: C.
+  assert.deepEqual(st.wasPredictedSymbols, ['C']);
+  // "predicts next" is the model's current predictive cells: D only.
+  assert.deepEqual(st.predictsNextSymbols, ['D']);
 });
 
 test('tm hero: narration names the step, symbol, burst count and anomaly', () => {
   const st = tmHeroState(tmRun(), 0);
-  assert.match(st.narration, /step 1\/2 \(A\)/);
+  assert.match(st.narration, /step 1\/2 \(B\)/);
   assert.match(st.narration, /0 columns? burst/);
   assert.match(st.narration, /anomaly 0\.00/);
 });

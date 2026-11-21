@@ -8,42 +8,45 @@ export const meta = {
   source: 'conex/behaviors/neurons/numenta/sequence_memory.py',
 };
 
-// Map a set of active column indices to the symbol whose columns they are.
-function symbolOfColumns(activeCols) {
-  for (const [sym, cols] of Object.entries(SYMBOLS)) {
-    if (cols.length === activeCols.length && cols.every((c) => activeCols.includes(c))) return sym;
-  }
-  return '?';
+// The set of column indices that have at least one active cell.
+function columnsWithCells(cells, nCells) {
+  const cols = new Set();
+  for (let i = 0; i < cells.length; i++) if (cells[i]) cols.add(Math.floor(i / nCells));
+  return cols;
 }
 
-// Pure hero state for the Temporal Memory plate. The prediction shown before
-// this step's input is the one computed at the previous step. The eased
-// progress f drives the two-phase motion: the predictive cells glow in the
-// first half, then the input lights the active cells and bursting columns
-// flash in the second half.
+// The symbols whose columns are in the given set (any predictive cell in a
+// symbol's columns counts).
+function symbolsOfColumns(cols) {
+  return Object.keys(SYMBOLS).filter((s) => SYMBOLS[s].some((c) => cols.has(c)));
+}
+
+// Pure hero state for the Temporal Memory plate. Two predictions are shown:
+// "was predicted" is the one computed at the previous step (it is what glows
+// before this step's input arrives), and "predicts next" is the one computed
+// at this step (the model's current predictive cells, for the next input).
+// The eased progress f drives the two-phase motion: the predictive cells glow
+// in the first half, then the input lights the active cells and bursting
+// columns flash in the second half.
 export function tmHeroState(run, t) {
   const N = run.steps.length;
   const idx = Math.max(0, Math.min(N - 1, Math.floor(t)));
   const f = ease(t - idx);
   const st = run.steps[idx];
   const prev = idx > 0 ? run.steps[idx - 1] : null;
+  // The prediction FOR this step (made at the previous step) — these cells glow.
   const prediction = prev ? prev.predictive : new Array(run.nCells).fill(false);
   const nBurst = st.bursting.filter(Boolean).length;
   const nPred = prediction.filter(Boolean).length;
-  // Current symbol from the active columns; predicted symbols from the
-  // prediction's columns.
-  const activeCols = [];
-  for (let c = 0; c < run.nCols; c++) if (st.active[c * run.cells]) activeCols.push(c);
-  const currentSymbol = symbolOfColumns(activeCols);
-  const predCols = new Set();
-  for (let i = 0; i < prediction.length; i++) if (prediction[i]) predCols.add(Math.floor(i / run.cells));
-  const predSymbols = Object.keys(SYMBOLS).filter((s) => SYMBOLS[s].some((c) => predCols.has(c)));
+  const currentSymbol = symbolsOfColumns(columnsWithCells(st.active, run.cells))[0] || '?';
+  const wasPredictedSymbols = symbolsOfColumns(columnsWithCells(prediction, run.cells));
+  const predictsNextSymbols = symbolsOfColumns(columnsWithCells(st.predictive, run.cells));
   const narration =
     `step ${idx + 1}/${N} (${st.symbol}): ${nPred} predicted cells glow, then the input arrives — ` +
     `${nBurst} column${nBurst === 1 ? '' : 's'} burst, anomaly ${st.anomaly.toFixed(2)}`;
   return {
     idx, f, prediction, active: st.active, bursting: st.bursting, anomaly: st.anomaly,
-    currentSymbol, predSymbols, narration,
+    currentSymbol, wasPredictedSymbols, predictsNextSymbols, narration,
   };
 }
 
@@ -125,28 +128,38 @@ export function mount(root, ui) {
     const muted = ui.color('muted');
     const ink = ui.color('ink');
 
-    // Left panel: the current symbol and the predicted next symbol(s).
-    const panelW = Math.min(150, width * 0.22);
+    // Left panel: the current symbol, what was predicted FOR this step (made
+    // at the previous step), and what the model now predicts for the next step.
+    const panelW = Math.min(170, width * 0.24);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillStyle = muted;
     ctx.font = '11px system-ui, sans-serif';
     ctx.fillText('now', pad, pad);
     ctx.fillStyle = ink;
-    ctx.font = 'bold 40px ui-serif, Georgia, serif';
-    ctx.fillText(st.currentSymbol, pad, pad + 14);
+    ctx.font = 'bold 34px ui-serif, Georgia, serif';
+    ctx.fillText(st.currentSymbol, pad, pad + 12);
     ctx.fillStyle = muted;
     ctx.font = '11px system-ui, sans-serif';
-    ctx.fillText('predicts', pad, pad + 66);
+    ctx.fillText('was predicted', pad, pad + 54);
     ctx.fillStyle = c3;
-    ctx.font = 'bold 20px ui-serif, Georgia, serif';
-    ctx.fillText(st.predSymbols.length ? st.predSymbols.join(' / ') : 'nothing', pad, pad + 80);
+    ctx.font = 'bold 16px ui-serif, Georgia, serif';
+    ctx.fillText(st.wasPredictedSymbols.length ? st.wasPredictedSymbols.join(' / ') : 'nothing', pad, pad + 66);
+    ctx.fillStyle = muted;
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.fillText('predicts next', pad, pad + 90);
+    ctx.fillStyle = c3;
+    ctx.font = 'bold 16px ui-serif, Georgia, serif';
+    ctx.fillText(st.predictsNextSymbols.length ? st.predictsNextSymbols.join(' / ') : 'nothing', pad, pad + 102);
 
-    // Columns: vertical stacks of small circles to the right of the panel.
+    // Columns: vertical stacks of small circles to the right of the panel,
+    // with the symbol label under each group of columns.
     const gridX = panelW + pad;
     const gridW = width - gridX - pad;
+    const labelH = 16;
+    const gridH = height - 2 * pad - labelH;
     const colW = gridW / nCols;
-    const cellR = Math.min(colW * 0.42, (height - 2 * pad) / nCells * 0.42);
+    const cellR = Math.min(colW * 0.42, gridH / nCells * 0.42);
     // Two-phase motion: predictive glow in the first half, burst flash in the
     // second half, both eased over the step.
     const glow = st.f < 0.5 ? ease(st.f * 2) : 1;
@@ -157,7 +170,7 @@ export function mount(root, ui) {
       const cx = gridX + c * colW + colW / 2;
       for (let k = 0; k < nCells; k++) {
         const cell = c * nCells + k;
-        const cy = pad + (nCells - 1 - k) * ((height - 2 * pad) / nCells) + (height - 2 * pad) / nCells / 2;
+        const cy = pad + (nCells - 1 - k) * (gridH / nCells) + gridH / nCells / 2;
         const active = st.active[cell];
         const predicted = st.prediction[cell];
         // Inactive cells stay quiet (very faint) so the active ones stand out.
@@ -195,6 +208,17 @@ export function mount(root, ui) {
           ctx.globalAlpha = 1;
         }
       }
+    }
+
+    // Symbol labels under each group of columns (which columns belong to which
+    // symbol), so the student can read the A-B-C-D / X-B-C-Y story off the grid.
+    ctx.fillStyle = muted;
+    ctx.font = '11px ui-serif, Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (const [sym, cols] of Object.entries(SYMBOLS)) {
+      const mid = gridX + ((cols[0] + cols[cols.length - 1]) / 2 + 0.5) * colW;
+      ctx.fillText(sym, mid, pad + gridH + 4);
     }
     heroCap.set(st.narration);
   }

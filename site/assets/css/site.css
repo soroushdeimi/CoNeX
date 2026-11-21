@@ -418,6 +418,29 @@ pre {
   word-break: break-word;
 }
 
+/* Learning-rules table */
+.rules-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.rules-table th,
+.rules-table td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+.rules-table th {
+  font-family: ui-serif, Georgia, serif;
+  font-weight: 600;
+  color: var(--muted);
+}
+.rules-table td:first-child {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
 .searchbox {
   width: 100%;
   max-width: 420px;

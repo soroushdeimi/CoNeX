@@ -49,7 +49,7 @@ export function mount(root, ui) {
   const sec = ui.section(controls, 'PredictiveCorticalColumn');
   const colSize = ui.number(sec, { key: 'columnSize', label: 'column_size', unit: 'neurons', value: 100 });
 
-  ui.note(figures, '<em>Try this: change <code>column_size</code> and watch the layer sizes scale (L2/3 is 1.5&times;, L5 0.8&times;, L6 0.5&times;).</em>');
+  ui.tryThis(figures, 'Try this: change <code>column_size</code> and watch the layer sizes scale (L2/3 is 1.5x, L5 0.8x, L6 0.5x).');
 
   // The hero canvas draws the stacked layers and the travelling pulse.
   const hero = ui.hero(figures, { height: 380 });

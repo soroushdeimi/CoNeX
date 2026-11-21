@@ -88,7 +88,7 @@ export function mount(root, ui) {
   });
   const seedCtrl = ui.number(sec, { key: 'seed', label: 'seed', unit: '', value: 7 });
 
-  ui.note(figures, '<em>Try this: raise <code>learning_rate</code> and watch the weight matrix settle and the error fall faster.</em>');
+  ui.tryThis(figures, 'Try this: raise <code>learning_rate</code> and watch the weight matrix settle and the error fall faster.');
 
   // --- Figures: hero (weight matrix + error particles) on top, plots below ---
   const hero = ui.hero(figures, { height: 300 });

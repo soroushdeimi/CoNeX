@@ -86,12 +86,7 @@ export function mount(root, ui) {
   }
 
   // --- figures ---
-  const tryThis = document.createElement('p');
-tryThis.style.fontStyle = 'italic';
-  tryThis.style.color = 'var(--muted)';
-  tryThis.style.fontSize = '0.9rem';
-  tryThis.innerHTML = '<b>Try this:</b> lower <var>theta</var><sub>rh</sub>; watch the take-off start earlier and the ball accelerate sooner.';
-  figures.appendChild(tryThis);
+  ui.tryThis(figures, 'Try this: lower <var>theta</var><sub>rh</sub>; watch the take-off start earlier and the ball accelerate sooner.');
   const hero = ui.hero(figures, { height: 340 });
   const figV = ui.plot(figures, { height: 200, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
 

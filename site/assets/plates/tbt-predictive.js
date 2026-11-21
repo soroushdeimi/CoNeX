@@ -110,7 +110,7 @@ export function mount(root, ui) {
   [signalType, sigSeed, hiSeed, lr, precTau, precLr, minPrec, maxPrec, nonlin, sparse, errThresh].forEach((c) => c.onInput(rebuild));
 
   // --- figures: hero on top, plots below ---
-  ui.note(figures, '<em>Try this: press <strong>Perturb input</strong> and watch the error stream (coral, up) jump, then thin out again as the weights re-learn.</em>');
+  ui.tryThis(figures, 'Try this: press <strong>Perturb input</strong> and watch the error stream (coral, up) jump, then thin out again as the weights re-learn.');
   const hero = ui.hero(figures, { height: 260 });
   const errPlot = ui.plot(figures, { height: 220, xLabel: 'step', xUnit: 'index', yLabel: 'mean |error| / prediction', yUnit: 'a.u.' });
   const fePlot = ui.plot(figures, { height: 200, xLabel: 'step', xUnit: 'index', yLabel: 'free energy', yUnit: 'a.u.' });

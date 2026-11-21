@@ -1117,6 +1117,28 @@ export function hero(parent, { height = 320 } = {}) {
 
 // A short "Try this" experiment line: one sentence naming what to change and
 // what to watch. Inserted at the top of the figures column, above the hero.
+// `text` may contain a small set of inline tags (var, sub, code, ...); they are
+// built as real nodes, never via innerHTML, so the markup is always safe.
+const TRY_THIS_TAG_RE = /<\/?(b|strong|em|i|var|sub|sup|code)\b[^>]*>/gi;
+function tryThisNodes(text, root) {
+  const stack = [root];
+  const pushText = (s) => stack[stack.length - 1].append(document.createTextNode(s));
+  let last = 0;
+  let m;
+  TRY_THIS_TAG_RE.lastIndex = 0;
+  while ((m = TRY_THIS_TAG_RE.exec(text))) {
+    if (m.index > last) pushText(text.slice(last, m.index));
+    if (m[0][1] === '/') stack.pop();
+    else {
+      const el = document.createElement(m[1].toLowerCase());
+      stack[stack.length - 1].append(el);
+      stack.push(el);
+    }
+    last = TRY_THIS_TAG_RE.lastIndex;
+  }
+  if (last < text.length) pushText(text.slice(last));
+}
+
 export function tryThis(parent, text) {
   const div = document.createElement('div');
   div.className = 'ui-trythis';
@@ -1126,7 +1148,7 @@ export function tryThis(parent, text) {
     '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">' +
     '<path d="M8 1l1.6 5.4L15 8l-5.4 1.6L8 15 6.4 9.6 1 8l5.4-1.6z" fill="currentColor"/></svg>';
   const p = document.createElement('span');
-  p.textContent = text;
+  tryThisNodes(text, p);
   div.append(icon, p);
   parent.insertBefore(div, parent.firstChild);
   return div;

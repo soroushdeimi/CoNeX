@@ -87,12 +87,7 @@ export function mount(root, ui) {
   }
 
   // --- figures ---
-  const tryThis = document.createElement('p');
-tryThis.style.fontStyle = 'italic';
-  tryThis.style.color = 'var(--muted)';
-  tryThis.style.fontSize = '0.9rem';
-  tryThis.innerHTML = '<b>Try this:</b> lower <var>k</var>; watch fewer neurons win and more losers dim with the inhibition ripple.';
-  figures.appendChild(tryThis);
+  ui.tryThis(figures, 'Try this: lower <var>k</var>; watch fewer neurons win and more losers dim with the inhibition ripple.');
   const hero = ui.hero(figures, { height: 300 });
   // In-place titles for the two rasters (the visual review asks for them).
   const titleBefore = document.createElement('p');

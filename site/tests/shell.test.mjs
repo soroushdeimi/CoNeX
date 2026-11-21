@@ -502,6 +502,7 @@ test('ui.tryThis inserts the experiment line at the top of the figures column', 
   globalThis.document = {
     documentElement: { setAttribute() {} },
     createElement: (t) => fakeEl(t),
+    createTextNode: (s) => ({ textContent: s }),
   };
   const ui = await import('../assets/js/ui.js');
   const figures = fakeEl('div');
@@ -516,7 +517,9 @@ test('ui.tryThis inserts the experiment line at the top of the figures column', 
   assert.equal(line.children.length, 2, 'icon + text');
   assert.equal(line.children[0].className, 'ui-trythis-icon');
   assert.ok(line.children[0]._innerHTML.includes('<svg'), 'icon is an inline svg');
-  assert.equal(line.children[1].textContent, 'Raise I; watch threshold crossings become more frequent.');
+  // plain text becomes a single text node inside the span
+  assert.equal(line.children[1].children.length, 1, 'one text node');
+  assert.equal(line.children[1].children[0].textContent, 'Raise I; watch threshold crossings become more frequent.');
 });
 
 test('ui.tryThis works on an empty figures column', async () => {
@@ -525,6 +528,18 @@ test('ui.tryThis works on an empty figures column', async () => {
   const line = ui.tryThis(figures, 'Watch the trace.');
   assert.equal(figures.children.length, 1);
   assert.equal(figures.children[0], line);
+});
+
+test('ui.tryThis builds inline markup as nodes, not innerHTML', async () => {
+  const ui = await import('../assets/js/ui.js');
+  const figures = fakeEl('div');
+  const line = ui.tryThis(figures, 'raise <var>beta</var> and <code>lr</code>; watch <sub>rh</sub>');
+  const p = line.children[1];
+  // the span holds a mix of text nodes and element nodes, in order
+  const els = p.children.filter((c) => c.tagName);
+  assert.deepEqual(els.map((c) => c.tagName), ['var', 'code', 'sub'], 'element children in order');
+  // no element may carry raw markup in its own text
+  for (const c of els) assert.ok(!/<[a-z]/i.test(c.textContent), 'no raw tags in element text');
 });
 
 // A fake 2d context whose measureText reports a fixed width.

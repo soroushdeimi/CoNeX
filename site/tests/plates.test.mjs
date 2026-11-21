@@ -113,6 +113,7 @@ function makeUi() {
     _heroes: [], // hero() handles created by the plate
     _narrations: [], // narration() handles created by the plate
     _animated: false, // set true when the plate calls ui.animate
+    _tryThis: [], // texts passed to ui.tryThis
   };
 
   ui.layout = (root) => {
@@ -206,6 +207,7 @@ function makeUi() {
   ui.fitText = (ctx, text, x, width, align = 'left') => x;
 
   ui.tryThis = (parent, text) => {
+    ui._tryThis.push(text);
     const e = makeEl('div');
     e.className = 'ui-trythis';
     e.textContent = text;
@@ -439,3 +441,34 @@ for (const f of plateFiles) {
     await checkPlate(join(PLATES_DIR, f));
   });
 }
+
+// Remove every ui.tryThis(...) call expression (balanced parens) from source.
+function stripTryThisCalls(src) {
+  const marker = 'ui.tryThis(';
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const at = src.indexOf(marker, i);
+    if (at === -1) { out += src.slice(i); break; }
+    out += src.slice(i, at);
+    let depth = 0;
+    let j = at + marker.length - 1; // the opening '('
+    for (; j < src.length; j++) {
+      if (src[j] === '(') depth++;
+      else if (src[j] === ')') { depth--; if (depth === 0) break; }
+    }
+    i = j + 1;
+  }
+  return out;
+}
+
+// REVIEW A: every "Try this" line must come from the shared ui.tryThis, so the
+// look is identical on every plate. No plate may build its own markup.
+test('every "Try this" line uses the shared ui.tryThis', () => {
+  for (const f of plateFiles) {
+    const id = f.replace(/\.js$/, '');
+    const src = readFileSync(join(PLATES_DIR, f), 'utf8');
+    const stripped = stripTryThisCalls(src);
+    assert.ok(!/try this/i.test(stripped), `${id}: "Try this" markup outside ui.tryThis`);
+  }
+});

@@ -118,7 +118,7 @@ export function mount(root, ui) {
   }
 
   // --- figures: hero arena on top, one small firing map per module below ---
-  ui.note(figures, '<em>Try this: raise <code>turn rate</code> and watch the agent spiral &mdash; the glow brightens where the agent sits on a bright patch of the firing-rate map.</em>');
+  ui.tryThis(figures, 'Try this: raise <code>turn rate</code> and watch the agent spiral — the glow brightens where the agent sits on a bright patch of the firing-rate map.');
   const hero = ui.hero(figures, { height: 300 });
   const maps = ui.canvas(figures, { height: 220 });
 

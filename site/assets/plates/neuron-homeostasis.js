@@ -128,12 +128,7 @@ export function mount(root, ui) {
   }
 
   // --- figures ---
-  const tryThis = document.createElement('p');
-tryThis.style.fontStyle = 'italic';
-  tryThis.style.color = 'var(--muted)';
-  tryThis.style.fontSize = '0.9rem';
-  tryThis.innerHTML = '<b>Try this:</b> raise <var>I</var><sub>base</sub>; watch the rate climb above target and the thresholds rise to pull it back.';
-  figures.appendChild(tryThis);
+  ui.tryThis(figures, 'Try this: raise <var>I</var><sub>base</sub>; watch the rate climb above target and the thresholds rise to pull it back.');
   const hero = ui.hero(figures, { height: 320 });
   const figRate = ui.plot(figures, { height: 200, xLabel: 't', yLabel: 'firing rate', xUnit: 'ms', yUnit: 'Hz' });
   const figRaster = ui.raster(figures, { height: 160, xLabel: 't', xUnit: 'ms' });

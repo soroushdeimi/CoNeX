@@ -105,7 +105,7 @@ export function mount(root, ui) {
   }
 
   // --- figures: hero on top, depolarization plot below ---
-  ui.note(figures, '<em>Try this: raise <code>context sparsity</code> and watch more segments match and more cells become predictive.</em>');
+  ui.tryThis(figures, 'Try this: raise <code>context sparsity</code> and watch more segments match and more cells become predictive.');
   const hero = ui.hero(figures, { height: 300 });
   // Wrapping HTML legend below the matrix (12 px swatches, 14 px labels).
   const legend = ui.note(figures, '');

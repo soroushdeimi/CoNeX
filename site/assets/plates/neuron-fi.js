@@ -35,10 +35,13 @@ export function mount(root, ui) {
   curves are the real CoNeX dynamics, not a formula. The dots are the analytic LIF rate
   <var>f</var> = 1 / (<var>tau</var>·ln((<var>v</var><sub>ss</sub>−<var>v</var><sub>reset</sub>)/(<var>v</var><sub>ss</sub>−<var>threshold</var>))), <var>v</var><sub>ss</sub> = <var>v</var><sub>rest</sub> + <var>R</var>·<var>I</var>.
   Units: v in mV, t in ms, I in pA, R in GOhm.`);
-  ui.note(notes, `ELIF fires at lower currents than LIF because the exponential term pushes it over
-  threshold; AELIF fires least of all because the adaptation current <var>w</var> subtracts from the input.
-  The <b>dt slider</b> shows the Euler discretization: a large <var>dt</var> changes the measured rate and can
-  even change whether a neuron fires at all, because the update is a first-order approximation.
+  ui.note(notes, `For the default parameters the measured rheobases (smallest current that fires) are
+  LIF ≈ 40 pA, ELIF ≈ 36 pA and AELIF ≈ 36 pA. So ELIF and AELIF start firing at a lower current than
+  LIF: the exponential term pushes them over threshold sooner. AELIF's adaptation current <var>w</var> does
+  not lower the onset but slows the rate once firing starts, so its curve sits below ELIF's. CoNeX has
+  no refractory period, which is why the LIF reaches ~400 Hz at 120 pA. The <b>dt slider</b> shows the
+  Euler discretization: a large <var>dt</var> changes the measured rate and can even change whether a neuron
+  fires at all, because the update is a first-order approximation.
   ML analogy: the f-I curve is the neuron's "activation function" relating input to output rate; the
   analogy breaks because it is a dynamical, history-dependent rate, not a static function of the input.`);
   ui.code(notes, () => codeSnippet());

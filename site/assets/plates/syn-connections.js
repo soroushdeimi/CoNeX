@@ -162,10 +162,17 @@ export function mount(root, ui) {
       ctx.fillRect(bw >= 0 ? rightX : rightX - Math.abs(bw), py(d) - 4, Math.abs(bw), 8);
       ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(rightX - 6, py(d), 4, 0, Math.PI * 2); ctx.fill();
     }
-    // index labels: pre neurons (left), post neurons (right)
+    // index labels: pre neurons (left), post neurons (right). On narrow screens
+    // label only the leftmost neuron of each row, in a left margin column, so
+    // the labels do not interleave with the spike dots.
+    const narrow = Wd < 600;
     ctx.fillStyle = muted; ctx.font = '9px ui-monospace, monospace';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    for (let i = 0; i < N; i++) ctx.fillText(String(i), ix(i) - 6, iy(i));
+    for (let i = 0; i < N; i++) {
+      if (narrow && i % W !== W - 1) continue;
+      const lx = narrow ? 2 + labelW : ix(i) - 6;
+      ctx.fillText(String(i), ui.fitText(ctx, String(i), lx, Wd, 'right'), iy(i));
+    }
     ctx.textAlign = 'left';
     for (let d = 0; d < nDst; d++) ctx.fillText(String(d), rightX + 8, py(d));
     ctx.fillStyle = ink; ctx.font = '11px system-ui, sans-serif'; ctx.textBaseline = 'top';

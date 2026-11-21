@@ -1,0 +1,70 @@
+{
+  "area": "tbt",
+  "title": "Thousand Brains & predictive coding",
+  "order": 4,
+  "plates": [
+    {
+      "id": "tbt-grid",
+      "title": "Grid cell path integration",
+      "summary": "Walk an agent through an arena and watch each grid cell module's phase and firing map.",
+      "level": "intro",
+      "conex": ["conex.behaviors.neurons.numenta.grid_cells.GridCellModule"]
+    },
+    {
+      "id": "tbt-displacement",
+      "title": "Displacement cells",
+      "summary": "Two locations, their codes, and the displacement code that links them.",
+      "level": "core",
+      "conex": [
+        "conex.behaviors.neurons.numenta.grid_cells.DisplacementCellModule",
+        "conex.behaviors.neurons.numenta.grid_cells.LocationEncoder"
+      ]
+    },
+    {
+      "id": "tbt-dendrites",
+      "title": "Active dendrites",
+      "summary": "A context SDR depolarises the matching dendritic segment and makes cells predictive.",
+      "level": "core",
+      "conex": [
+        "conex.behaviors.neurons.numenta.active_dendrites.DendriticSegment",
+        "conex.behaviors.neurons.numenta.active_dendrites.ActiveDendriteComputation",
+        "conex.behaviors.neurons.numenta.active_dendrites.ContextualPrediction"
+      ]
+    },
+    {
+      "id": "tbt-voting",
+      "title": "Column voting and consensus",
+      "summary": "Several columns with ambiguous object candidates vote until they agree on one object.",
+      "level": "core",
+      "conex": [
+        "conex.behaviors.network.numenta.voting.ColumnVoting",
+        "conex.behaviors.network.numenta.voting.ConsensusNetwork",
+        "conex.behaviors.network.numenta.voting.SDROverlap"
+      ]
+    },
+    {
+      "id": "tbt-predictive",
+      "title": "Hierarchical predictive coding",
+      "summary": "Prediction and error traces per level, precision weighting, and free energy over time.",
+      "level": "advanced",
+      "conex": [
+        "conex.behaviors.neurons.numenta.predictive_coding.HierarchicalPredictiveCoding",
+        "conex.behaviors.neurons.numenta.predictive_coding.PredictionUnit",
+        "conex.behaviors.neurons.numenta.predictive_coding.ErrorUnit",
+        "conex.behaviors.neurons.numenta.predictive_coding.PrecisionWeighting"
+      ]
+    },
+    {
+      "id": "struct-column",
+      "title": "Cortical column structure",
+      "summary": "An SVG of layers L2/3, L4, L5, L6 and the connections CoNeX builds between them.",
+      "level": "intro",
+      "conex": [
+        "conex.nn.structure.cortical_column.CorticalColumn",
+        "conex.nn.structure.layer.Layer",
+        "conex.nn.structure.neocortex.Neocortex",
+        "conex.nn.structure.cortical_layer_connection.CorticalLayerConnection"
+      ]
+    }
+  ]
+}

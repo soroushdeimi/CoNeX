@@ -1,5 +1,5 @@
 // Shared UI + plotting API for the CoNeX site. See .worker/CONTRACT.md.
-import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime, playerSpeedFromPos, playerPosFromSpeed } from './core.js';
+import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime, playerSpeedFromPos, playerPosFromSpeed, liveSteps, LIVE_MAX_STEPS, ease } from './core.js';
 
 const THEME_KEY = 'conex-theme';
 const SPEED_KEY = 'conex-speed';
@@ -558,18 +558,20 @@ export function raster(parent, { height = 200, xLabel = 'time', xUnit = 'ms' }) 
 
   function render() {
     if (!last) return;
-    const { spikes, nRows, tMax, revealT } = last;
+    const { spikes, nRows, tMax, revealT, xRange } = last;
     const w = st.width, h = st.height;
     const ctx = st.ctx;
     const pal = PALETTES[theme];
     ctx.clearRect(0, 0, w, h);
-    const xRange = [0, tMax || 1];
-    const xTicks = computeTicks(xRange[0], xRange[1]);
+    // xRange: [a, b] scrolls the axis (live mode); otherwise [0, tMax]
+    const xr = Array.isArray(xRange) ? xRange : [0, tMax || 1];
+    const xTicks = computeTicks(xr[0], xr[1]);
     const yTicks = { ticks: [0, nRows], step: nRows };
-    const ax = drawAxes(ctx, w, h, M, xRange, [0, nRows], xTicks, yTicks, xLabel, 'neuron', xUnit, 'index');
+    const ax = drawAxes(ctx, w, h, M, xr, [0, nRows], xTicks, yTicks, xLabel, 'neuron', xUnit, 'index');
     ctx.fillStyle = pal.ink;
     for (const [t, idx] of spikes) {
       if (idx < 0 || idx >= nRows) continue;
+      if (xRange && (t < xr[0] || t > xr[1])) continue;
       if (typeof revealT === 'number' && t > revealT) continue;
       const px = ax.sx(t);
       const py = ax.y1 + ((idx + 0.5) / nRows) * (ax.y0 - ax.y1);
@@ -590,8 +592,8 @@ export function raster(parent, { height = 200, xLabel = 'time', xUnit = 'ms' }) 
   ui.onTheme(render);
 
   return {
-    draw(spikes, nRows, tMax, { revealT } = {}) {
-      last = { spikes, nRows, tMax, revealT };
+    draw(spikes, nRows, tMax, { revealT, xRange } = {}) {
+      last = { spikes, nRows, tMax, revealT, xRange };
       render();
     },
   };
@@ -921,11 +923,177 @@ export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = 
   return { play, pause, seek, playing: () => playing, setDuration };
 }
 
+// A live model runner: steps the plate's own model each frame, like a live
+// oscilloscope. Model time advances at speed * modelPerSecond per real
+// second; step() is called once per dt of model time. See AMENDMENT 4.
+export function live(parent, { dt, unit = 'ms', modelPerSecond, windowSize, step, reset, onFrame }) {
+  let t = 0;
+  let acc = 0;
+  let speed = readSpeed();
+  let playing = false;
+  let raf = 0;
+  let lastTs = 0;
+  let slowed = false;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'ui-live';
+
+  const row = document.createElement('div');
+  row.className = 'ui-player-row';
+
+  const playBtn = document.createElement('button');
+  playBtn.className = 'ui-button ui-button-small';
+  playBtn.type = 'button';
+  playBtn.textContent = 'Play';
+
+  const resetBtn = document.createElement('button');
+  resetBtn.className = 'ui-button ui-button-small';
+  resetBtn.type = 'button';
+  resetBtn.textContent = 'Reset';
+
+  const speedWrap = document.createElement('label');
+  speedWrap.className = 'ui-player-speed';
+  const speedName = document.createElement('span');
+  speedName.textContent = 'speed';
+  const speedReadout = document.createElement('span');
+  speedReadout.className = 'ui-readout';
+  const speedSlider = document.createElement('input');
+  speedSlider.type = 'range';
+  speedSlider.min = '0';
+  speedSlider.max = '1';
+  speedSlider.step = '0.01';
+  speedSlider.value = String(playerPosFromSpeed(speed));
+  speedSlider.setAttribute('aria-label', 'Playback speed');
+  speedReadout.textContent = fmtSpeed(speed);
+  speedWrap.append(speedName, speedReadout, speedSlider);
+
+  const readout = document.createElement('span');
+  readout.className = 'ui-readout ui-player-readout';
+
+  row.append(playBtn, resetBtn, speedWrap, readout);
+  wrap.append(row);
+  parent.appendChild(wrap);
+
+  function fmtTime(v) {
+    const dec = t < 10 ? 2 : 1;
+    let s = v.toFixed(dec);
+    if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
+    return `t = ${s} ${unit}${slowed ? ' (slowed)' : ''}`;
+  }
+
+  function update() {
+    readout.textContent = fmtTime(t);
+  }
+
+  function frame(ts) {
+    if (!playing) return;
+    const dtMs = lastTs ? ts - lastTs : 0;
+    lastTs = ts;
+    if (dtMs > 0) {
+      const r = liveSteps(acc, dtMs, speed * modelPerSecond, dt);
+      acc = r.acc;
+      slowed = r.steps > LIVE_MAX_STEPS;
+      const n = Math.min(r.steps, LIVE_MAX_STEPS);
+      for (let i = 0; i < n; i++) {
+        t += dt;
+        step();
+      }
+      update();
+      if (onFrame) onFrame(t);
+    }
+    raf = requestAnimationFrame(frame);
+  }
+
+  function play() {
+    if (playing) return;
+    playing = true;
+    lastTs = 0;
+    playBtn.textContent = 'Pause';
+    raf = requestAnimationFrame(frame);
+  }
+
+  function pause() {
+    playing = false;
+    playBtn.textContent = 'Play';
+    cancelAnimationFrame(raf);
+  }
+
+  function resetAll() {
+    t = 0;
+    acc = 0;
+    slowed = false;
+    if (reset) reset();
+    update();
+    if (onFrame) onFrame(t);
+  }
+
+  playBtn.addEventListener('click', () => (playing ? pause() : play()));
+  resetBtn.addEventListener('click', resetAll);
+  speedSlider.addEventListener('input', () => {
+    speed = playerSpeedFromPos(Number(speedSlider.value));
+    speedReadout.textContent = fmtSpeed(speed);
+    writeSpeed(speed);
+  });
+
+  // pause while the tab is hidden so time does not jump on return
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) pause();
+  });
+
+  const reduced =
+    typeof matchMedia === 'function' &&
+    matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reduced) play();
+
+  return { play, pause, playing: () => playing, reset: resetAll, t: () => t };
+}
+
+// AMENDMENT 5: the large hero canvas at the top of the figures column.
+// HiDPI like ui.canvas, and the plate is told to redraw on resize AND on
+// theme change (so it can pick up ui.color() again). A one-line narration
+// caption sits under the canvas.
+export function hero(parent, { height = 320 } = {}) {
+  const st = makeCanvas(parent, height);
+  const listeners = listenerList();
+  st.redraw = () => listeners.emit();
+  ui.onTheme(() => listeners.emit());
+  const cap = document.createElement('figcaption');
+  cap.className = 'ui-narration';
+  st.fig.appendChild(cap);
+  return {
+    get canvas() { return st.canvas; },
+    get ctx() { return st.ctx; },
+    get width() { return st.width; },
+    get height() { return st.height; },
+    onResize(fn) {
+      return listeners.add(fn);
+    },
+    narration(text) {
+      cap.textContent = text;
+    },
+  };
+}
+
+// AMENDMENT 5: a one-line narration caption, driven by the model state.
+export function narration(parent) {
+  const p = document.createElement('p');
+  p.className = 'ui-narration';
+  parent.appendChild(p);
+  return {
+    set(text) {
+      p.textContent = text;
+    },
+    get() {
+      return p.textContent;
+    },
+  };
+}
+
 const ui = {
   layout, section, slider, number, select, toggle, button,
-  plot, raster, heatmap, canvas,
+  plot, raster, heatmap, canvas, hero, narration,
   note, equation, code,
-  rng, color, onTheme, animate, player,
+  rng, color, onTheme, animate, player, live, ease,
   setTheme, getTheme, keyedParams,
 };
 export default ui;

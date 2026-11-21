@@ -285,6 +285,24 @@ pre {
   accent-color: var(--c1);
 }
 
+/* Live model runner (AMENDMENT 4); reuses the player row/speed styles */
+.ui-live {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--card);
+}
+
+/* Narration line (AMENDMENT 5): one line under the hero, driven by the model */
+.ui-narration {
+  margin-top: 0.4rem;
+  font-style: italic;
+  font-size: 0.9rem;
+  color: var(--muted);
+  min-height: 1.2em;
+}
+
 /* Figures */
 .ui-figure {
   margin: 0.8rem 0;

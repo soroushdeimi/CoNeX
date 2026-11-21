@@ -12,51 +12,54 @@ export function mount(root, ui) {
 
   const sec = ui.section(controls, 'Wave');
 
-  const DURATION = 100; // ms of model time the sine spans
-  let curT = 0; // current model time, so a parameter change continues in place
+  const DT = 1; // ms of model time per step
+  const WINDOW = 200; // ms of model time kept on screen
+  let t = 0; // model time of the newest sample
+  const ring = []; // [t, v] samples of the last WINDOW ms
 
-  // Precompute the full sine once; the player reveals it over time.
-  function compute() {
-    const N = 200;
-    const x = [], y = [];
-    for (let i = 0; i < N; i++) {
-      const t = (i / (N - 1)) * DURATION;
-      x.push(t);
-      y.push(amp.get() * Math.sin(2 * Math.PI * freq.get() * (t / 1000) + phase.get()));
-    }
-    return { x, y };
+  // One dt of the model: evaluate v(t) and keep the rolling window.
+  function step() {
+    t += DT;
+    const v = amp.get() * Math.sin(2 * Math.PI * freq.get() * (t / 1000) + phase.get());
+    ring.push([t, v]);
+    while (ring.length && ring[0][0] < t - WINDOW) ring.shift();
   }
 
-  function redraw(t) {
-    const { x, y } = compute();
+  function redraw() {
+    const x = ring.map((p) => p[0]);
+    const y = ring.map((p) => p[1]);
     fig.draw([{ x, y, label: 'v(t)', color: 'c1', style: 'line' }],
-      { revealX: t === undefined ? undefined : t });
+      { xRange: [t - WINDOW, t] });
   }
 
   const amp = ui.slider(sec, {
     key: 'amp', label: 'Amplitude', unit: 'a.u.',
-    min: 0.1, max: 3, step: 0.1, value: 1, onInput: () => redraw(curT),
+    min: 0.1, max: 3, step: 0.1, value: 1,
   });
   const freq = ui.slider(sec, {
     key: 'freq', label: 'Frequency', unit: 'Hz',
-    min: 0.1, max: 5, step: 0.1, value: 1, onInput: () => redraw(curT),
+    min: 0.1, max: 5, step: 0.1, value: 1,
   });
   const phase = ui.slider(sec, {
     key: 'phase', label: 'Phase', unit: 'rad',
-    min: 0, max: 6.28, step: 0.01, value: 0, onInput: () => redraw(curT),
+    min: 0, max: 6.28, step: 0.01, value: 0,
   });
 
   const fig = ui.plot(figures, {
     height: 260, xLabel: 'time', yLabel: 'v', xUnit: 'ms', yUnit: 'a.u.',
   });
 
-  // The player reveals the precomputed sine; on a parameter change we recompute
-  // and continue from the current model time.
-  ui.player(sec, {
-    duration: DURATION, unit: 'ms', playSeconds: 5, loop: true,
-    onFrame: (t) => { curT = t; redraw(t); },
+  // The live runner steps the model each frame; the plot scrolls a 200 ms
+  // window. Slider changes apply on the next step without a reset.
+  ui.live(sec, {
+    dt: DT, unit: 'ms', modelPerSecond: 100, windowSize: WINDOW,
+    step,
+    reset: () => { t = 0; ring.length = 0; },
+    onFrame: redraw,
   });
-  redraw(0);
+  // fill the window once so the figure is not empty before the first frame
+  for (let i = 0; i < WINDOW / DT; i++) step();
+  redraw();
 
   // 8x8 heatmap of a seeded random field
   const R = ui.rng(42);
@@ -91,8 +94,10 @@ export function mount(root, ui) {
   amp.onInput(drawCircle);
 
   ui.note(notes, 'This plate is a demo of the shared <code>ui.js</code> API: ' +
-    'three sliders, a live plot, and URL-hash state. Change a slider and the ' +
-    'value appears in the address bar; reload and it is restored.');
+    'three sliders, a live plot with a rolling 200 ms window, and URL-hash ' +
+    'state. Change a slider and the value appears in the address bar; reload ' +
+    'and it is restored. The wave is stepped live, so a slider move changes ' +
+    'the trace without restarting it.');
   ui.equation(notes, '<var>v</var>(<var>t</var>) = <var>A</var> sin(2&#960;<var>f</var><var>t</var> + <var>&phi;</var>)');
   ui.code(notes, () =>
     `# demo only, not CoNeX API\n` +

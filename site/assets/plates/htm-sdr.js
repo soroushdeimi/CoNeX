@@ -1,4 +1,5 @@
 import { SDR, falseMatchProbability, expectedOverlap } from '../js/models/htm.js';
+import { ease } from '../js/core.js';
 
 export const meta = {
   id: 'htm-sdr',
@@ -6,14 +7,6 @@ export const meta = {
   conex: ['SDR', 'SDRConfig', 'UnionSDR'],
   source: 'conex/behaviors/neurons/numenta/sdr.py',
 };
-
-// Ease-in-out (smoothstep): 0 at 0, 1 at 1, flat at both ends. Matches the
-// ui.ease helper the shell adds to core.js (AMENDMENT 4).
-function ease(f) {
-  const x = Math.min(1, Math.max(0, f));
-  if (!Number.isFinite(x)) return 0;
-  return x * x * (3 - 2 * x);
-}
 
 // Pure hero state for the SDR plate. Cross-fades the sampled code between
 // step idx and idx+1 (the "fade in") and reports the overlap with the fixed
@@ -50,17 +43,9 @@ export function mount(root, ui) {
   const seedCtl = ui.number(controls, { key: 'seed', label: 'random seed', unit: '', value: 1234, onInput: () => recompute() });
   const samplesCtl = ui.number(controls, { key: 'samples', label: 'Monte-Carlo samples', unit: '', value: 20000, onInput: () => recompute() });
 
-  const bitsCanvas = ui.canvas(figures, { height: 120 });
-  // ui.canvas does not expose its <figure>, and site.css is shell-owned, so the
-  // caption is styled inline to match the .ui-figure figcaption look.
-  const bitsCap = document.createElement('div');
-  bitsCap.style.cssText = 'font-style:italic;color:var(--muted);font-size:0.85rem;margin-top:0.3rem;';
-  bitsCap.textContent = 'bits (teal = fixed code a, coral = current random sample, ink = their intersection, ochre = overlap count)';
-  figures.appendChild(bitsCap);
-  // Guided narration under the hero, driven by the model state (AMENDMENT 5.4).
-  const heroCap = document.createElement('div');
-  heroCap.style.cssText = 'font-size:0.85rem;color:var(--ink);margin-top:0.3rem;';
-  figures.appendChild(heroCap);
+  // Hero: the large animated diagram at the top of the figures column.
+  const hero = ui.hero(figures, { height: 130 });
+  const heroCap = { set(text) { hero.narration(text); } };
   const histPlot = ui.plot(figures, { height: 220, xLabel: 'overlap b', yLabel: 'P(B = b)', xUnit: 'bits', yUnit: 'a.u.' });
   const readout = document.createElement('div');
   readout.className = 'ui-note';
@@ -108,7 +93,7 @@ export function mount(root, ui) {
   // and a bar whose height is the eased overlap count.
   function drawHero() {
     const st = sdrHeroState(run, lastT);
-    const { ctx, width, height } = bitsCanvas;
+    const { ctx, width, height } = hero;
     const rowH = 18;
     const pad = 8;
     const barW = 26;
@@ -125,11 +110,11 @@ export function mount(root, ui) {
     ctx.fillRect(barX, pad + barH * (1 - frac), barW, barH * frac);
     ctx.strokeStyle = ui.color('muted');
     ctx.strokeRect(barX + 0.5, pad + 0.5, barW - 1, barH - 1);
-    heroCap.textContent = st.narration;
+    heroCap.set(st.narration);
   }
-  // The canvas backing store is reset on layout/resize, so register the draw
-  // via onResize (called after layout and on every resize) rather than once.
-  if (typeof bitsCanvas.onResize === 'function') bitsCanvas.onResize(() => { if (run) drawHero(); });
+  // The hero canvas resets its backing store on resize and theme change, so
+  // register the draw via onResize (called after layout and on every resize).
+  hero.onResize(() => { if (run) drawHero(); });
 
   function recompute() {
     const n = sizeCtl.get();

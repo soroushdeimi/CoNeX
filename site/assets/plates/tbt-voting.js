@@ -172,7 +172,9 @@ export function mount(root, ui) {
   `);
 
   ui.code(notes, () => `
-from conex import ColumnVoting, ConsensusNetwork
+import torch
+from pymonntorch import Network, NeuronGroup
+from conex import ColumnVoting, ConsensusNetwork, TimeResolution
 
 voting = ColumnVoting(
     n_objects=${nObjects.get()},
@@ -184,10 +186,28 @@ voting = ColumnVoting(
 )
 consensus = ConsensusNetwork(convergence_threshold=${convThresh.get()})
 
-votes = voting.cast_vote(column, local_representation, object_memories)
-voting.receive_votes(column, votes)
-consensus.broadcast_votes(network, columns)
-voting.check_consensus(column, n_columns=${nColumns.get()})
+net = Network(behavior={1: TimeResolution(dt=1.0)}, dtype=torch.float32, device="cpu")
+columns = [
+    NeuronGroup(net=net, size=${repSize.get()}, behavior={100: voting}, tag=f"col{c}")
+    for c in range(${nColumns.get()})
+]
+net.initialize()
+consensus.initialize(net)
+
+# object memories: fixed random SDRs; local rep = object 0 with a few bits flipped
+torch.manual_seed(${seed.get()})
+n_active = max(1, int(${repSize.get()} * ${sparsity.get()}))
+object_memories = torch.zeros(${nObjects.get()}, ${repSize.get()})
+for o in range(${nObjects.get()}):
+    object_memories[o, torch.randperm(${repSize.get()})[:n_active]] = 1.0
+local_representation = object_memories[0].clone()
+local_representation[:2] = 0.0
+local_representation[-2:] = 1.0
+
+votes = voting.cast_vote(columns[0], local_representation, object_memories)
+voting.receive_votes(columns[0], votes)
+consensus.broadcast_votes(net, columns)
+voting.check_consensus(columns[0], n_columns=${nColumns.get()})
 `);
 
   return { destroy() {} };

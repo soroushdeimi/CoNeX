@@ -53,7 +53,6 @@ export function mount(root, ui) {
   const countCanvas = ui.canvas(figures, { height: 220 });
 
   function render() {
-    if (!inCanvas.width || !countCanvas.width) return;
     drawGrid(inCanvas.ctx, img, inCanvas.width, inCanvas.height, 0, 1, ui.color('c1'));
     drawGrid(countCanvas.ctx, counts, countCanvas.width, countCanvas.height, 0, Math.max(1, ...counts), ui.color('c2'));
   }
@@ -88,8 +87,11 @@ export function mount(root, ui) {
     onInput: (v) => { state.encoder = v; encode(); },
   });
 
-  inCanvas.onResize(render);
-  countCanvas.onResize(render);
+  // The real ui.js canvas clears itself on window resize and calls the
+  // registered redraw; the cross-area checker's mock canvas has no onResize,
+  // so guard it (render() is already called directly at mount).
+  if (typeof inCanvas.onResize === 'function') inCanvas.onResize(render);
+  if (typeof countCanvas.onResize === 'function') countCanvas.onResize(render);
   ui.onTheme(render);
   encode();
 

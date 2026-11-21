@@ -670,6 +670,23 @@ pre {
   padding-top: 0.8rem;
 }
 
+/* on phones the two links run together; stack them as full-width rows with
+   independent padded hit areas */
+@media (max-width: 600px) {
+  .plate-pager {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .plate-pager a {
+    display: block;
+    min-height: 44px;
+    padding: 0.5rem 0.8rem;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--card);
+  }
+}
+
 .error-box {
   border: 1px solid var(--c2);
   border-left: 3px solid var(--c2);

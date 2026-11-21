@@ -111,7 +111,7 @@ export function mount(root, ui) {
         `<b>w²/n = ${pExp.toFixed(3)} bits</b>. The union has <b>${unionN}</b> bits, the intersection <b>${interN}</b>.</p>` +
         `<p>The false-match probability is the chance a random ${w}-bit code overlaps a fixed one in at least ` +
         `<b>θ = ${theta}</b> bits: the hypergeometric tail ` +
-        `<b>P(B≥θ) = ${pMatch.toExponential(3)}</b> (exact, Ahmad &amp; Hawkins 2016, eq. 3). ` +
+        `<b>P(B≥θ) = ${pMatch.toExponential(3)}</b> (exact). ` +
         `A seeded Monte-Carlo estimate over ${samplesCtl.get()} samples gives <b>${pMC.toExponential(3)}</b> ` +
         `(${pMatch === 0 ? 'both below the sampling floor' : 'compare the two'}). ` +
         `All quantities are dimensionless counts (a.u.).</p>`
@@ -125,7 +125,12 @@ export function mount(root, ui) {
       `<p><b>Background.</b> SDRs are the data structure of HTM: high-dimensional, sparse, and compared by overlap. ` +
         `Partial matches still work (fault tolerance), and a union can hold several items at once. ` +
         `<b>ML analogy:</b> a sparse binary hash with a similarity threshold; the union behaves like a Bloom filter. ` +
-        `The analogy breaks because cortical codes are structured and plastic, while the formula assumes independent uniform codes.</p>`
+        `The analogy breaks because cortical codes are structured and plastic, while the formula assumes independent uniform codes.</p>` +
+      `<p><b>Source of the false-match formula.</b> It is the hypergeometric overlap tail from ` +
+        `S. Ahmad and J. Hawkins, <i>"How do neurons operate on sparse distributed representations? A mathematical theory of ` +
+        `sparsity, neurons and active dendrites"</i>, arXiv:1601.00720 (2016), eq. 3. This formula is <b>not</b> part of the CoNeX ` +
+        `<code>SDR</code> class — CoNeX's <code>SDR</code> provides overlap/union/intersection but not this probability; it is shown here ` +
+        `as the standard HTM literature result.</p>`
     );
     ui.code(notes, () =>
       `from conex import SDR\n` +

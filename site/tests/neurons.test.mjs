@@ -24,6 +24,7 @@ import {
   makeActivityHomeostasis,
   makeVoltageHomeostasis,
   homeostasisNarration,
+  kwtaNarration,
   spikeTimes,
   firingStats,
 } from '../assets/js/models/neurons.js';
@@ -267,6 +268,12 @@ test('kwta matches golden cases (top-k keep v, losers reset)', () => {
 
 test('kwta throws on non-integer k', () => {
   assert.throws(() => kwta([1, 2], 0, 0, 1.5), /k must be a non-negative integer/);
+});
+
+test('kwtaNarration: winners vs inhibition, driven by the real count (hand-computed)', () => {
+  assert.equal(kwtaNarration({ nAbove: 5, k: 2 }), '5 above threshold: top 2 win, the rest are reset');
+  assert.equal(kwtaNarration({ nAbove: 2, k: 2 }), '2 above threshold (≤ 2): all fire, no inhibition');
+  assert.equal(kwtaNarration({ nAbove: 0, k: 2 }), 'no neuron above threshold');
 });
 
 // --- InherentNoise ---

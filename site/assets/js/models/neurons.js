@@ -245,6 +245,15 @@ export function homeostasisNarration({ rate, target, mode }) {
   return 'rate at target: threshold holds';
 }
 
+// KWTA hero narration, driven by the real count of neurons above threshold.
+// When more than k are above threshold, the top-k win and the rest are reset
+// (inhibition); when at most k are, nothing is inhibited.
+export function kwtaNarration({ nAbove, k }) {
+  if (nAbove > k) return `${nAbove} above threshold: top ${k} win, the rest are reset`;
+  if (nAbove > 0) return `${nAbove} above threshold (≤ ${k}): all fire, no inhibition`;
+  return 'no neuron above threshold';
+}
+
 // Analytic LIF firing rate (Hz, in a.u. of time): f = 1 / (tau * ln((vss-v_reset)/(vss-threshold)))
 // where vss = v_rest + R*I. The formula is only valid in the normal firing regime
 // v_reset < threshold < vss; outside it (e.g. v_reset >= threshold, or I at/below the

@@ -92,6 +92,24 @@ test('bound trajectories match golden potentiation and depression simulation', (
   }
 });
 
+// soft_bound is the quadratic (w - w_min)(w_max - w), so it has NO interior
+// fixed point: one-sided pulses drive the weight to the boundary, and a
+// symmetric potentiation/depression cycle returns it to ~w0. This is the
+// behaviour the learn-bounds hero shows (the bead is not "stuck" mid-rail).
+test('soft_bound has no interior fixed point (converges to the boundary)', () => {
+  const base = { w0: 0.5, dw_plus: 0.05, dw_minus: 0.05, w_min: 0, w_max: 1 };
+  // pure potentiation -> w_max
+  const pot = M.simulateBoundTrajectory({ ...base, bound: 'soft_bound', n_plus: 500, n_minus: 0 });
+  assert.ok(Math.abs(pot[pot.length - 1] - 1) < 1e-3, `soft potentiation should reach w_max, got ${pot[pot.length - 1]}`);
+  // pure depression -> w_min
+  const dep = M.simulateBoundTrajectory({ ...base, bound: 'soft_bound', n_plus: 0, n_minus: 500 });
+  assert.ok(Math.abs(dep[dep.length - 1] - 0) < 1e-3, `soft depression should reach w_min, got ${dep[dep.length - 1]}`);
+  // symmetric cycle (the plate default) -> returns to ~w0, not an interior w*
+  const cyc = M.simulateBoundTrajectory({ ...base, bound: 'soft_bound', n_plus: 20, n_minus: 20 });
+  const end = cyc[cyc.length - 1];
+  assert.ok(Math.abs(end - 0.5) < 0.05, `soft symmetric cycle should return near w0=0.5, got ${end}`);
+});
+
 // ---------------------------------------------------------------------------
 // 3. Edge and failure cases
 // ---------------------------------------------------------------------------
@@ -200,4 +218,39 @@ test('local2dStdpDw rejects mismatched local weights size', () => {
 
 test('computeDwForClass rejects unknown class', () => {
   assert.throws(() => M.computeDwForClass('UnknownRule', {}), /unknown learning class "UnknownRule"/);
+});
+
+// ---------------------------------------------------------------------------
+// learn-predictive hero mappings (model state -> drawn quantity / narration)
+// ---------------------------------------------------------------------------
+
+import {
+  weightFraction,
+  errorParticleRadius,
+  learnNarration,
+} from '../assets/plates/learn-predictive.js';
+
+test('learn-predictive hero: weight fraction maps weight to [0,1]', () => {
+  assert.equal(weightFraction(0, 0, 10), 0);
+  assert.equal(weightFraction(10, 0, 10), 1);
+  assert.equal(weightFraction(5, 0, 10), 0.5);
+  assert.equal(weightFraction(20, 0, 10), 1); // clamped above
+  assert.equal(weightFraction(-5, 0, 10), 0); // clamped below
+  assert.equal(weightFraction(5, 3, 3), 0); // degenerate range
+});
+
+test('learn-predictive hero: error particle radius shrinks as error falls', () => {
+  assert.equal(errorParticleRadius(0, 1, 16), 0);
+  assert.equal(errorParticleRadius(1, 1, 16), 16);
+  assert.equal(errorParticleRadius(0.5, 1, 16), 8);
+  assert.equal(errorParticleRadius(2, 1, 16), 16); // clamped above
+  assert.equal(errorParticleRadius(0.5, 0, 16), 0); // zero max -> no particle
+});
+
+test('learn-predictive hero: narration names the step and the values', () => {
+  const line = learnNarration({ step: 4, meanAbsError: 0.1234, freeEnergy: 0.5678, meanPrecision: 1.234 });
+  assert.match(line, /^step 4:/);
+  assert.match(line, /mean \|error\| 0\.1234 a\.u\./);
+  assert.match(line, /free energy 0\.5678 a\.u\./);
+  assert.match(line, /precision 1\.234 a\.u\./);
 });

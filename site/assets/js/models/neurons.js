@@ -181,6 +181,117 @@ export function splashActive(t, lastSpikeT, windowMs = 0.5) {
   return t >= lastSpikeT && t < lastSpikeT + windowMs;
 }
 
+// LIF hero narration: which of the three regimes the neuron is in, as a one-line
+// caption. While splashing (just spiked) it reports the reset; otherwise it
+// compares the two real flows from bucketFlows — if the input flow exceeds the
+// leak flow the voltage is rising, else it is settling back toward steady state.
+export function lifNarration({ v, p, I, splashing }) {
+  if (splashing) return 'threshold crossed: spike, reset to v_reset';
+  const { input, leak } = bucketFlows({ R: p.R, I, tau: p.tau, v_rest: p.v_rest }, v);
+  return input > leak ? 'input beats leak: v rises' : 'leak balances input: v settles below threshold';
+}
+
+// Decorative droplets for the bucket hero. The expected count is proportional to
+// the REAL flow (mV/ms) times the frame time; spawn the whole part plus one more
+// with probability equal to the fractional part (seeded rng). Capped. Pure.
+export function dropletCount(flow, frameSeconds, rng, rate = 30, cap = 40) {
+  if (!Number.isFinite(flow) || flow <= 0) return 0;
+  const expected = flow * frameSeconds * rate;
+  const whole = Math.floor(expected);
+  const extra = rng.next() < (expected - whole) ? 1 : 0;
+  return Math.min(cap, whole + extra);
+}
+
+// ELIF exponential spike-initiation term (mV) at voltage v: delta*exp((v-theta_rh)/delta).
+// This is the "pump" in the bucket picture: it is the extra inflow that grows
+// sharply as v approaches theta_rh and drives the take-off.
+export function elifExpTerm(v, p) {
+  assertPositive('delta', p.delta);
+  return p.delta * Math.exp((v - p.theta_rh) / p.delta);
+}
+
+// The ELIF phase line f(v) = (-(v - v_rest) + delta*exp((v - theta_rh)/delta) + R*I)/tau
+// (mV/ms). This is the real dv/dt at a given v and constant current I.
+export function elifPhaseLine(v, p, I) {
+  assertPositive('tau', p.tau);
+  assertPositive('delta', p.delta);
+  return (-(v - p.v_rest) + p.delta * Math.exp((v - p.theta_rh) / p.delta) + p.R * I) / p.tau;
+}
+
+// Fixed points of the ELIF phase line on [vMin, vMax]: the v where f(v) = 0,
+// with stability from the slope f'(v) = (-(1) + exp((v - theta_rh)/delta))/tau
+// (stable when the slope is negative). Returns [{v, stable}] in ascending v.
+export function elifFixedPoints(p, I, vMin, vMax, n = 4000) {
+  const f = (v) => elifPhaseLine(v, p, I);
+  const out = [];
+  let pv = vMin, pf = f(vMin);
+  for (let k = 1; k <= n; k++) {
+    const v = vMin + (vMax - vMin) * k / n;
+    const fv = f(v);
+    if ((pf <= 0) !== (fv <= 0)) {
+      const t = pf / (pf - fv);
+      const root = pv + t * (v - pv);
+      const slope = (-1 + Math.exp((root - p.theta_rh) / p.delta)) / p.tau;
+      out.push({ v: root, stable: slope < 0 });
+    }
+    pv = v; pf = fv;
+  }
+  return out;
+}
+
+// ELIF hero narration, derived from the phase line f(v) on the same range the
+// hero draws (v_rest-5 .. threshold). While splashing it reports the reset;
+// otherwise: if v is above the unstable fixed point, the exponential term
+// dominates and v takes off to threshold; if f has a stable zero, input and
+// leak balance there; if f has no zero at all, v always rises toward take-off.
+export function elifNarration({ v, p, I, splashing }) {
+  if (splashing) return 'threshold crossed: spike, reset to v_reset';
+  const fp = elifFixedPoints(p, I, p.v_rest - 5, p.threshold);
+  const stable = fp.find((f) => f.stable);
+  const unstable = fp.find((f) => !f.stable);
+  // Above the unstable fixed point f(v) > 0 and the exponential term takes
+  // over: v accelerates to threshold. Below it, v is drawn to the stable
+  // fixed point (or, with no fixed point at all, always rises).
+  if (unstable && v > unstable.v) {
+    return 'exponential take-off: spike';
+  }
+  if (stable) {
+    return `input and leak balance at v* = ${stable.v.toFixed(2)} mV`;
+  }
+  return 'no balance point: v always rises toward take-off';
+}
+
+// AELIF hero narration, driven by the real quantities. While splashing it reports
+// the reset; otherwise it compares the adaptation current (R*w) to the input
+// (R*I): the net drive is R*(I - w), so when w exceeds I the adaptation pulls v
+// down and firing slows.
+export function aelifNarration({ v, omega, p, I, splashing }) {
+  if (splashing) return 'threshold crossed: spike, reset to v_reset';
+  return omega > I
+    ? 'adaptation w exceeds input: v is pulled down, firing slows'
+    : 'input beats adaptation: v rises toward threshold';
+}
+
+// Homeostasis hero narration, driven by the real group rate vs the target. For
+// activity-based control the threshold moves to bring the rate to the target:
+// above target the threshold rises (slows firing), below it the threshold falls.
+// For voltage-based control the voltage is pushed toward the target band.
+export function homeostasisNarration({ rate, target, mode }) {
+  if (mode === 'voltage') return 'voltage pushed toward the target band';
+  if (rate > target) return 'rate above target: threshold rises to slow firing';
+  if (rate < target) return 'rate below target: threshold falls to speed firing';
+  return 'rate at target: threshold holds';
+}
+
+// KWTA hero narration, driven by the real count of neurons above threshold.
+// When more than k are above threshold, the top-k win and the rest are reset
+// (inhibition); when at most k are, nothing is inhibited.
+export function kwtaNarration({ nAbove, k }) {
+  if (nAbove > k) return `${nAbove} above threshold: top ${k} win, the rest are reset`;
+  if (nAbove > 0) return `${nAbove} above threshold (≤ ${k}): all fire, no inhibition`;
+  return 'no neuron above threshold';
+}
+
 // Analytic LIF firing rate (Hz, in a.u. of time): f = 1 / (tau * ln((vss-v_reset)/(vss-threshold)))
 // where vss = v_rest + R*I. The formula is only valid in the normal firing regime
 // v_reset < threshold < vss; outside it (e.g. v_reset >= threshold, or I at/below the

@@ -68,3 +68,51 @@ cursor line at the current time. On a parameter change, recompute the run and
 continue from the current `t` (clamped to the duration). The player autoplays on
 mount, pauses while the tab is hidden, and starts paused at the end for users
 who prefer reduced motion.
+
+Both `ui.player` and `ui.live` accept an optional `readoutFn(t)` that replaces
+the default `t = …` readout, so a plate can name the process instead of a bare
+time. For example `readoutFn: (t) => 'I = ' + t + ' pA'` shows the swept
+current, and `readoutFn: (t) => 'step ' + t + '/16: C'` shows a step counter.
+When omitted, the default `t = … <unit>` readout is unchanged.
+
+## Live (oscilloscope) animation
+
+For continuous-time plates, `ui.live` steps the real model each frame instead of
+revealing a precomputed run. `ui.live(parent, {dt, unit, modelPerSecond,
+windowSize, step, reset, onFrame})` advances model time at
+`speed * modelPerSecond` per real second, calling `step()` once per `dt` of
+model time (a fractional accumulator carries the remainder; at most 2000 steps
+per frame, the rest dropped and the readout shows "(slowed)"). The plate keeps a
+ring buffer of the last `windowSize` of model time and redraws it each frame with
+a scrolling axis: `plot.draw(series, {xRange: [t - window, t]})` or
+`raster.draw(spikes, nRows, tMax, {xRange: [t - window, t]})`. It renders
+play/pause, reset, the shared speed slider (0.1x–10x) and a `t = …` readout,
+with no scrubber. Slider changes apply on the next step without a reset; controls
+that change sizes or seeds call `reset()`. It autoplays on mount, pauses while the
+tab is hidden, and starts paused for users who prefer reduced motion.
+
+## Try-this experiment line
+
+`ui.tryThis(figures, text)` adds a short highlighted "Try this" line — a star
+icon plus one sentence naming what to change and what to watch — at the top of
+the figures column, above the hero. Call it once in `mount`, before creating
+the hero, e.g. `ui.tryThis(figures, 'Raise I; watch threshold crossings become
+more frequent.')`.
+
+## Heatmap colour bar
+
+`ui.heatmap(parent, {rows, cols, label, height, colorBar})` draws a grid of
+cells. Pass `colorBar: true` to add a vertical colour bar on the right with the
+range's min and max labelled (formatted from the range's own tick step, so
+`0..1` shows "0"/"1" and `0..100` shows "0"/"100"). The cell ramp blends from a
+brighter low end (`heatLow`) up to the series colour, so low values stay
+visible in dark mode. The colour bar is off by default.
+
+## Hero animation and narration
+
+`ui.hero(parent, {height})` is the large animated diagram at the top of the
+figures column: a HiDPI canvas (like `ui.canvas`) that also redraws on theme
+change, plus a one-line narration caption under it. `hero.narration(text)` sets
+that line; `ui.narration(parent)` returns a standalone `{set(text), get()}`
+caption. `ui.ease(f)` is the shared ease-in-out (smoothstep) used to tween
+discrete-step plates between step k and k+1.

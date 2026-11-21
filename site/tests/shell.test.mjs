@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import {
   encodeHash, decodeHash, rng, computeTicks, niceNum, dataRange, fmtTick,
   formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime,
-  playerSpeedFromPos, playerPosFromSpeed,
+  playerSpeedFromPos, playerPosFromSpeed, liveSteps, LIVE_MAX_STEPS, ease,
+  readoutText, colorBarLabels,
 } from '../assets/js/core.js';
 
 // --- URL-hash encode/decode ------------------------------------------------
@@ -336,4 +337,238 @@ test('playerShownTime floors in integer mode and passes through otherwise', () =
   assert.equal(playerShownTime(0, true), 0);
   assert.equal(playerShownTime(13999.2, false), 13999.2);
   assert.equal(playerShownTime(14.9, false), 14.9);
+});
+
+// --- liveSteps / LIVE_MAX_STEPS (backing ui.live) ---------------------------
+
+test('liveSteps converts model time gained into whole dt steps', () => {
+  // 100 ms of real time at 100 model ms per real second, dt = 1 ms -> 10 steps
+  assert.deepEqual(liveSteps(0, 100, 100, 1), { steps: 10, acc: 0 });
+});
+
+test('liveSteps keeps the fractional remainder in the accumulator', () => {
+  // 16.67 ms at 100 model ms/s -> 1.667 dt of 1 ms: 1 step, 0.667 left over
+  assert.deepEqual(liveSteps(0, 16.67, 100, 1), { steps: 1, acc: 0.667 });
+  // the remainder carries into the next frame: 0.667 + 1.667 = 2.334
+  assert.deepEqual(liveSteps(0.667, 16.67, 100, 1), { steps: 2, acc: 0.3340000000000001 });
+});
+
+test('liveSteps scales with modelPerSecond and dt', () => {
+  assert.deepEqual(liveSteps(0, 1000, 300, 1), { steps: 300, acc: 0 });
+  assert.deepEqual(liveSteps(0, 1000, 300, 10), { steps: 30, acc: 0 });
+});
+
+test('liveSteps returns 0 steps for a zero frame', () => {
+  assert.deepEqual(liveSteps(0.5, 0, 100, 1), { steps: 0, acc: 0.5 });
+});
+
+test('liveSteps maps invalid input to 0 steps and a clean accumulator', () => {
+  assert.deepEqual(liveSteps(NaN, 100, 100, 1), { steps: 0, acc: 0 });
+  assert.deepEqual(liveSteps(0, Infinity, 100, 1), { steps: 0, acc: 0 });
+  assert.deepEqual(liveSteps(0, 100, 100, 0), { steps: 0, acc: 0 });
+  assert.deepEqual(liveSteps(0, 100, 100, -1), { steps: 0, acc: 0 });
+});
+
+test('LIVE_MAX_STEPS is the per-frame cap of ui.live', () => {
+  assert.equal(LIVE_MAX_STEPS, 2000);
+  // a frame that would run 3000 steps is capped; the excess is dropped
+  const r = liveSteps(0, 10000, 300, 1);
+  assert.ok(r.steps > LIVE_MAX_STEPS, 'test frame must exceed the cap');
+  assert.equal(Math.min(r.steps, LIVE_MAX_STEPS), LIVE_MAX_STEPS);
+});
+
+test('live stepping matches a precomputed run bit-for-bit', () => {
+  // The live loop advances t by dt per step; the sequence of t values is
+  // dt, 2dt, 3dt, ... regardless of how the steps are batched per frame.
+  const dt = 1; // ms
+  const model = (t) => Math.sin(2 * Math.PI * 1 * (t / 1000)); // 1 Hz sine
+  const precomputed = [];
+  for (let i = 1; i <= 1000; i++) precomputed.push(model(i * dt));
+  const live = [];
+  let t = 0, acc = 0;
+  for (let frame = 0; live.length < 1000; frame++) {
+    const dtMs = frame % 3 === 0 ? 16.67 : 100; // mixed frame times
+    const r = liveSteps(acc, dtMs, 100, dt);
+    acc = r.acc;
+    for (let i = 0; i < Math.min(r.steps, LIVE_MAX_STEPS) && live.length < 1000; i++) {
+      t += dt;
+      live.push(model(t));
+    }
+  }
+  assert.equal(live.length, precomputed.length);
+  for (let i = 0; i < live.length; i++) {
+    assert.equal(live[i], precomputed[i], `sample ${i} differs`);
+  }
+});
+
+// --- ease (AMENDMENT 4 tweening) -------------------------------------------
+
+test('ease is 0 at 0 and 1 at 1', () => {
+  assert.equal(ease(0), 0);
+  assert.equal(ease(1), 1);
+});
+
+test('ease is symmetric and monotone on [0,1]', () => {
+  assert.ok(Math.abs(ease(0.5) - 0.5) < 1e-12, 'midpoint is 0.5');
+  assert.ok(Math.abs(ease(0.3) + ease(0.7) - 1) < 1e-12, 'symmetric about 0.5');
+  let prev = 0;
+  for (let i = 1; i <= 20; i++) {
+    const v = ease(i / 20);
+    assert.ok(v > prev, `not monotone at ${i / 20}`);
+    prev = v;
+  }
+});
+
+test('ease clamps out-of-range and non-finite input', () => {
+  assert.equal(ease(-0.5), 0);
+  assert.equal(ease(1.5), 1);
+  assert.equal(ease(NaN), 0); // NaN maps to 0
+  assert.equal(ease(Infinity), 1); // +Infinity clamps to 1
+});
+
+// --- readoutText (ui.player / ui.live readout) ------------------------------
+
+test('readoutText default: fractional time with the unit', () => {
+  assert.equal(readoutText(103.2, { unit: 'pA' }), 't = 103.2 pA');
+  assert.equal(readoutText(12.34, { unit: 'ms', decimals: 2 }), 't = 12.34 ms');
+});
+
+test('readoutText default: trailing zeros are trimmed after the decimal point', () => {
+  assert.equal(readoutText(103.0, { unit: 'pA' }), 't = 103 pA');
+  assert.equal(readoutText(12.30, { unit: 'ms', decimals: 2 }), 't = 12.3 ms');
+});
+
+test('readoutText default: integer mode prints whole time without decimals', () => {
+  assert.equal(readoutText(5, { unit: 'steps', isInt: true }), 't = 5 steps');
+});
+
+test('readoutText default: zero prints as "t = 0 <unit>"', () => {
+  assert.equal(readoutText(0, { unit: 'ms' }), 't = 0 ms');
+});
+
+test('readoutText default: appends " (slowed)" when the live runner is capped', () => {
+  assert.equal(readoutText(12.34, { unit: 'ms', decimals: 2, slowed: true }), 't = 12.34 ms (slowed)');
+  assert.equal(readoutText(12.34, { unit: 'ms', decimals: 2, slowed: false }), 't = 12.34 ms');
+});
+
+test('readoutText: a custom readout(t) function fully replaces the default', () => {
+  assert.equal(readoutText(30, { unit: 'pA', readout: (t) => `I = ${t} pA` }), 'I = 30 pA');
+  assert.equal(readoutText(4, { readout: (t) => `step ${t}/16: C` }), 'step 4/16: C');
+  // the custom function receives the (already shown) time value
+  assert.equal(readoutText(7.5, { unit: 'ms', readout: (t) => `t=${t}` }), 't=7.5');
+});
+
+// --- colorBarLabels (heatmap colour bar min/max) ----------------------------
+
+test('colorBarLabels formats whole-number ranges without decimals', () => {
+  assert.deepEqual(colorBarLabels(0, 1), { lo: '0', hi: '1' });
+  assert.deepEqual(colorBarLabels(0, 100), { lo: '0', hi: '100' });
+  assert.deepEqual(colorBarLabels(0, 10), { lo: '0', hi: '10' });
+});
+
+test('colorBarLabels keeps decimals when the range needs them', () => {
+  assert.deepEqual(colorBarLabels(0, 0.5), { lo: '0', hi: '0.5' });
+  assert.deepEqual(colorBarLabels(2, 7), { lo: '2', hi: '7' });
+});
+
+test('colorBarLabels handles a degenerate range (lo === hi)', () => {
+  assert.deepEqual(colorBarLabels(5, 5), { lo: '5', hi: '5' });
+});
+
+// --- ui.tryThis (real ui.js, minimal DOM stub) ------------------------------
+
+function fakeEl(tag = 'div') {
+  const e = {
+    tagName: tag,
+    children: [],
+    className: '',
+    textContent: '',
+    _innerHTML: '',
+    append(...cs) { e.children.push(...cs); },
+    insertBefore(c, ref) {
+      const i = ref ? e.children.indexOf(ref) : 0;
+      e.children.splice(i === -1 ? 0 : i, 0, c);
+      return c;
+    },
+  };
+  Object.defineProperty(e, 'innerHTML', {
+    get() { return e._innerHTML; },
+    set(v) { e._innerHTML = String(v); },
+  });
+  return e;
+}
+
+test('ui.tryThis inserts the experiment line at the top of the figures column', async () => {
+  globalThis.document = {
+    documentElement: { setAttribute() {} },
+    createElement: (t) => fakeEl(t),
+    createTextNode: (s) => ({ textContent: s }),
+  };
+  const ui = await import('../assets/js/ui.js');
+  const figures = fakeEl('div');
+  const existing = fakeEl('div');
+  figures.children.push(existing);
+
+  const line = ui.tryThis(figures, 'Raise I; watch threshold crossings become more frequent.');
+
+  assert.equal(figures.children[0], line, 'try-this line must be first child');
+  assert.equal(figures.children[1], existing, 'existing children keep their order');
+  assert.equal(line.className, 'ui-trythis');
+  assert.equal(line.children.length, 2, 'icon + text');
+  assert.equal(line.children[0].className, 'ui-trythis-icon');
+  assert.ok(line.children[0]._innerHTML.includes('<svg'), 'icon is an inline svg');
+  // plain text becomes a single text node inside the span
+  assert.equal(line.children[1].children.length, 1, 'one text node');
+  assert.equal(line.children[1].children[0].textContent, 'Raise I; watch threshold crossings become more frequent.');
+});
+
+test('ui.tryThis works on an empty figures column', async () => {
+  const ui = await import('../assets/js/ui.js');
+  const figures = fakeEl('div');
+  const line = ui.tryThis(figures, 'Watch the trace.');
+  assert.equal(figures.children.length, 1);
+  assert.equal(figures.children[0], line);
+});
+
+test('ui.tryThis builds inline markup as nodes, not innerHTML', async () => {
+  const ui = await import('../assets/js/ui.js');
+  const figures = fakeEl('div');
+  const line = ui.tryThis(figures, 'raise <var>beta</var> and <code>lr</code>; watch <sub>rh</sub>');
+  const p = line.children[1];
+  // the span holds a mix of text nodes and element nodes, in order
+  const els = p.children.filter((c) => c.tagName);
+  assert.deepEqual(els.map((c) => c.tagName), ['var', 'code', 'sub'], 'element children in order');
+  // no element may carry raw markup in its own text
+  for (const c of els) assert.ok(!/<[a-z]/i.test(c.textContent), 'no raw tags in element text');
+});
+
+// A fake 2d context whose measureText reports a fixed width.
+function fakeCtx(width) {
+  return { measureText: () => ({ width }) };
+}
+
+test('ui.fitText leaves a fitting label alone', async () => {
+  const ui = await import('../assets/js/ui.js');
+  // label 40px wide at x=10 in a 200px canvas: fits, so x is unchanged
+  assert.equal(ui.fitText(fakeCtx(40), 'x', 10, 200, 'left'), 10);
+  assert.equal(ui.fitText(fakeCtx(40), 'x', 100, 200, 'center'), 100);
+  assert.equal(ui.fitText(fakeCtx(40), 'x', 190, 200, 'right'), 190);
+});
+
+test('ui.fitText clamps a label that would run off the right edge', async () => {
+  const ui = await import('../assets/js/ui.js');
+  // left-aligned 40px label at x=180 in a 200px canvas overflows -> x=160
+  assert.equal(ui.fitText(fakeCtx(40), 'x', 180, 200, 'left'), 160);
+  // right-aligned 40px label at x=10 overflows the left -> x=40
+  assert.equal(ui.fitText(fakeCtx(40), 'x', 10, 200, 'right'), 40);
+  // centred 40px label at x=195 overflows the right -> x=180
+  assert.equal(ui.fitText(fakeCtx(40), 'x', 195, 200, 'center'), 180);
+});
+
+test('ui.fitText never returns a negative x', async () => {
+  const ui = await import('../assets/js/ui.js');
+  // left-aligned 40px label at x=-5 -> clamped to 0
+  assert.equal(ui.fitText(fakeCtx(40), 'x', -5, 200, 'left'), 0);
+  // right-aligned 40px label at x=-50 -> clamped to 40 (not negative)
+  assert.equal(ui.fitText(fakeCtx(40), 'x', -50, 200, 'right'), 40);
 });

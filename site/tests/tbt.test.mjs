@@ -39,6 +39,21 @@ function closeVec(a, b, opts) {
   for (let i = 0; i < a.length; i++) close(a[i], b[i], opts);
 }
 
+// Deterministic 2D phases in [0, 2*pi) — the same generator the tbt-grid plate
+// uses, so the symmetry test exercises the plate's actual module.
+function buildPhases(nModules, cellsPerModule, seed) {
+  let s = seed >>> 0;
+  const rand = () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (s >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const out = new Float64Array(nModules * cellsPerModule * 2);
+  for (let i = 0; i < out.length; i++) out[i] = rand() * 2 * Math.PI;
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // GridCellModule
 // ---------------------------------------------------------------------------
@@ -535,3 +550,302 @@ test('structure: layer sizes and connections match CoNeX', () => {
   );
 });
 
+// ---------------------------------------------------------------------------
+// tbt-grid hero mappings (model state -> drawn quantity / narration)
+// ---------------------------------------------------------------------------
+
+import {
+  trailAlpha,
+  glowRadius,
+  gridNarration,
+  rateMapSpacing,
+  gridSymmetryDiff,
+  SPAN,
+  HERO_N,
+} from '../assets/plates/tbt-grid.js';
+import {
+  arrowLength,
+  cellGlow,
+  displacementNarration,
+} from '../assets/plates/tbt-displacement.js';
+
+test('grid hero: trail alpha fades linearly from 1 to 0 over the window', () => {
+  assert.equal(trailAlpha(0, 5), 1);
+  assert.equal(trailAlpha(2.5, 5), 0.5);
+  assert.equal(trailAlpha(5, 5), 0);
+  // clamped: negative age -> 1, age past window -> 0
+  assert.equal(trailAlpha(-1, 5), 1);
+  assert.equal(trailAlpha(9, 5), 0);
+  // zero window -> no trail
+  assert.equal(trailAlpha(0, 0), 0);
+});
+
+test('grid hero: glow radius grows with mean activation and is bounded', () => {
+  assert.equal(glowRadius(0), 10);
+  assert.equal(glowRadius(1), 40);
+  assert.equal(glowRadius(0.5), 25);
+  // clamped to the [0,1] activation range
+  assert.equal(glowRadius(-3), 10);
+  assert.equal(glowRadius(7), 40);
+});
+
+test('grid hero: narration reports the walk speed and firing level', () => {
+  assert.equal(
+    gridNarration({ meanAct: 0.5, speed: 0 }),
+    'agent at rest: the grid cells hold the position code',
+  );
+  const high = gridNarration({ meanAct: 0.9, speed: 0.6 });
+  assert.match(high, /walks at 0\.60 a\.u\.\/s/);
+  assert.match(high, /high level/);
+  assert.match(high, /mean 0\.90 a\.u\./);
+  const low = gridNarration({ meanAct: 0.1, speed: 0.2 });
+  assert.match(low, /low level/);
+  const mid = gridNarration({ meanAct: 0.5, speed: 0.2 });
+  assert.match(mid, /medium level/);
+});
+
+test('grid hero: the rate map is 6-fold symmetric and sampled at >= 8 per wavelength', () => {
+  // Build the same module the plate uses (fixed phases, seed 1234).
+  const nModules = 4, cellsPerModule = 25;
+  const phases = buildPhases(nModules, cellsPerModule, 1234);
+  const m = new GridCellModule({
+    nModules, cellsPerModule,
+    scaleRange: [0.5, 2.0],
+    orientationRange: [0.0, Math.PI / 3],
+    phases,
+  });
+  const cell = 0;
+  const rate = (x, y) => m.computeActivation([x, y])[cell];
+  const center = [m.gridPhase[cell * 2], m.gridPhase[cell * 2 + 1]]; // a field center
+  const radii = [0.1, 0.3, 0.7, 1.2];
+  const angles = [];
+  for (let i = 0; i < 12; i++) angles.push((i * Math.PI) / 6);
+
+  // 6-fold symmetry: rotating a field center by 60 deg leaves the rate unchanged.
+  const d60 = gridSymmetryDiff(rate, center, radii, angles, 60);
+  assert.ok(d60 < 1e-9, `expected 6-fold symmetry, got residual ${d60}`);
+  // A wrong symmetry (90 deg) is large, so the test is not vacuous.
+  const d90 = gridSymmetryDiff(rate, center, radii, angles, 90);
+  assert.ok(d90 > 0.1, `expected 90 deg to break the symmetry, got ${d90}`);
+
+  // The hero map's sample spacing must be <= lambda/8 (>= 8 samples per
+  // wavelength) for the finest module (smallest lambda = scaleRange[0]).
+  const lambda = m.scales[0];
+  const spacing = rateMapSpacing(SPAN, HERO_N);
+  assert.ok(spacing <= lambda / 8, `spacing ${spacing} > lambda/8 = ${lambda / 8}`);
+});
+
+// ---------------------------------------------------------------------------
+// tbt-displacement hero mappings
+// ---------------------------------------------------------------------------
+
+test('displacement hero: arrow length scales with magnitude and is bounded', () => {
+  assert.equal(arrowLength(0, 10), 0);
+  assert.equal(arrowLength(10, 10), 120);
+  assert.equal(arrowLength(5, 10), 60);
+  // clamped: magnitude above max -> full length, negative -> 0
+  assert.equal(arrowLength(20, 10), 120);
+  assert.equal(arrowLength(-4, 10), 0);
+  // zero max displacement -> no arrow
+  assert.equal(arrowLength(5, 0), 0);
+});
+
+test('displacement hero: cell glow is the clamped activation', () => {
+  assert.equal(cellGlow(0), 0);
+  assert.equal(cellGlow(1), 1);
+  assert.equal(cellGlow(0.4), 0.4);
+  assert.equal(cellGlow(-0.2), 0);
+  assert.equal(cellGlow(1.7), 1);
+});
+
+test('displacement hero: narration reports distance and decoded vector', () => {
+  const line = displacementNarration({
+    magnitude: 3.5,
+    decoded: [2.0, 2.5],
+    maxDisplacement: 10,
+  });
+  assert.match(line, /3\.50 a\.u\. from A/);
+  assert.match(line, /\(2\.00, 2\.50\) a\.u\./);
+  assert.match(line, /max 10\.0 a\.u\./);
+});
+
+
+// ---------------------------------------------------------------------------
+// tbt-dendrites hero mappings
+// ---------------------------------------------------------------------------
+
+import {
+  gaugeFill,
+  segmentState,
+  isPredictive,
+  dendriteNarration,
+  cellLabel,
+} from '../assets/plates/tbt-dendrites.js';
+
+test('dendrites hero: gauge fill is activation over threshold, clamped', () => {
+  assert.equal(gaugeFill(0, 6), 0);
+  assert.equal(gaugeFill(6, 6), 1);
+  assert.equal(gaugeFill(3, 6), 0.5);
+  assert.equal(gaugeFill(12, 6), 1); // clamped above
+  assert.equal(gaugeFill(3, 0), 0); // zero threshold -> no fill
+});
+
+test('dendrites hero: segment state is active / matching / below', () => {
+  assert.equal(segmentState(6, 6, 4), 'active');
+  assert.equal(segmentState(5, 6, 4), 'matching');
+  assert.equal(segmentState(3, 6, 4), 'below');
+  // boundary: exactly at the learning threshold is matching
+  assert.equal(segmentState(4, 6, 4), 'matching');
+  // boundary: exactly at the activation threshold is active
+  assert.equal(segmentState(6, 6, 4), 'active');
+});
+
+test('dendrites hero: a cell is predictive at and above the threshold', () => {
+  assert.equal(isPredictive(0.5, 0.5), true);
+  assert.equal(isPredictive(0.9, 0.5), true);
+  assert.equal(isPredictive(0.4, 0.5), false);
+});
+
+test('dendrites hero: the printed cell label is a rounded integer', () => {
+  // a mid-ease value must print as an integer, not the raw float
+  assert.equal(cellLabel(2.49985000019803), '2');
+  assert.equal(cellLabel(1.49985000019803), '1');
+  assert.equal(cellLabel(0), '0');
+  assert.equal(cellLabel(3), '3');
+  // rounds to nearest
+  assert.equal(cellLabel(2.5), '3');
+  assert.equal(cellLabel(1.4), '1');
+});
+
+test('dendrites hero: narration reports bits arrived and predictive count', () => {
+  assert.equal(dendriteNarration({ k: 0, nActive: 6, nPredictive: 0 }), 'no context yet: all segments are silent');
+  const one = dendriteNarration({ k: 1, nActive: 6, nPredictive: 1 });
+  assert.match(one, /1 of 6 context bits arrived/);
+  assert.match(one, /1 cell now predictive/);
+  const many = dendriteNarration({ k: 4, nActive: 6, nPredictive: 3 });
+  assert.match(many, /4 of 6 context bits arrived/);
+  assert.match(many, /3 cells now predictive/);
+});
+
+test('dendrites hero: narration floors the fractional bit count to an integer', () => {
+  // the player time is fractional; the narration must show an integer count
+  const line = dendriteNarration({ k: 3.499799999999987, nActive: 6, nPredictive: 2 });
+  assert.match(line, /3 of 6 context bits arrived/);
+  assert.doesNotMatch(line, /3\.49/);
+  // just under a whole number still floors down
+  assert.match(dendriteNarration({ k: 0.999, nActive: 6, nPredictive: 0 }), /no context yet/);
+  assert.match(dendriteNarration({ k: 1.0, nActive: 6, nPredictive: 0 }), /1 of 6 context bits arrived/);
+});
+
+// ---------------------------------------------------------------------------
+// tbt-voting hero mappings
+// ---------------------------------------------------------------------------
+
+import {
+  barFraction,
+  topObject,
+  consensusObject,
+  votingNarration,
+} from '../assets/plates/tbt-voting.js';
+
+test('voting hero: bar fraction is value over max, clamped', () => {
+  assert.equal(barFraction(0, 4), 0);
+  assert.equal(barFraction(4, 4), 1);
+  assert.equal(barFraction(2, 4), 0.5);
+  assert.equal(barFraction(8, 4), 1); // clamped above
+  assert.equal(barFraction(2, 0), 0); // zero max -> no bar
+});
+
+test('voting hero: top object is the highest accumulator', () => {
+  assert.equal(topObject([0.1, 0.9, 0.3]), 1);
+  assert.equal(topObject([0.5, 0.5, 0.5]), 0); // ties -> lowest index
+  assert.equal(topObject([0, 0, 0]), 0);
+});
+
+test('voting hero: consensus object is the agreed object or -1', () => {
+  assert.equal(consensusObject([2, 2, 2]), 2);
+  assert.equal(consensusObject([2, 2, -1]), 2); // -1 means no column consensus
+  assert.equal(consensusObject([1, 2, 3]), 1); // no agreement -> first (count 1)
+  assert.equal(consensusObject([-1, -1, -1]), -1);
+});
+
+test('voting hero: narration reports consensus state', () => {
+  // every column shares the same top candidate -> consensus with the step count
+  assert.equal(votingNarration({ step: 3, objs: [2, 2, 2], net: true }), 'consensus: object 2 after 3 steps');
+  assert.equal(votingNarration({ step: 1, objs: [2, 2, -1], net: false }), 'step 1: columns are converging on object 2');
+  assert.equal(votingNarration({ step: 0, objs: [-1, -1, -1], net: false }), 'step 0: no consensus yet');
+});
+
+// ---------------------------------------------------------------------------
+// tbt-predictive hero mappings
+// ---------------------------------------------------------------------------
+
+import {
+  particleRate,
+  precisionKnob,
+  predictiveNarration,
+} from '../assets/plates/tbt-predictive.js';
+
+test('predictive hero: particle rate is proportional to magnitude, clamped', () => {
+  assert.equal(particleRate(0, 1, 14), 0);
+  assert.equal(particleRate(1, 1, 14), 14);
+  assert.equal(particleRate(0.5, 1, 14), 7);
+  assert.equal(particleRate(2, 1, 14), 14); // clamped above
+  assert.equal(particleRate(0.5, 0, 14), 0); // zero max -> no particles
+});
+
+test('predictive hero: precision knob maps precision to [0,1]', () => {
+  assert.equal(precisionKnob(0, 0, 100), 0);
+  assert.equal(precisionKnob(100, 0, 100), 1);
+  assert.equal(precisionKnob(50, 0, 100), 0.5);
+  assert.equal(precisionKnob(200, 0, 100), 1); // clamped above
+  assert.equal(precisionKnob(-5, 0, 100), 0); // clamped below
+  assert.equal(precisionKnob(5, 1, 1), 0); // degenerate range
+});
+
+test('predictive hero: narration reports the error trend and values', () => {
+  const small = predictiveNarration({ meanAbs: 0.01, freeEnergy: 0.5, meanPrec: 2 });
+  assert.match(small, /error is small/);
+  assert.match(small, /mean \|error\| 0\.010 a\.u\./);
+  assert.match(small, /free energy 0\.500 a\.u\./);
+  const large = predictiveNarration({ meanAbs: 0.4, freeEnergy: 3.2, meanPrec: 1 });
+  assert.match(large, /error is large/);
+});
+
+// ---------------------------------------------------------------------------
+// struct-column hero mappings
+// ---------------------------------------------------------------------------
+
+import {
+  pulsePosition,
+  columnNarration,
+} from '../assets/plates/struct-column.js';
+
+const CONN_ORDER = ['L4_to_L23', 'L23_to_L4', 'L23_to_L5', 'L6_to_L4'];
+
+test('column hero: pulse position walks the connections in CoNeX order', () => {
+  // cycle 0 -> first connection, fraction 0
+  assert.deepEqual(pulsePosition(0, CONN_ORDER), { key: 'L4_to_L23', fraction: 0 });
+  // a quarter of the way -> second connection, fraction 0
+  assert.deepEqual(pulsePosition(0.25, CONN_ORDER), { key: 'L23_to_L4', fraction: 0 });
+  // halfway through the second connection
+  const mid = pulsePosition(0.375, CONN_ORDER);
+  assert.equal(mid.key, 'L23_to_L4');
+  assert.equal(mid.fraction, 0.5);
+  // just before the end -> last connection, fraction near 1
+  const end = pulsePosition(0.999, CONN_ORDER);
+  assert.equal(end.key, 'L6_to_L4');
+  assert.ok(end.fraction > 0.9);
+});
+
+test('column hero: pulse position wraps the cycle', () => {
+  // cycle 1.0 wraps back to the first connection
+  assert.deepEqual(pulsePosition(1.0, CONN_ORDER), { key: 'L4_to_L23', fraction: 0 });
+  // cycle 1.25 wraps to the second connection
+  assert.equal(pulsePosition(1.25, CONN_ORDER).key, 'L23_to_L4');
+});
+
+test('column hero: narration names the pulse and its connection', () => {
+  assert.equal(columnNarration({ conn: 'L4_to_L23', connOrder: CONN_ORDER }), 'pulse 1 of 4: L4 → L23');
+  assert.equal(columnNarration({ conn: 'L6_to_L4', connOrder: CONN_ORDER }), 'pulse 4 of 4: L6 → L4');
+});

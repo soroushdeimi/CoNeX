@@ -1,4 +1,4 @@
-import { DEFAULTS, lifUpdate, kwta, inherentNoise } from '../js/models/neurons.js';
+import { DEFAULTS, lifUpdate, kwta, inherentNoise, kwtaNarration } from '../js/models/neurons.js';
 
 export const meta = {
   id: 'neuron-kwta',
@@ -31,6 +31,10 @@ export function mount(root, ui) {
   const secK = ui.section(controls, 'KWTA');
   const cK = ui.slider(secK, { key: 'k', label: 'k (winners)', unit: '', min: 1, max: SIZE, step: 1, value: 2 });
 
+  function params() {
+    return { R: cR.get(), tau: cTau.get(), threshold: cTh.get(), v_reset: cReset.get(), v_rest: cRest.get(), dt: cDt.get() };
+  }
+
   // Compute both runs once; the player reveals them frame by frame.
   let runData = null;
   function computeRun() {
@@ -42,38 +46,10 @@ export function mount(root, ui) {
     return tMax;
   }
 
-  const figBefore = ui.raster(figures, { height: 200, xLabel: 't', xUnit: 'ms' });
-  const figAfter = ui.raster(figures, { height: 200, xLabel: 't', xUnit: 'ms' });
-  const figCount = ui.plot(figures, { height: 160, xLabel: 't', yLabel: 'spiking neurons', xUnit: 'ms', yUnit: 'count' });
-  // Bar chart of the group's voltages at the current step; the k winners are highlighted.
-  const figWin = ui.canvas(figures, { height: 160 });
-  // Build the run before the player: ui.player may call onFrame synchronously.
-  const player = ui.player(figures, { duration: computeRun(), unit: 'ms', playSeconds: 5, loop: true, onFrame: frame });
-
-  ui.note(notes, `KWTA keeps only the <var>k</var> strongest neurons active. In CoNeX, <code>KWTA.forward</code>
-  checks which neurons are above threshold; if more than <var>k</var> are, it keeps the top-<var>k</var> by voltage and
-  resets every other spiking neuron to <var>v_reset</var>. If at most <var>k</var> are above threshold, nothing changes.
-  <code>InherentNoise</code> adds a uniform random voltage offset (mV) each step so the group's activity varies.
-  Units: v in mV, t in ms, I in pA, R in GOhm.`);
-  ui.note(notes, `The two rasters use the <b>same seeded noise</b>: the top is the group with no KWTA
-  (every neuron that crosses threshold fires), the bottom is the same group with KWTA applied, so the
-  difference is exactly the k-winners inhibition. The bottom plot shows the number of spiking neurons
-  per step for both runs: without KWTA it can exceed <var>k</var>, with KWTA it is capped at <var>k</var>
-  (the dashed line). Raising <var>k</var> lets more neurons win; lowering it sharpens the competition.
-  ML analogy: KWTA is a hard top-<var>k</var> sparsification, like keeping only the <var>k</var> largest
-  activations; the analogy breaks because here the "activations" are membrane voltages with dynamics,
-  not a static feature vector.`);
-  ui.code(notes, () => codeSnippet());
-
-  function params() {
-    return { R: cR.get(), tau: cTau.get(), threshold: cTh.get(), v_reset: cReset.get(), v_rest: cRest.get(), dt: cDt.get() };
-  }
-
   // Run the group for STEPS steps. Both runs apply the same seeded noise; the only
   // difference is whether KWTA resets the losers before the spike decision.
   // Returns {spikes: [t, index][], counts: {t, n}[], voltages: [v[] per step],
-  // winners: [Set of winner indices per step]}. voltages/winners are only filled
-  // for the KWTA run (useKwta) and are the post-KWTA voltages before the reset.
+  // winners: [Set of winner indices per step], nAbove: [count above threshold]}.
   function simRun(useKwta) {
     const p = params();
     const rng = ui.rng(cSeed.get());
@@ -82,18 +58,20 @@ export function mount(root, ui) {
     const offset = cOffset.get();
     const k = cK.get();
     let vs = new Array(SIZE).fill(p.v_rest);
-    const spikes = []; // [t, index]
-    const counts = []; // {t, n}
-    const voltages = []; // v[] per step (post-KWTA, pre-reset)
-    const winners = []; // Set of winner indices per step
+    const spikes = [];
+    const counts = [];
+    const voltages = [];
+    const winners = [];
+    const nAbove = [];
     for (let it = 1; it <= STEPS; it++) {
       const t = it * p.dt;
       vs = vs.map((v) => lifUpdate({ v }, p, I, p.dt));
       vs = inherentNoise(vs, rng, scale, offset);
+      const above = vs.filter((v) => v >= p.threshold).length;
+      nAbove.push(above);
       let win = new Set();
       if (useKwta) {
         const after = kwta(vs, p.threshold, p.v_reset, k);
-        // Winners are the neurons KWTA left above threshold (the top-k).
         for (let j = 0; j < SIZE; j++) if (after[j] >= p.threshold) win.add(j);
         vs = after;
       }
@@ -105,18 +83,114 @@ export function mount(root, ui) {
       }
       counts.push({ t, n });
     }
-    return { spikes, counts, voltages, winners };
+    return { spikes, counts, voltages, winners, nAbove };
   }
 
-  // On a parameter change: recompute both runs and continue from the current t (clamped).
-  function run() {
-    player.setDuration(computeRun());
+  // --- figures ---
+  ui.tryThis(figures, 'Try this: lower <var>k</var>; watch fewer neurons win and more losers dim with the inhibition ripple.');
+  const hero = ui.hero(figures, { height: 300 });
+  // In-place titles for the two rasters (the visual review asks for them).
+  const titleBefore = document.createElement('p');
+  titleBefore.style.fontStyle = 'italic';
+  titleBefore.style.color = 'var(--muted)';
+  titleBefore.style.fontSize = '0.85rem';
+  titleBefore.textContent = 'Without KWTA (every neuron above threshold fires)';
+  figures.appendChild(titleBefore);
+  const figBefore = ui.raster(figures, { height: 180, xLabel: 't', xUnit: 'ms' });
+  const titleAfter = document.createElement('p');
+  titleAfter.style.fontStyle = 'italic';
+  titleAfter.style.color = 'var(--muted)';
+  titleAfter.style.fontSize = '0.85rem';
+  titleAfter.textContent = 'With KWTA (top-k win, the rest reset)';
+  figures.appendChild(titleAfter);
+  const figAfter = ui.raster(figures, { height: 180, xLabel: 't', xUnit: 'ms' });
+  const figCount = ui.plot(figures, { height: 160, xLabel: 't', yLabel: 'spiking neurons', xUnit: 'ms', yUnit: 'count' });
+
+  // --- notes ---
+  ui.note(notes, `KWTA keeps only the <var>k</var> strongest neurons active. In CoNeX, <code>KWTA.forward</code>
+  checks which neurons are above threshold; if more than <var>k</var> are, it keeps the top-<var>k</var> by voltage and
+  resets every other spiking neuron to <var>v_reset</var>. If at most <var>k</var> are above threshold, nothing changes.
+  <code>InherentNoise</code> adds a uniform random voltage offset (mV) each step so the group's activity varies.
+  Units: v in mV, t in ms, I in pA, R in GOhm. The hero shows the group as circles: the fill is each neuron's
+  voltage, the <var>k</var> winners glow, and the losers dim with an inhibition ripple when they are reset.`);
+  ui.note(notes, `The two rasters use the <b>same seeded noise</b>: the top is the group with no KWTA
+  (every neuron that crosses threshold fires), the bottom is the same group with KWTA applied, so the
+  difference is exactly the k-winners inhibition. The bottom plot shows the number of spiking neurons
+  per step for both runs: without KWTA it can exceed <var>k</var>, with KWTA it is capped at <var>k</var>
+  (the dashed line). Raising <var>k</var> lets more neurons win; lowering it sharpens the competition.
+  ML analogy: KWTA is a hard top-<var>k</var> sparsification, like keeping only the <var>k</var> largest
+  activations; the analogy breaks because here the "activations" are membrane voltages with dynamics,
+  not a static feature vector.`);
+  ui.code(notes, () => codeSnippet());
+
+  // --- hero: neurons as circles, fill = voltage, winners glow, losers dim ---
+  let lastReal = 0;
+  function drawHero(t) {
+    const { p, after } = runData;
+    const k = cK.get();
+    // interpolate between step k and k+1 with the fractional part (AMENDMENT 4.3)
+    const stepF = Math.min(after.voltages.length - 1, Math.max(0, t / p.dt));
+    const k0 = Math.floor(stepF);
+    const f = ui.ease(stepF - k0);
+    const v0 = after.voltages[k0];
+    const v1 = after.voltages[Math.min(k0 + 1, after.voltages.length - 1)];
+    const vs = v0.map((v, j) => v * (1 - f) + v1[j] * f);
+    const win = after.winners[k0];
+    const nAbove = after.nAbove[k0];
+
+    const ctx = hero.ctx;
+    const W = hero.width, H = hero.height;
+    ctx.clearRect(0, 0, W, H);
+    const pal = {
+      ink: ui.color('ink'), muted: ui.color('muted'), rule: ui.color('rule'),
+      water: ui.color('c1'), coral: ui.color('c2'), indigo: ui.color('c4'),
+    };
+    const mono = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+    const cols = 4, rows = 2;
+    const gx0 = W * 0.08, gy0 = H * 0.16;
+    const cellW = (W * 0.84) / cols, cellH = (H * 0.66) / rows;
+    const rad = Math.min(cellW, cellH) * 0.32;
+    const vLo = Math.min(p.v_rest, p.v_reset) - 5;
+    const vHi = p.threshold + 5;
+    for (let j = 0; j < SIZE; j++) {
+      const cx = gx0 + (j % cols) * cellW + cellW / 2;
+      const cy = gy0 + Math.floor(j / cols) * cellH + cellH / 2;
+      const frac = Math.max(0, Math.min(1, (vs[j] - vLo) / (vHi - vLo)));
+      const isWinner = win.has(j);
+      const isLoser = vs[j] >= p.threshold && !isWinner; // above threshold but reset
+      // fill = voltage (teal); winners glow coral, losers dim indigo
+      ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+      if (isWinner) {
+        ctx.fillStyle = pal.coral; ctx.globalAlpha = 0.5 + 0.4 * frac; ctx.fill(); ctx.globalAlpha = 1;
+        ctx.strokeStyle = pal.coral; ctx.lineWidth = 3;
+      } else if (isLoser) {
+        ctx.fillStyle = pal.indigo; ctx.globalAlpha = 0.35; ctx.fill(); ctx.globalAlpha = 1;
+        ctx.strokeStyle = pal.indigo; ctx.lineWidth = 2;
+      } else {
+        ctx.fillStyle = pal.water; ctx.globalAlpha = 0.2 + 0.5 * frac; ctx.fill(); ctx.globalAlpha = 1;
+        ctx.strokeStyle = pal.ink; ctx.lineWidth = 1.5;
+      }
+      ctx.stroke();
+      // inhibition ripple on a loser (a ring just outside the circle)
+      if (isLoser) {
+        ctx.strokeStyle = pal.indigo; ctx.globalAlpha = 0.5; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(cx, cy, rad + 5, 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = pal.muted; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillText(String(j), cx, cy + rad + 6);
+    }
+    ctx.fillStyle = pal.ink; ctx.font = mono;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText(`fill = v (mV); coral = ${k} winners, indigo = reset losers`, gx0, H * 0.06);
   }
 
-  // Reveal both rasters and the count plot up to time t, and highlight the k
-  // winners at the current step.
+  // --- frame: reveal the rasters and count plot, draw the hero ---
+  let curT = 0;
   function frame(t) {
     if (!runData) return;
+    curT = t;
     const { p, tMax, before, after } = runData;
     const k = cK.get();
     figBefore.draw(before.spikes, SIZE, tMax, { revealT: t });
@@ -128,46 +202,9 @@ export function mount(root, ui) {
       ],
       { revealX: t, hlines: [{ y: k, label: 'k' }], yRange: [0, SIZE] }
     );
-    drawWinners(t);
-  }
-
-  // Bar chart of the group's voltages at the current step; the k winners (the
-  // top-k above threshold in the KWTA run) are drawn in coral, the rest in teal.
-  function drawWinners(t) {
-    const { p, after } = runData;
-    const step = Math.min(after.voltages.length - 1, Math.max(0, Math.round(t / p.dt)));
-    const vs = after.voltages[step];
-    const win = after.winners[step];
-    const ctx = figWin.ctx;
-    const W = figWin.width, H = figWin.height;
-    const M = { left: 44, right: 12, top: 12, bottom: 30 };
-    ctx.clearRect(0, 0, W, H);
-    const pal = { ink: ui.color('ink'), muted: ui.color('muted'), rule: ui.color('rule') };
-    const vMin = Math.min(p.v_rest, p.v_reset) - 5;
-    const vMax = p.threshold + 5;
-    const sy = (v) => (H - M.bottom) - ((v - vMin) / (vMax - vMin)) * (H - M.bottom - M.top);
-    // frame + threshold line
-    ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
-    ctx.strokeRect(M.left, M.top, W - M.left - M.right, H - M.bottom - M.top);
-    ctx.strokeStyle = pal.muted; ctx.setLineDash([4, 3]);
-    ctx.beginPath(); ctx.moveTo(M.left, sy(p.threshold)); ctx.lineTo(W - M.right, sy(p.threshold)); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = pal.muted; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
-    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillText(`threshold ${p.threshold} mV`, M.left + 3, sy(p.threshold) - 12);
-    // bars
-    const bw = (W - M.left - M.right) / SIZE;
-    for (let j = 0; j < SIZE; j++) {
-      const x = M.left + j * bw;
-      const y = sy(Math.max(vMin, Math.min(vMax, vs[j])));
-      ctx.fillStyle = win.has(j) ? ui.color('c2') : ui.color('c1');
-      ctx.fillRect(x + 2, Math.min(y, H - M.bottom), bw - 4, Math.abs((H - M.bottom) - y));
-      ctx.fillStyle = pal.ink; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.fillText(String(j), x + bw / 2, H - M.bottom + 3);
-    }
-    ctx.fillStyle = pal.ink; ctx.font = '11px system-ui, sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`voltage of each neuron at t = ${(step * p.dt).toFixed(1)} ms (coral = k winners)`, (M.left + W - M.right) / 2, H - 2);
+    drawHero(t);
+    const step = Math.min(after.nAbove.length - 1, Math.max(0, Math.round(t / p.dt)));
+    hero.narration(kwtaNarration({ nAbove: after.nAbove[step], k }));
   }
 
   function codeSnippet() {
@@ -190,9 +227,18 @@ pop.I = pop.vector(mode=${cI.get()})   # constant input current (pA)
 net.simulate_iterations(${STEPS})`;
   }
 
+  // On a parameter change: recompute both runs and continue from the current t (clamped).
+  function run() {
+    player.setDuration(computeRun());
+  }
+
+  computeRun();
+  const player = ui.player(figures, { duration: runData.tMax, unit: 'ms', playSeconds: 5, loop: true, onFrame: frame });
+  frame(0);
+  hero.onResize(() => frame(curT));
+
   const all = [cR, cTau, cTh, cReset, cRest, cDt, cSeed, cI, cScale, cOffset, cK];
   for (const c of all) c.onInput(run);
-  ui.onTheme(run);
 
   return { destroy() {} };
 }

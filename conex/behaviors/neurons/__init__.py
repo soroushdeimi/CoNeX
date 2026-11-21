@@ -26,6 +26,7 @@ __all__ = [
     "LIF",
     "ELIF",
     "AELIF",
+    "HH",
     # Setters
     "SensorySetter",
     "LocationSetter",

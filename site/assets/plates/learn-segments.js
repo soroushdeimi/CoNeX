@@ -1,4 +1,5 @@
 import { DendriticSegmentModel } from '../js/models/learning_numenta.js';
+import { ease } from '../js/core.js';
 
 export const meta = {
   id: 'learn-segments',
@@ -10,6 +11,46 @@ export const meta = {
 const NUM_STEPS = 10;
 const N_SYN_PER_SEG = 20;
 const N_PRE_CELLS = 40;
+
+// Bead radius (px) for a synapse: permanence in [0,1] maps to [2,8] px.
+export function beadRadius(perm) {
+  const p = Math.max(0, Math.min(1, perm));
+  return 2 + 6 * p;
+}
+
+// Pure hero state for the dendritic segment plate. For each segment and
+// synapse it eases the permanence (and thus the bead radius) between the
+// before and after of this step, flags the learning action, and marks whether
+// the presynaptic target is active (so a pulse travels up the branch).
+export function segHeroState(run, t) {
+  const N = run.steps.length;
+  const idx = Math.max(0, Math.min(N - 1, Math.floor(t)));
+  const f = ease(t - idx);
+  const st = run.steps[idx];
+  const segs = [];
+  for (let s = 0; s < 2; s++) {
+    const before = s === 0 ? st.seg0Before : st.seg1Before;
+    const after = s === 0 ? st.seg0After : st.seg1After;
+    const actions = st.actions[s] || [];
+    const syn = [];
+    for (let i = 0; i < before.permanences.length; i++) {
+      const perm = before.permanences[i] * (1 - f) + after.permanences[i] * f;
+      const target = after.targets[i];
+      const action = actions[i] ? actions[i].action : 'unchanged';
+      const active = target >= 0 && Boolean(st.presynapticActivity[target]);
+      syn.push({ target, perm, radius: beadRadius(perm), action, active });
+    }
+    segs.push({ activation: st.activation[s], active: st.active[s], matching: st.matching[s], syn });
+  }
+  const nReinforced = segs[0].syn.filter((x) => x.action === 'reinforced').length;
+  const nPunished = segs[0].syn.filter((x) => x.action === 'punished').length;
+  const nGrown = segs[0].syn.filter((x) => x.action === 'grown').length;
+  const narration =
+    `step ${idx + 1}/${N}: segment 0 matched=${st.matching[0] ? 'yes' : 'no'} — ` +
+    `${nReinforced} reinforced, ${nPunished} punished, ${nGrown} grown; ` +
+    `depolarization ${(st.depolarization * 100).toFixed(0)}%`;
+  return { idx, f, segs, depol: st.depolarization, narration };
+}
 
 function mulberry(seed) {
   let s = seed >>> 0;
@@ -63,9 +104,42 @@ export function mount(root, ui) {
   const seedCtrl = ui.number(patSec, { key: 'seed', label: 'seed', unit: '', value: 42 });
 
   // --- Figures ---
-  const canvasFig = ui.canvas(figures, { height: 270 });
+  const canvasFig = ui.hero(figures, { height: 270 });
+  const heroCap = { set(text) { canvasFig.narration(text); } };
+  // A four-state dot key beside the branch diagram (the beads use these colours).
+  const dotKey = document.createElement('div');
+  dotKey.style.cssText = 'font-size:0.8rem;display:flex;flex-wrap:wrap;gap:0.6rem;margin-top:0.3rem;';
+  const dotStates = [
+    ['var(--c5)', 'reinforced (grows)'],
+    ['var(--c2)', 'punished (shrinks)'],
+    ['var(--c1)', 'newly grown'],
+    ['var(--c3)', 'connected (perm ≥ threshold)'],
+  ];
+  for (const [color, label] of dotStates) {
+    const item = document.createElement('span');
+    item.style.cssText = 'display:inline-flex;align-items:center;gap:0.3rem;';
+    const dot = document.createElement('span');
+    dot.style.cssText = `width:10px;height:10px;border-radius:50%;background:${color};display:inline-block;`;
+    const lbl = document.createElement('span');
+    lbl.textContent = label;
+    item.appendChild(dot);
+    item.appendChild(lbl);
+    dotKey.appendChild(item);
+  }
+  figures.appendChild(dotKey);
   const depolCaption = ui.note(figures, '<em>Depolarization is computed as max segment activity / activation_threshold, capped at 1, as in compute_depolarization (active_dendrites.py:181).</em>');
-  const statusNote = ui.note(figures, '');
+  // The per-step details live in a collapsible <details> so they do not
+  // duplicate the hero narration line.
+  const statusNote = document.createElement('details');
+  statusNote.className = 'ui-note';
+  statusNote.style.cssText = 'font-size:0.85rem;';
+  const statusSummary = document.createElement('summary');
+  statusSummary.textContent = 'step details';
+  statusNote.appendChild(statusSummary);
+  const statusBody = document.createElement('div');
+  statusBody.style.cssText = 'font-family:ui-monospace,monospace;line-height:1.4;margin-top:0.3rem;';
+  statusNote.appendChild(statusBody);
+  figures.appendChild(statusNote);
   const permPlot = ui.plot(figures, {
     height: 220,
     xLabel: 'learning step',
@@ -173,45 +247,37 @@ export function mount(root, ui) {
     simData = { steps, model };
   }
 
-  function renderAt(step) {
+  function renderAt(t) {
     if (!simData) return;
-    const clampedStep = Math.max(0, Math.min(step, NUM_STEPS - 1));
+    const clampedStep = Math.max(0, Math.min(NUM_STEPS - 1, Math.floor(t)));
     currentStep = clampedStep;
     const sData = simData.steps[clampedStep];
 
-    // 1. Draw canvas diagram
-    drawCanvas(sData);
+    // 1. Draw the hero canvas, easing the bead sizes between steps.
+    const st = segHeroState(simData, t);
+    drawCanvas(st);
+    heroCap.set(st.narration);
 
-    // 2. Status note
-    let actDetails = [];
-    for (let s = 0; s < 2; s++) {
-      const segAct = sData.actions[s] || [];
-      const reinforced = segAct.filter((a) => a.action === 'reinforced').map((a) => `Syn ${a.synapseIdx}`);
-      const punished = segAct.filter((a) => a.action === 'punished').map((a) => `Syn ${a.synapseIdx}`);
-      const grown = segAct.filter((a) => a.action === 'grown').map((a) => `Syn ${a.synapseIdx}`);
-
-      let statusMsg = sData.matching[s] ? 'matched' : 'not matched: no weight changes';
-      let summary = `<strong>Segment ${s}</strong> (active connected = ${sData.activation[s]}, threshold ${learnThresh.get()}: <em>${statusMsg}</em>): `;
-      const parts = [];
-      if (reinforced.length) parts.push(`<span style="color:var(--c5,#5b8a3c)">reinforced [${reinforced.slice(0, 5).join(', ')}${reinforced.length > 5 ? '…' : ''}]</span>`);
-      if (punished.length) parts.push(`<span style="color:var(--c2,#d95b43)">punished [${punished.slice(0, 5).join(', ')}${punished.length > 5 ? '…' : ''}]</span>`);
-      if (grown.length) parts.push(`<span style="color:var(--c1,#0f7b7f)">grown [${grown.join(', ')}]</span>`);
-      if (!parts.length) parts.push('no weight changes');
-      actDetails.push(summary + parts.join('; '));
+    // 2. Status note: a compact table of the synapse actions on segment 0
+    // (the segment that learns). The narration line already names the step,
+    // match state and depolarization, so this only lists the actions.
+    const segAct = sData.actions[0] || [];
+    const byAction = (a) => segAct.filter((x) => x.action === a).map((x) => x.synapseIdx);
+    const rows = [
+      ['var(--c5)', 'reinforced', byAction('reinforced')],
+      ['var(--c2)', 'punished', byAction('punished')],
+      ['var(--c1)', 'newly grown', byAction('grown')],
+    ];
+    let table = '<table style="border-collapse:collapse;font-size:0.8rem;">';
+    for (const [color, name, ids] of rows) {
+      const idText = ids.length ? ids.map((i) => `Syn ${i}`).join(', ') : '—';
+      table += `<tr><td style="padding:2px 8px 2px 0;"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${color};"></span></td>` +
+        `<td style="padding:2px 8px;">${name}</td>` +
+        `<td style="padding:2px 8px;text-align:right;">${ids.length}</td>` +
+        `<td style="padding:2px 0;color:var(--muted);">${idText}</td></tr>`;
     }
-
-    const overlapVal = contextOverlap.get();
-    const lThresh = learnThresh.get();
-    const matchState = overlapVal >= lThresh
-      ? `<span style="color:var(--c5,#5b8a3c);font-weight:bold;">&ge; ${lThresh} (MATCHED &rarr; Learning active)</span>`
-      : `<span style="color:var(--c2,#d95b43);font-weight:bold;">&lt; ${lThresh} (SUBTHRESHOLD &rarr; No learning)</span>`;
-
-    statusNote.innerHTML = `
-      <div style="font-family:ui-monospace,monospace;font-size:0.85rem;line-height:1.4;">
-        <div><strong>Step ${clampedStep}</strong>: Context overlap with Segment 0 = ${overlapVal} cells ${matchState} &bull; Soma depolarization = ${(sData.depolarization * 100).toFixed(0)}%</div>
-        <div>${actDetails.join('<br>')}</div>
-      </div>
-    `;
+    table += '</table>';
+    statusBody.innerHTML = table;
 
     // 3. Draw permanences plot over all steps with revealX
     // Plot exactly 6 representative synapses from Segment 0 with concise labels
@@ -249,7 +315,10 @@ export function mount(root, ui) {
     });
   }
 
-  function drawCanvas(sData) {
+  // Hero: two dendritic branches with synapses as beads whose size is the
+  // eased permanence. Active presynaptic inputs light their beads; reinforced
+  // beads grow (green), punished shrink (red), grown synapses sprout (teal).
+  function drawCanvas(st) {
     const { canvas, ctx } = canvasFig;
     const w = canvas.width || 400;
     const h = canvas.height || 270;
@@ -266,7 +335,7 @@ export function mount(root, ui) {
     // Draw soma
     ctx.beginPath();
     ctx.arc(somaX, somaY, somaR, 0, 2 * Math.PI);
-    const depolVal = sData.depolarization;
+    const depolVal = st.depol;
     ctx.fillStyle = depolVal >= 1.0 ? ui.color('c2') : ui.color('c1');
     ctx.globalAlpha = 0.2 + 0.8 * depolVal;
     ctx.fill();
@@ -297,8 +366,9 @@ export function mount(root, ui) {
     ];
 
     branches.forEach((b) => {
-      const isMatching = sData.matching[b.segIdx];
-      const isActive = sData.active[b.segIdx];
+      const seg = st.segs[b.segIdx];
+      const isMatching = seg.matching;
+      const isActive = seg.active;
 
       // Trunk line
       ctx.beginPath();
@@ -318,32 +388,30 @@ export function mount(root, ui) {
       ctx.font = 'bold 11px ui-sans-serif, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(
-        `Segment ${b.segIdx} (${sData.activation[b.segIdx]} active)`,
+        `Segment ${b.segIdx} (${seg.activation} active)`,
         b.endX,
         b.endY - 14,
       );
 
-      // Draw synapses along branch
-      const segActions = sData.actions[b.segIdx] || [];
-      const count = Math.min(N_SYN_PER_SEG, segActions.length);
+      // Draw synapses along branch as beads sized by the eased permanence.
+      const count = seg.syn.length;
       for (let i = 0; i < count; i++) {
         const tFrac = 0.12 + (i / count) * 0.82;
         // Point along quadratic curve
         const qx = (1 - tFrac) * (1 - tFrac) * b.startX + 2 * (1 - tFrac) * tFrac * (b.startX + (b.endX - b.startX) * 0.35) + tFrac * tFrac * b.endX;
         const qy = (1 - tFrac) * (1 - tFrac) * b.startY + 2 * (1 - tFrac) * tFrac * (b.startY - 50) + tFrac * tFrac * b.endY;
 
-        const action = segActions[i] || {};
-        const permAfter = action.permAfter !== undefined ? action.permAfter : 0.0;
-        const isConn = permAfter >= connPerm.get();
+        const syn = seg.syn[i];
+        const isConn = syn.perm >= connPerm.get();
 
-        // Synapse circle (radius 4.5)
+        // Bead: radius = eased permanence (grown synapses sprout larger).
         ctx.beginPath();
-        ctx.arc(qx, qy, 4.5, 0, 2 * Math.PI);
+        ctx.arc(qx, qy, syn.radius, 0, 2 * Math.PI);
 
         let synColor = ui.color('paper');
-        if (action.action === 'reinforced') synColor = ui.color('c5');
-        else if (action.action === 'punished') synColor = ui.color('c2');
-        else if (action.action === 'grown') synColor = ui.color('c1');
+        if (syn.action === 'reinforced') synColor = ui.color('c5');
+        else if (syn.action === 'punished') synColor = ui.color('c2');
+        else if (syn.action === 'grown') synColor = ui.color('c1');
         else if (isConn) synColor = ui.color('c3');
 
         ctx.fillStyle = synColor;
@@ -351,6 +419,18 @@ export function mount(root, ui) {
         ctx.strokeStyle = isConn ? ui.color('ink') : ui.color('muted');
         ctx.lineWidth = isConn ? 1.5 : 0.8;
         ctx.stroke();
+
+        // Active presynaptic input: a short pulse up the branch to this bead.
+        if (syn.active) {
+          ctx.strokeStyle = ui.color('c5');
+          ctx.globalAlpha = 0.5;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(qx, qy + 10);
+          ctx.lineTo(qx, qy + syn.radius + 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
       }
     });
 
@@ -358,14 +438,16 @@ export function mount(root, ui) {
   }
 
   // --- Animation / Player (direct integration per AMENDMENT 2) ---
+  // integer:false so onFrame gets the fractional time and the hero eases the
+  // bead sizes between steps; the plot still reveals at the integer step.
   const player = ui.player(figures, {
     duration: NUM_STEPS - 1,
     unit: 'step',
     playSeconds: 6,
     loop: true,
-    integer: true,
+    integer: false,
     onFrame: (t) => {
-      renderAt(Math.round(t));
+      renderAt(t);
     },
   });
 

@@ -285,6 +285,43 @@ pre {
   accent-color: var(--c1);
 }
 
+/* Live model runner (AMENDMENT 4); reuses the player row/speed styles */
+.ui-live {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--card);
+}
+
+/* "Try this" experiment line: a short highlighted prompt above the hero */
+.ui-trythis {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--c3);
+  border-left: 3px solid var(--c3);
+  border-radius: 4px;
+  background: var(--card);
+  font-size: 0.92rem;
+}
+.ui-trythis-icon {
+  flex: none;
+  margin-top: 0.2rem;
+  color: var(--c3);
+}
+
+/* Narration line (AMENDMENT 5): one line under the hero, driven by the model */
+.ui-narration {
+  margin-top: 0.4rem;
+  font-style: italic;
+  font-size: 0.9rem;
+  color: var(--muted);
+  min-height: 1.2em;
+}
+
 /* Figures */
 .ui-figure {
   margin: 0.8rem 0;
@@ -448,6 +485,51 @@ pre {
   font-size: 0.85rem;
 }
 
+/* jump link under the search box, shown once the table exists */
+.rules-jump {
+  margin: 0 0 0.8rem;
+  font-size: 0.85rem;
+}
+
+/* mobile: the table fragments long identifiers, so render each rule as a card */
+.rules-cards {
+  display: none;
+}
+@media (max-width: 600px) {
+  .rules-scroll {
+    display: none;
+  }
+  .rules-cards {
+    display: grid;
+    gap: 0.8rem;
+  }
+  .rule-card {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--c1);
+    border-radius: 4px;
+    background: var(--card);
+    padding: 0.7rem 0.9rem;
+  }
+  .rule-card-id {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85rem;
+    overflow-wrap: anywhere;
+  }
+  .rule-card-plates {
+    margin: 0.3rem 0;
+    font-size: 0.9rem;
+  }
+  .rule-card-area {
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+}
+
+/* keep the jump target clear of the topbar when the anchor is followed */
+#rules {
+  scroll-margin-top: 1rem;
+}
+
 .searchbox {
   width: 100%;
   max-width: 420px;
@@ -511,17 +593,11 @@ pre {
   filter: brightness(1.08);
 }
 
-/* pause toggle floats in the bottom-right, clear of the threshold line/label */
-.hero-canvas-row {
-  position: relative;
-}
-.hero-pause {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-}
-/* small, unobtrusive speed control under the hero figure */
+/* pause toggle and speed control sit in a row under the hero canvas */
 .hero-speed-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   margin-top: 0.4rem;
 }
 .hero-speed {
@@ -590,6 +666,45 @@ pre {
   display: block;
 }
 
+/* Core-concepts nesting: the SVG shrinks to tiny labels on phones, so below
+   600 px show a vertical stack instead */
+.concept-stack {
+  display: none;
+}
+@media (max-width: 600px) {
+  .concept-stack {
+    display: block;
+    margin: 0.8rem 0;
+  }
+  .concept-figure {
+    display: none;
+  }
+  .concept-stack-item {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 14px;
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--c1);
+    border-radius: 4px;
+    padding: 0.5rem 0.8rem;
+  }
+  .concept-stack-arrow {
+    text-align: center;
+    color: var(--muted);
+    line-height: 1.2;
+    margin: 0.15rem 0;
+  }
+  .concept-stack-row {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 0.6rem;
+  }
+  .concept-stack-row .concept-stack-item {
+    flex: 1;
+    text-align: center;
+  }
+}
+
 .start-path {
   display: flex;
   flex-wrap: wrap;
@@ -606,6 +721,50 @@ pre {
 
 .start-path .arrow {
   color: var(--muted);
+}
+
+/* numbered stop badge inside each start-here step */
+.start-path .step-num {
+  display: inline-block;
+  min-width: 1.2em;
+  margin-right: 0.4rem;
+  padding: 0 0.25rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* compact category jump row under the search box */
+.area-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.4rem 0 0.8rem;
+}
+.area-jump-link {
+  font-size: 0.82rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  background: var(--card);
+}
+
+/* on phones the start-here arrows wrap unevenly; number the stops vertically */
+@media (max-width: 600px) {
+  .start-path {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .start-path .arrow {
+    display: none;
+  }
+  .start-path .step {
+    display: block;
+    text-align: left;
+  }
 }
 
 .plate-header {
@@ -631,6 +790,23 @@ pre {
   margin-top: 2rem;
   border-top: 1px solid var(--rule);
   padding-top: 0.8rem;
+}
+
+/* on phones the two links run together; stack them as full-width rows with
+   independent padded hit areas */
+@media (max-width: 600px) {
+  .plate-pager {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .plate-pager a {
+    display: block;
+    min-height: 44px;
+    padding: 0.5rem 0.8rem;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--card);
+  }
 }
 
 .error-box {

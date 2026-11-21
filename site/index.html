@@ -32,12 +32,10 @@
         </div>
       </div>
       <figure class="ui-figure hero-figure">
-        <div class="hero-canvas-row">
-          <canvas id="hero-canvas" style="width:100%;height:220px;display:block;background:var(--card);border:1px solid var(--rule);border-radius:4px"></canvas>
-          <button id="hero-pause" class="ui-button ui-button-small hero-pause" type="button"
-                  aria-pressed="false" aria-label="Pause the neuron animation">Pause</button>
-        </div>
+        <canvas id="hero-canvas" style="width:100%;height:220px;display:block;background:var(--card);border:1px solid var(--rule);border-radius:4px"></canvas>
         <div class="hero-speed-row">
+          <button id="hero-pause" class="ui-button ui-button-small" type="button"
+                  aria-pressed="false" aria-label="Pause the neuron animation">Pause</button>
           <label class="hero-speed">
             <span>speed</span>
             <span id="hero-speed-readout" class="ui-readout">1.0x</span>
@@ -52,6 +50,52 @@
           threshold −50 mV, reset −55 mV).
         </figcaption>
       </figure>
+    </section>
+
+    <section>
+      <h2>Explore the atlas</h2>
+      <p>
+        The atlas is a set of interactive plates, grouped into four areas.
+        Each plate mirrors a piece of the CoNeX code and lets you adjust every
+        parameter.
+      </p>
+      <div class="area-cards">
+        <a class="area-card" href="atlas/index.html#neurons">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M24 10 C15 10 13 20 18 26 C14 30 16 38 24 38 C32 38 34 30 30 26 C35 20 33 10 24 10 Z" fill="none" stroke="var(--c1)" stroke-width="2"/>
+            <path d="M24 14 V34 M18 24 H30" fill="none" stroke="var(--c1)" stroke-width="1.5"/>
+          </svg>
+          <div class="title">Neurons</div>
+          <div class="summary">Neuron models: LIF, ELIF, AELIF, Hodgkin-Huxley, homeostasis and k-winners-take-all.</div>
+        </a>
+        <a class="area-card" href="atlas/index.html#plasticity">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M8 34 C18 34 18 14 28 14 C34 14 36 20 40 20" fill="none" stroke="var(--c2)" stroke-width="2"/>
+            <circle cx="8" cy="34" r="3" fill="var(--c2)"/>
+            <circle cx="40" cy="20" r="3" fill="var(--c2)"/>
+          </svg>
+          <div class="title">Plasticity</div>
+          <div class="summary">Synaptic learning rules: STDP, RSTDP and iSTDP.</div>
+        </a>
+        <a class="area-card" href="atlas/index.html#htm">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <rect x="8" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
+            <rect x="20" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
+            <rect x="32" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
+            <path d="M12 30 V18 M24 30 V18 M36 30 V18 M12 18 H36" fill="none" stroke="var(--c4)" stroke-width="1.5"/>
+          </svg>
+          <div class="title">HTM</div>
+          <div class="summary">Hierarchical Temporal Memory: spatial pooler and temporal memory.</div>
+        </a>
+        <a class="area-card" href="atlas/index.html#tbt">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M10 38 L24 10 L38 38 Z" fill="none" stroke="var(--c5)" stroke-width="2"/>
+            <path d="M17 29 L31 29 M20 22 L28 22" fill="none" stroke="var(--c5)" stroke-width="1.5"/>
+          </svg>
+          <div class="title">Thousand Brains Theory</div>
+          <div class="summary">Grid cells, active dendrites, column voting and predictive coding.</div>
+        </a>
+      </div>
     </section>
 
     <section>
@@ -132,7 +176,20 @@ symbol  anomaly  bursting columns
         <code>Behavior</code>s are the classes that give a group its dynamics
         (for example an LIF neuron model or an STDP learning rule).
       </p>
-      <figure class="ui-figure">
+      <div class="concept-stack" aria-hidden="false">
+        <div class="concept-stack-item">Neocortex</div>
+        <div class="concept-stack-arrow">↓</div>
+        <div class="concept-stack-item">CorticalColumn</div>
+        <div class="concept-stack-arrow">↓</div>
+        <div class="concept-stack-item">Layer</div>
+        <div class="concept-stack-arrow">↓</div>
+        <div class="concept-stack-item">NeuronGroup</div>
+        <div class="concept-stack-row">
+          <span class="concept-stack-item">SynapseGroup</span>
+          <span class="concept-stack-item">Behavior</span>
+        </div>
+      </div>
+      <figure class="ui-figure concept-figure">
         <svg viewBox="0 0 640 300" role="img"
              aria-label="Nesting diagram: Neocortex contains CorticalColumn, which contains Layer, which contains NeuronGroup; SynapseGroup connects NeuronGroups; Behavior is attached to a group.">
           <style>
@@ -173,52 +230,6 @@ symbol  anomaly  bursting columns
     </section>
 
     <section>
-      <h2>Explore the atlas</h2>
-      <p>
-        The atlas is a set of interactive plates, grouped into four areas.
-        Each plate mirrors a piece of the CoNeX code and lets you adjust every
-        parameter.
-      </p>
-      <div class="area-cards">
-        <a class="area-card" href="atlas/index.html#neurons">
-          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
-            <path d="M24 10 C15 10 13 20 18 26 C14 30 16 38 24 38 C32 38 34 30 30 26 C35 20 33 10 24 10 Z" fill="none" stroke="var(--c1)" stroke-width="2"/>
-            <path d="M24 14 V34 M18 24 H30" fill="none" stroke="var(--c1)" stroke-width="1.5"/>
-          </svg>
-          <div class="title">Neurons</div>
-          <div class="summary">Neuron models: LIF, ELIF, AELIF and their voltage dynamics.</div>
-        </a>
-        <a class="area-card" href="atlas/index.html#plasticity">
-          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
-            <path d="M8 34 C18 34 18 14 28 14 C34 14 36 20 40 20" fill="none" stroke="var(--c2)" stroke-width="2"/>
-            <circle cx="8" cy="34" r="3" fill="var(--c2)"/>
-            <circle cx="40" cy="20" r="3" fill="var(--c2)"/>
-          </svg>
-          <div class="title">Plasticity</div>
-          <div class="summary">Synaptic learning rules: STDP, RSTDP and iSTDP.</div>
-        </a>
-        <a class="area-card" href="atlas/index.html#htm">
-          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
-            <rect x="8" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
-            <rect x="20" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
-            <rect x="32" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
-            <path d="M12 30 V18 M24 30 V18 M36 30 V18 M12 18 H36" fill="none" stroke="var(--c4)" stroke-width="1.5"/>
-          </svg>
-          <div class="title">HTM</div>
-          <div class="summary">Hierarchical Temporal Memory: spatial pooler and temporal memory.</div>
-        </a>
-        <a class="area-card" href="atlas/index.html#tbt">
-          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
-            <path d="M10 38 L24 10 L38 38 Z" fill="none" stroke="var(--c5)" stroke-width="2"/>
-            <path d="M17 29 L31 29 M20 22 L28 22" fill="none" stroke="var(--c5)" stroke-width="1.5"/>
-          </svg>
-          <div class="title">Thousand Brains Theory</div>
-          <div class="summary">Grid cells, active dendrites, column voting and predictive coding.</div>
-        </a>
-      </div>
-    </section>
-
-    <section>
       <h2>Links</h2>
       <p>
         <a href="https://github.com/cnrl/CoNeX">GitHub</a>
@@ -242,7 +253,7 @@ symbol  anomaly  bursting columns
 
   <script type="module">
     import ui from './assets/js/ui.js';
-    import { playerSpeedFromPos, playerPosFromSpeed } from './assets/js/core.js';
+    import { playerSpeedFromPos, playerPosFromSpeed, computeTicks, fmtTick } from './assets/js/core.js';
     const themeBtn = document.getElementById('theme-toggle');
     function syncThemeBtn() {
       themeBtn.textContent = ui.getTheme() === 'light' ? 'Dark' : 'Light';
@@ -298,12 +309,13 @@ symbol  anomaly  bursting columns
         const win = windowFor(w);
         const t0 = t - win;
         const sx = (tt) => ((tt - t0) / win) * w;
-        // trace panel in the upper ~78%, raster in a thin strip at the bottom
-        const traceTop = 8, traceBot = H * 0.78;
+        // reserve a bottom margin for the time axis; the plot area ends at plotBot
+        const plotBot = H - 34;
+        const traceTop = 8, traceBot = plotBot * 0.78;
         const sy = (vv) => traceTop + ((V_TOP - vv) / (V_TOP - V_BOT)) * (traceBot - traceTop);
-        const rasterTop = H * 0.85, rasterBot = H - 6;
+        const rasterTop = plotBot * 0.85, rasterBot = plotBot - 4;
 
-        // threshold (dashed) and reset (dotted) reference lines
+        // threshold (dashed) and reset (dotted) reference lines, named at the right end
         ctx.strokeStyle = pal.muted;
         ctx.lineWidth = 1;
         ctx.setLineDash([5, 4]);
@@ -319,16 +331,34 @@ symbol  anomaly  bursting columns
         ctx.setLineDash([]);
         ctx.fillStyle = pal.muted;
         ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
-        ctx.textAlign = 'left';
-        // small tick labels at the left edge
-        ctx.textBaseline = 'middle';
-        ctx.fillText('-50', 2, sy(THR));
-        ctx.fillText('-55', 2, sy(V_RESET));
-        // line labels, offset right of the ticks so they do not collide
+        ctx.textAlign = 'right';
         ctx.textBaseline = 'bottom';
-        ctx.fillText('threshold -50 mV', 26, sy(THR) - 2);
+        ctx.fillText('threshold -50 mV', w - 4, sy(THR) - 2);
         ctx.textBaseline = 'top';
-        ctx.fillText('reset -55 mV', 26, sy(V_RESET) + 2);
+        ctx.fillText('reset -55 mV', w - 4, sy(V_RESET) + 2);
+
+        // y-axis title
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText('v (mV)', 2, 2);
+
+        // time axis: a few ticks (ms) and the title, in the reserved bottom margin
+        const xTicks = computeTicks(t0, t0 + win, 5);
+        ctx.strokeStyle = pal.muted;
+        ctx.lineWidth = 1;
+        ctx.textAlign = 'center';
+        for (const tk of xTicks.ticks) {
+          const px = sx(tk);
+          if (px < 0 || px > w) continue;
+          ctx.beginPath();
+          ctx.moveTo(px, plotBot);
+          ctx.lineTo(px, plotBot + 4);
+          ctx.stroke();
+          ctx.textBaseline = 'top';
+          ctx.fillText(fmtTick(tk, xTicks.step), px, plotBot + 6);
+        }
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('time (ms)', w / 2, H - 2);
 
         // voltage trace
         ctx.strokeStyle = pal.c1;

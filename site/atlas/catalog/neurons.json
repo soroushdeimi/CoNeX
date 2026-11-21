@@ -28,6 +28,14 @@
       "learning_rules": []
     },
     {
+      "id": "neuron-hh",
+      "title": "Hodgkin-Huxley (1952)",
+      "summary": "The squid-axon action potential: a membrane patch with Na+ and K+ channels whose open gates follow the real m, h, n.",
+      "level": "advanced",
+      "conex": ["conex.behaviors.neurons.neuron_types.hh_neurons.HH"],
+      "learning_rules": []
+    },
+    {
       "id": "neuron-fi",
       "title": "f-I curves",
       "summary": "Firing rate versus input current for LIF, ELIF and AELIF, with the analytic LIF rate.",

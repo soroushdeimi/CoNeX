@@ -151,6 +151,18 @@ export function playerShownTime(t, integer) {
   return integer ? Math.floor(t) : t;
 }
 
+// The player/live readout string. A custom `readout(t)` function (when given)
+// fully replaces the default "t = …" text so a plate can show e.g. "I = 30 pA"
+// or "step 4/16: C". Otherwise the default is used: whole-number time in
+// integer mode, `decimals` places otherwise, plus " (slowed)" when set.
+export function readoutText(t, { unit, isInt = false, decimals = 1, slowed = false, readout }) {
+  if (typeof readout === 'function') return readout(t);
+  if (isInt) return `t = ${t} ${unit}`;
+  let s = t.toFixed(decimals);
+  if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  return `t = ${s} ${unit}${slowed ? ' (slowed)' : ''}`;
+}
+
 // Clamp model time to [0, duration]. Non-finite input becomes 0.
 export function clampTime(t, duration) {
   if (!Number.isFinite(t)) return 0;
@@ -184,6 +196,36 @@ export function playerAdvance(t, dtMs, duration, playSeconds, speed, loop) {
     return nt;
   }
   return clampTime(t + dt, duration);
+}
+
+// ui.live step accounting: advance the fractional accumulator by the model
+// time gained this frame and return the whole number of dt steps to run.
+// The remainder stays in the accumulator for the next frame.
+export function liveSteps(acc, dtMs, modelPerSecond, dt) {
+  if (!Number.isFinite(acc) || !Number.isFinite(dtMs) || !Number.isFinite(modelPerSecond) || !Number.isFinite(dt) || dt <= 0) {
+    return { steps: 0, acc: 0 };
+  }
+  const a = acc + (dtMs / 1000) * modelPerSecond / dt;
+  return { steps: Math.floor(a), acc: a - Math.floor(a) };
+}
+
+// Cap on dt steps per animation frame; the rest is dropped and the readout
+// says "(slowed)".
+export const LIVE_MAX_STEPS = 2000;
+
+// Ease-in-out (smoothstep): 0 at 0, 1 at 1, flat at both ends.
+// Out-of-range input is clamped; NaN maps to 0.
+export function ease(f) {
+  const x = Math.min(1, Math.max(0, f));
+  if (!Number.isFinite(x)) return 0;
+  return x * x * (3 - 2 * x);
+}
+
+// The min/max labels for a heatmap colour bar, formatted from the range's own
+// tick step so 0..1 shows "0"/"1" and 0..100 shows "0"/"100".
+export function colorBarLabels(lo, hi) {
+  const { step } = computeTicks(lo, hi, 4);
+  return { lo: fmtTick(lo, step), hi: fmtTick(hi, step) };
 }
 
 // Format a tick value with decimals derived from the step. Trailing zeros are

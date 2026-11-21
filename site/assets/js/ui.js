@@ -1,5 +1,5 @@
 // Shared UI + plotting API for the CoNeX site. See .worker/CONTRACT.md.
-import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime, playerSpeedFromPos, playerPosFromSpeed } from './core.js';
+import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime, playerSpeedFromPos, playerPosFromSpeed, liveSteps, LIVE_MAX_STEPS, ease, readoutText, colorBarLabels } from './core.js';
 
 const THEME_KEY = 'conex-theme';
 const SPEED_KEY = 'conex-speed';
@@ -29,10 +29,12 @@ const PALETTES = {
   light: {
     paper: '#fbfaf5', ink: '#1f2a2c', muted: '#5f6b6d', rule: '#dcdccd',
     c1: '#0f7b7f', c2: '#d95b43', c3: '#b98a1f', c4: '#3d4f9f', c5: '#5b8a3c', c6: '#8b3f73',
+    heatLow: '#7fc4c6',
   },
   dark: {
     paper: '#141b1c', ink: '#e5ebe7', muted: '#9aa7a6', rule: '#2c3738',
     c1: '#3cb4b9', c2: '#ef7d66', c3: '#d9ab3f', c4: '#8294dd', c5: '#86b468', c6: '#c26fa9',
+    heatLow: '#2f8a8f',
   },
 };
 
@@ -558,18 +560,20 @@ export function raster(parent, { height = 200, xLabel = 'time', xUnit = 'ms' }) 
 
   function render() {
     if (!last) return;
-    const { spikes, nRows, tMax, revealT } = last;
+    const { spikes, nRows, tMax, revealT, xRange } = last;
     const w = st.width, h = st.height;
     const ctx = st.ctx;
     const pal = PALETTES[theme];
     ctx.clearRect(0, 0, w, h);
-    const xRange = [0, tMax || 1];
-    const xTicks = computeTicks(xRange[0], xRange[1]);
+    // xRange: [a, b] scrolls the axis (live mode); otherwise [0, tMax]
+    const xr = Array.isArray(xRange) ? xRange : [0, tMax || 1];
+    const xTicks = computeTicks(xr[0], xr[1]);
     const yTicks = { ticks: [0, nRows], step: nRows };
-    const ax = drawAxes(ctx, w, h, M, xRange, [0, nRows], xTicks, yTicks, xLabel, 'neuron', xUnit, 'index');
+    const ax = drawAxes(ctx, w, h, M, xr, [0, nRows], xTicks, yTicks, xLabel, 'neuron', xUnit, 'index');
     ctx.fillStyle = pal.ink;
     for (const [t, idx] of spikes) {
       if (idx < 0 || idx >= nRows) continue;
+      if (xRange && (t < xr[0] || t > xr[1])) continue;
       if (typeof revealT === 'number' && t > revealT) continue;
       const px = ax.sx(t);
       const py = ax.y1 + ((idx + 0.5) / nRows) * (ax.y0 - ax.y1);
@@ -590,14 +594,14 @@ export function raster(parent, { height = 200, xLabel = 'time', xUnit = 'ms' }) 
   ui.onTheme(render);
 
   return {
-    draw(spikes, nRows, tMax, { revealT } = {}) {
-      last = { spikes, nRows, tMax, revealT };
+    draw(spikes, nRows, tMax, { revealT, xRange } = {}) {
+      last = { spikes, nRows, tMax, revealT, xRange };
       render();
     },
   };
 }
 
-export function heatmap(parent, { rows, cols, label = '', height = 200 }) {
+export function heatmap(parent, { rows, cols, label = '', height = 200, colorBar = false }) {
   const st = makeCanvas(parent, height);
   const M = { left: 48, right: 12, top: 8, bottom: 34 };
   let last = null;
@@ -615,23 +619,48 @@ export function heatmap(parent, { rows, cols, label = '', height = 200 }) {
       for (const v of values) { if (v < lo) lo = v; if (v > hi) hi = v; }
       if (lo === hi) hi = lo + 1;
     }
-    const cw = (w - M.left - M.right) / cols;
-    const ch = (h - M.top - M.bottom) / rows;
+    // reserve room for the colour bar on the right when requested
+    const barW = 14, barGap = 8, labelW = 36;
+    const gridRight = colorBar ? w - (barW + barGap + labelW + 6) : w - M.right;
+    const gridLeft = M.left, gridTop = M.top, gridBot = h - M.bottom;
+    const cw = (gridRight - gridLeft) / cols;
+    const ch = (gridBot - gridTop) / rows;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const v = values[r * cols + c];
         const f = (v - lo) / (hi - lo);
-        ctx.fillStyle = mix(pal.paper, pal.c1, Math.max(0, Math.min(1, f)));
-        ctx.fillRect(M.left + c * cw, M.top + r * ch, cw + 0.5, ch + 0.5);
+        ctx.fillStyle = mix(pal.heatLow, pal.c1, Math.max(0, Math.min(1, f)));
+        ctx.fillRect(gridLeft + c * cw, gridTop + r * ch, cw + 0.5, ch + 0.5);
       }
     }
     ctx.strokeStyle = pal.ink;
-    ctx.strokeRect(M.left, M.top, cols * cw, rows * ch);
+    ctx.strokeRect(gridLeft, gridTop, cols * cw, rows * ch);
+
+    if (colorBar) {
+      const bx = gridRight + barGap;
+      const bh = gridBot - gridTop;
+      // gradient: low (bottom) -> high (top), matching the cell ramp
+      const grad = ctx.createLinearGradient(0, gridBot, 0, gridTop);
+      grad.addColorStop(0, pal.heatLow);
+      grad.addColorStop(1, pal.c1);
+      ctx.fillStyle = grad;
+      ctx.fillRect(bx, gridTop, barW, bh);
+      ctx.strokeStyle = pal.ink;
+      ctx.strokeRect(bx, gridTop, barW, bh);
+      const { lo: loLbl, hi: hiLbl } = colorBarLabels(lo, hi);
+      ctx.fillStyle = pal.ink;
+      ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(hiLbl, bx + barW + 4, gridTop);
+      ctx.fillText(loLbl, bx + barW + 4, gridBot);
+    }
+
     ctx.fillStyle = pal.ink;
     ctx.font = '11px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(label, (M.left + w - M.right) / 2, h - 2);
+    ctx.fillText(label, (gridLeft + gridRight) / 2, h - 2);
   }
 
   // redraw on resize (the RO resets the canvas) and on theme change
@@ -677,6 +706,27 @@ export function canvas(parent, { height = 200 }) {
 
 // --- Text ------------------------------------------------------------------
 
+// Clamp a label's x so it stays inside the canvas [0, width] for the given
+// textAlign. Returns the adjusted x to draw at. A no-op when the label already
+// fits, so it is safe to wrap every hand-drawn label.
+export function fitText(ctx, text, x, width, align = 'left') {
+  const m = ctx.measureText(text);
+  const w = m && typeof m.width === 'number' ? m.width : 0;
+  if (align === 'right') {
+    if (x - w < 0) return w;
+    if (x > width) return width;
+    return x;
+  }
+  if (align === 'center') {
+    if (x - w / 2 < 0) return w / 2;
+    if (x + w / 2 > width) return width - w / 2;
+    return x;
+  }
+  if (x + w > width) return Math.max(0, width - w);
+  if (x < 0) return 0;
+  return x;
+}
+
 export function note(parent, html) {
   const p = document.createElement('p');
   p.className = 'ui-note';
@@ -689,7 +739,7 @@ export function equation(parent, html) {
   const div = document.createElement('div');
   div.className = 'ui-equation';
   div.innerHTML = html;
-  parent.appendChild(div);
+  parent.insertBefore(div, parent.firstChild);
   return div;
 }
 
@@ -772,7 +822,7 @@ export function animate(fn) {
 
 // A time player: reveals a precomputed run over model time. Model time advances
 // at speed * duration / playSeconds per real second. See AMENDMENT 2.
-export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = true, integer, onFrame }) {
+export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = true, integer, onFrame, readoutFn }) {
   let dur = duration;
   let t = 0;
   let speed = readSpeed();
@@ -830,11 +880,7 @@ export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = 
   parent.appendChild(wrap);
 
   function fmtTime(v) {
-    if (isInt) return `t = ${v} ${unit}`;
-    const dec = dur < 10 ? 2 : 1;
-    let s = v.toFixed(dec);
-    if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
-    return `t = ${s} ${unit}`;
+    return readoutText(v, { unit, isInt, decimals: dur < 10 ? 2 : 1, readout: readoutFn });
   }
 
   function update() {
@@ -921,11 +967,213 @@ export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = 
   return { play, pause, seek, playing: () => playing, setDuration };
 }
 
+// A live model runner: steps the plate's own model each frame, like a live
+// oscilloscope. Model time advances at speed * modelPerSecond per real
+// second; step() is called once per dt of model time. See AMENDMENT 4.
+export function live(parent, { dt, unit = 'ms', modelPerSecond, windowSize, step, reset, onFrame, readoutFn }) {
+  let t = 0;
+  let acc = 0;
+  let speed = readSpeed();
+  let playing = false;
+  let raf = 0;
+  let lastTs = 0;
+  let slowed = false;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'ui-live';
+
+  const row = document.createElement('div');
+  row.className = 'ui-player-row';
+
+  const playBtn = document.createElement('button');
+  playBtn.className = 'ui-button ui-button-small';
+  playBtn.type = 'button';
+  playBtn.textContent = 'Play';
+
+  const resetBtn = document.createElement('button');
+  resetBtn.className = 'ui-button ui-button-small';
+  resetBtn.type = 'button';
+  resetBtn.textContent = 'Reset';
+
+  const speedWrap = document.createElement('label');
+  speedWrap.className = 'ui-player-speed';
+  const speedName = document.createElement('span');
+  speedName.textContent = 'speed';
+  const speedReadout = document.createElement('span');
+  speedReadout.className = 'ui-readout';
+  const speedSlider = document.createElement('input');
+  speedSlider.type = 'range';
+  speedSlider.min = '0';
+  speedSlider.max = '1';
+  speedSlider.step = '0.01';
+  speedSlider.value = String(playerPosFromSpeed(speed));
+  speedSlider.setAttribute('aria-label', 'Playback speed');
+  speedReadout.textContent = fmtSpeed(speed);
+  speedWrap.append(speedName, speedReadout, speedSlider);
+
+  const readout = document.createElement('span');
+  readout.className = 'ui-readout ui-player-readout';
+
+  row.append(playBtn, resetBtn, speedWrap, readout);
+  wrap.append(row);
+  parent.appendChild(wrap);
+
+  function fmtTime(v) {
+    return readoutText(v, { unit, decimals: t < 10 ? 2 : 1, slowed, readout: readoutFn });
+  }
+
+  function update() {
+    readout.textContent = fmtTime(t);
+  }
+
+  function frame(ts) {
+    if (!playing) return;
+    const dtMs = lastTs ? ts - lastTs : 0;
+    lastTs = ts;
+    if (dtMs > 0) {
+      const r = liveSteps(acc, dtMs, speed * modelPerSecond, dt);
+      acc = r.acc;
+      slowed = r.steps > LIVE_MAX_STEPS;
+      const n = Math.min(r.steps, LIVE_MAX_STEPS);
+      for (let i = 0; i < n; i++) {
+        t += dt;
+        step();
+      }
+      update();
+      if (onFrame) onFrame(t);
+    }
+    raf = requestAnimationFrame(frame);
+  }
+
+  function play() {
+    if (playing) return;
+    playing = true;
+    lastTs = 0;
+    playBtn.textContent = 'Pause';
+    raf = requestAnimationFrame(frame);
+  }
+
+  function pause() {
+    playing = false;
+    playBtn.textContent = 'Play';
+    cancelAnimationFrame(raf);
+  }
+
+  function resetAll() {
+    t = 0;
+    acc = 0;
+    slowed = false;
+    if (reset) reset();
+    update();
+    if (onFrame) onFrame(t);
+  }
+
+  playBtn.addEventListener('click', () => (playing ? pause() : play()));
+  resetBtn.addEventListener('click', resetAll);
+  speedSlider.addEventListener('input', () => {
+    speed = playerSpeedFromPos(Number(speedSlider.value));
+    speedReadout.textContent = fmtSpeed(speed);
+    writeSpeed(speed);
+  });
+
+  // pause while the tab is hidden so time does not jump on return
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) pause();
+  });
+
+  const reduced =
+    typeof matchMedia === 'function' &&
+    matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reduced) play();
+
+  return { play, pause, playing: () => playing, reset: resetAll, t: () => t };
+}
+
+// AMENDMENT 5: the large hero canvas at the top of the figures column.
+// HiDPI like ui.canvas, and the plate is told to redraw on resize AND on
+// theme change (so it can pick up ui.color() again). A one-line narration
+// caption sits under the canvas.
+export function hero(parent, { height = 320 } = {}) {
+  const st = makeCanvas(parent, height);
+  const listeners = listenerList();
+  st.redraw = () => listeners.emit();
+  ui.onTheme(() => listeners.emit());
+  const cap = document.createElement('figcaption');
+  cap.className = 'ui-narration';
+  st.fig.appendChild(cap);
+  return {
+    get canvas() { return st.canvas; },
+    get ctx() { return st.ctx; },
+    get width() { return st.width; },
+    get height() { return st.height; },
+    onResize(fn) {
+      return listeners.add(fn);
+    },
+    narration(text) {
+      cap.textContent = text;
+    },
+  };
+}
+
+// A short "Try this" experiment line: one sentence naming what to change and
+// what to watch. Inserted at the top of the figures column, above the hero.
+// `text` may contain a small set of inline tags (var, sub, code, ...); they are
+// built as real nodes, never via innerHTML, so the markup is always safe.
+const TRY_THIS_TAG_RE = /<\/?(b|strong|em|i|var|sub|sup|code)\b[^>]*>/gi;
+function tryThisNodes(text, root) {
+  const stack = [root];
+  const pushText = (s) => stack[stack.length - 1].append(document.createTextNode(s));
+  let last = 0;
+  let m;
+  TRY_THIS_TAG_RE.lastIndex = 0;
+  while ((m = TRY_THIS_TAG_RE.exec(text))) {
+    if (m.index > last) pushText(text.slice(last, m.index));
+    if (m[0][1] === '/') stack.pop();
+    else {
+      const el = document.createElement(m[1].toLowerCase());
+      stack[stack.length - 1].append(el);
+      stack.push(el);
+    }
+    last = TRY_THIS_TAG_RE.lastIndex;
+  }
+  if (last < text.length) pushText(text.slice(last));
+}
+
+export function tryThis(parent, text) {
+  const div = document.createElement('div');
+  div.className = 'ui-trythis';
+  const icon = document.createElement('span');
+  icon.className = 'ui-trythis-icon';
+  icon.innerHTML =
+    '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">' +
+    '<path d="M8 1l1.6 5.4L15 8l-5.4 1.6L8 15 6.4 9.6 1 8l5.4-1.6z" fill="currentColor"/></svg>';
+  const p = document.createElement('span');
+  tryThisNodes(text, p);
+  div.append(icon, p);
+  parent.insertBefore(div, parent.firstChild);
+  return div;
+}
+
+// AMENDMENT 5: a one-line narration caption, driven by the model state.
+export function narration(parent) {
+  const p = document.createElement('p');
+  p.className = 'ui-narration';
+  parent.appendChild(p);
+  return {
+    set(text) {
+      p.textContent = text;
+    },
+    get() {
+      return p.textContent;
+    },
+  };
+}
+
 const ui = {
   layout, section, slider, number, select, toggle, button,
-  plot, raster, heatmap, canvas,
+  plot, raster, heatmap, canvas, hero, narration, tryThis, fitText,
   note, equation, code,
-  rng, color, onTheme, animate, player,
+  rng, color, onTheme, animate, player, live, ease,
   setTheme, getTheme, keyedParams,
 };
 export default ui;

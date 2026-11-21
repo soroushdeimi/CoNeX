@@ -24,15 +24,37 @@ const LAYER_ROLE = {
 };
 const LAYER_ORDER = ['L23', 'L4', 'L5', 'L6']; // top to bottom in the drawing
 
+// --- Pure mappings (model state -> drawn quantity / narration) -------------
+// Exported so site/tests/tbt.test.mjs can test them by hand-computed values.
+
+// Which connection the pulse is on and its fraction along it, from the cycle
+// position (0..1 over the whole CoNeX connection order).
+export function pulsePosition(cycle, connOrder) {
+  const n = connOrder.length;
+  const pos = (cycle % 1) * n;
+  const idx = Math.floor(pos) % n;
+  const f = pos - Math.floor(pos);
+  return { key: connOrder[idx], fraction: f };
+}
+
+// One-line narration driven by the model state.
+export function columnNarration({ conn, connOrder }) {
+  const i = connOrder.indexOf(conn);
+  return `pulse ${i + 1} of ${connOrder.length}: ${conn.replace('_to_', ' → ')}`;
+}
+
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
   const sec = ui.section(controls, 'PredictiveCorticalColumn');
   const colSize = ui.number(sec, { key: 'columnSize', label: 'column_size', unit: 'neurons', value: 100 });
 
-  const svgHost = ui.note(figures, '');
+  ui.tryThis(figures, 'Try this: change <code>column_size</code> and watch the layer sizes scale (L2/3 is 1.5x, L5 0.8x, L6 0.5x).');
+
+  // The hero canvas draws the stacked layers and the travelling pulse.
+  const hero = ui.hero(figures, { height: 380 });
   ui.note(figures, '<em>Connections read from <code>PredictiveCorticalColumn._create_connections</code> in <code>conex/nn/structure/numenta/predictive_hierarchy.py</code>. The travelling pulse is <strong>schematic, not simulated</strong> &mdash; it only shows the order CoNeX applies the connections.</em>');
-  const detail = ui.note(figures, '<em>click a layer to see its neuron groups and behaviors</em>');
+  const detail = ui.note(figures, '<em>Select a layer to see its neuron groups and behaviors.</em>');
 
   let structure = corticalColumnStructure(colSize.get());
   colSize.onInput(() => { structure = corticalColumnStructure(colSize.get()); render(); });
@@ -40,44 +62,84 @@ export function mount(root, ui) {
   // Pulses travel the connections in the order CoNeX builds them
   // (L4->L23, L23->L4, L23->L5, L6->L4). Schematic: no signal is simulated.
   const CONN_ORDER = ['L4_to_L23', 'L23_to_L4', 'L23_to_L5', 'L6_to_L4'];
-  let connPaths = []; // per connection: the 4 elbow points, for pulse positioning
-  let pulse = null;
+  let connPaths = {}; // per connection: the 4 elbow points, for pulse positioning
+  let layerBoxes = {}; // per layer: {x, y, w, h} in canvas px, for click hit-testing
+  let selected = null;
+  let currentCycle = 0;
+  let mobileMode = false;
 
-  const SVGNS = 'http://www.w3.org/2000/svg';
-  function svgEl(tag, attrs) {
-    const e = document.createElementNS(SVGNS, tag);
-    for (const k in attrs) e.setAttribute(k, attrs[k]);
-    return e;
+  // The drawing is laid out in a fixed 760x460 space and scaled to the canvas.
+  const VW = 760, VH = 460;
+  const BOX_W = 180, BOX_H = 64;
+  const BOX_X = (VW - BOX_W) / 2;
+  const GAP = (VH - 4 * BOX_H) / 5;
+  const yOf = {};
+  LAYER_ORDER.forEach((name, i) => { yOf[name] = GAP + i * (BOX_H + GAP); });
+  const midY = (name) => yOf[name] + BOX_H / 2;
+  const LANE = {
+    'L4_to_L23': { x: BOX_X + BOX_W + 34, side: 'right' },
+    'L23_to_L4': { x: BOX_X + BOX_W + 74, side: 'right' },
+    'L23_to_L5': { x: BOX_X - 34, side: 'left' },
+    'L6_to_L4': { x: BOX_X - 74, side: 'left' },
+  };
+
+  // Mobile layout: full-width layer cards stacked, then the connections in
+  // CoNeX order below (the active one highlighted). 14 px labels.
+  function renderMobile(ctx, width, height, col) {
+    const { ink, muted, c1, c2, c3, c4, paper, layerColor, activeConn } = col;
+    mobileMode = true;
+    const pad = 12;
+    const cardW = width - 2 * pad;
+    const cardH = 46;
+    const gap = 10;
+    const topY = 8;
+    layerBoxes = {};
+    for (let i = 0; i < LAYER_ORDER.length; i++) {
+      const name = LAYER_ORDER[i];
+      const y = topY + i * (cardH + gap);
+      layerBoxes[name] = { x: pad, y, w: cardW, h: cardH };
+      const isSel = selected === name;
+      ctx.fillStyle = paper;
+      ctx.strokeStyle = layerColor[name];
+      ctx.lineWidth = isSel ? 3 : 2;
+      ctx.fillRect(pad, y, cardW, cardH);
+      ctx.strokeRect(pad, y, cardW, cardH);
+      ctx.fillStyle = ink;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = '16px ui-serif, Georgia, serif';
+      ctx.fillText(name === 'L23' ? 'L2/3' : name, pad + 12, y + cardH / 2);
+      ctx.fillStyle = muted;
+      ctx.font = '13px ui-monospace, monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${structure.layerSizes[name]} neurons`, pad + cardW - 12, y + cardH / 2);
+    }
+    // connections list below the cards
+    const listTop = topY + LAYER_ORDER.length * (cardH + gap) + 6;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = muted;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillText('connections (CoNeX order):', pad, listTop);
+    const connColor = { feedforward: c1, feedback: c4, lateral: c3 };
+    for (let i = 0; i < CONN_ORDER.length; i++) {
+      const key = CONN_ORDER[i];
+      const conn = structure.connections.find((c) => `${c.from}_to_${c.to}` === key);
+      const y = listTop + 18 + i * 18;
+      const active = key === activeConn;
+      ctx.fillStyle = active ? c2 : muted;
+      ctx.beginPath();
+      ctx.arc(pad + 5, y, active ? 4 : 2.5, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.fillStyle = active ? ink : muted;
+      ctx.font = active ? 'bold 13px system-ui, sans-serif' : '13px system-ui, sans-serif';
+      ctx.fillText(`${conn.from} → ${conn.to}  ${conn.label} (${conn.type})`, pad + 16, y);
+    }
   }
 
   function render() {
-    const W = 760;
-    const H = 460;
-    const boxW = 180;
-    const boxH = 64;
-    const x = (W - boxW) / 2;
-    const boxLeft = x;
-    const boxRight = x + boxW;
-    const gap = (H - 4 * boxH) / 5;
-    const yOf = {};
-    LAYER_ORDER.forEach((name, i) => { yOf[name] = gap + i * (boxH + gap); });
-    const midY = (name) => yOf[name] + boxH / 2;
-
-    // Each connection gets its own horizontal lane (elbow routing) so the lines
-    // and their labels never overlap. Right lanes carry the short L4<->L23 pair,
-    // left lanes carry the two long connections that pass through the middle.
-    const lane = {
-      'L4_to_L23': { x: boxRight + 34, side: 'right' },
-      'L23_to_L4': { x: boxRight + 74, side: 'right' },
-      'L23_to_L5': { x: boxLeft - 34, side: 'left' },
-      'L6_to_L4': { x: boxLeft - 74, side: 'left' },
-    };
-
-    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%', height: H });
-    svg.style.maxWidth = W + 'px';
-    svg.style.display = 'block';
-    svg.style.margin = '0 auto';
-
+    const { ctx, width, height } = hero;
+    ctx.clearRect(0, 0, width, height);
     const ink = ui.color('ink');
     const muted = ui.color('muted');
     const c1 = ui.color('c1');
@@ -86,94 +148,103 @@ export function mount(root, ui) {
     const c4 = ui.color('c4');
     const paper = ui.color('paper');
     const layerColor = { L23: c1, L4: c2, L5: c3, L6: c4 };
+    const { key: activeConn } = pulsePosition(currentCycle, CONN_ORDER);
+
+    // Mobile: the elbow diagram is too small to read, so stack the layer cards
+    // and list the connections (in CoNeX order) below, highlighting the pulse.
+    if (width < 520) {
+      renderMobile(ctx, width, height, { ink, muted, c1, c2, c3, c4, paper, layerColor, activeConn });
+      hero.narration(columnNarration({ conn: activeConn, connOrder: CONN_ORDER }));
+      return;
+    }
+    mobileMode = false;
+
+    // scale the fixed drawing space uniformly to fit the canvas, centred
+    const s = Math.min(width / VW, height / VH);
+    const ox = (width - VW * s) / 2;
+    const oy = (height - VH * s) / 2;
+    const sx = (x) => ox + x * s;
+    const sy = (y) => oy + y * s;
 
     // connections first (behind the boxes)
     for (const conn of structure.connections) {
       const key = `${conn.from}_to_${conn.to}`;
-      const L = lane[key] || { x: boxRight + 34, side: 'right' };
+      const L = LANE[key] || LANE['L4_to_L23'];
       const yFrom = midY(conn.from);
       const yTo = midY(conn.to);
-      const edge = L.side === 'right' ? boxRight : boxLeft;
+      const edge = L.side === 'right' ? BOX_X + BOX_W : BOX_X;
       const color = conn.type === 'feedback' ? c4 : conn.type === 'lateral' ? c3 : c1;
-      const path = svgEl('path', {
-        d: `M ${edge} ${yFrom} L ${L.x} ${yFrom} L ${L.x} ${yTo} L ${edge} ${yTo}`,
-        stroke: color,
-        'stroke-width': 2,
-        fill: 'none',
-        'marker-end': `url(#arrow-${conn.type})`,
-      });
-      svg.appendChild(path);
-      connPaths[key] = [[edge, yFrom], [L.x, yFrom], [L.x, yTo], [edge, yTo]];
-      // label: sits in the open space beside the boxes, on its own lane. The two
-      // short connections share the L23-L4 gap, so nudge them apart vertically.
+      const pts = [[edge, yFrom], [L.x, yFrom], [L.x, yTo], [edge, yTo]];
+      connPaths[key] = pts;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx(pts[0][0]), sy(pts[0][1]));
+      for (let i = 1; i < 4; i++) ctx.lineTo(sx(pts[i][0]), sy(pts[i][1]));
+      ctx.stroke();
+      // arrowhead at the end
+      const [ex, ey] = pts[3];
+      const [px, py] = pts[2];
+      const ang = Math.atan2(ey - py, ex - px);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(sx(ex), sy(ey));
+      ctx.lineTo(sx(ex) - 8 * Math.cos(ang - 0.4), sy(ey) - 8 * Math.sin(ang - 0.4));
+      ctx.lineTo(sx(ex) - 8 * Math.cos(ang + 0.4), sy(ey) - 8 * Math.sin(ang + 0.4));
+      ctx.closePath();
+      ctx.fill();
+      // label beside the boxes, on its own lane
       const text = `${conn.label} (${conn.type})`;
-      const estW = text.length * 6.2;
       let ly = (yFrom + yTo) / 2;
       if (key === 'L4_to_L23') ly -= 11;
       if (key === 'L23_to_L4') ly += 11;
+      ctx.font = '11px system-ui, sans-serif';
+      ctx.textAlign = L.side === 'right' ? 'left' : 'right';
+      ctx.textBaseline = 'middle';
       const lx = L.side === 'right' ? L.x + 6 : L.x - 6;
-      const anchor = L.side === 'right' ? 'start' : 'end';
-      const rectX = L.side === 'right' ? lx - 3 : lx - estW - 3;
-      svg.appendChild(svgEl('rect', {
-        x: rectX, y: ly - 10, width: estW + 6, height: 14,
-        fill: paper, opacity: 0.85,
-      }));
-      const label = svgEl('text', {
-        x: lx, y: ly,
-        fill: muted,
-        'font-size': 11,
-        'text-anchor': anchor,
-        'font-family': 'system-ui, sans-serif',
-      });
-      label.textContent = text;
-      svg.appendChild(label);
+      ctx.fillStyle = muted;
+      ctx.fillText(text, sx(lx), sy(ly));
     }
 
-    // arrowhead markers, one per connection type
-    const defs = svgEl('defs', {});
-    for (const type of ['feedforward', 'feedback', 'lateral']) {
-      const color = type === 'feedback' ? c4 : type === 'lateral' ? c3 : c1;
-      const marker = svgEl('marker', {
-        id: `arrow-${type}`, viewBox: '0 0 10 10', refX: 8, refY: 5,
-        markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse',
-      });
-      marker.appendChild(svgEl('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: color }));
-      defs.appendChild(marker);
-    }
-    svg.appendChild(defs);
-
-    // layer boxes
+    // layer boxes (cards with a visible select affordance)
     for (const name of LAYER_ORDER) {
       const y = yOf[name];
-      const g = svgEl('g', { cursor: 'pointer' });
-      const rect = svgEl('rect', {
-        x, y, width: boxW, height: boxH, rx: 6,
-        fill: paper, stroke: layerColor[name], 'stroke-width': 2,
-      });
-      const title = svgEl('text', {
-        x: x + 12, y: y + 26, fill: ink, 'font-size': 16,
-        'font-family': 'ui-serif, Georgia, serif',
-      });
-      title.textContent = name === 'L23' ? 'L2/3' : name;
-      const size = svgEl('text', {
-        x: x + 12, y: y + 46, fill: muted, 'font-size': 12,
-        'font-family': 'ui-monospace, monospace',
-      });
-      size.textContent = `${structure.layerSizes[name]} neurons`;
-      g.appendChild(rect);
-      g.appendChild(title);
-      g.appendChild(size);
-      g.addEventListener('click', () => showDetail(name));
-      svg.appendChild(g);
+      layerBoxes[name] = { x: BOX_X, y, w: BOX_W, h: BOX_H };
+      const isSel = selected === name;
+      ctx.fillStyle = paper;
+      ctx.strokeStyle = layerColor[name];
+      ctx.lineWidth = isSel ? 3 : 2;
+      ctx.fillRect(sx(BOX_X), sy(y), sx(BOX_W), sy(BOX_H));
+      ctx.strokeRect(sx(BOX_X), sy(y), sx(BOX_W), sy(BOX_H));
+      ctx.fillStyle = ink;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.font = '16px ui-serif, Georgia, serif';
+      ctx.fillText(name === 'L23' ? 'L2/3' : name, sx(BOX_X + 12), sy(y + 26));
+      ctx.fillStyle = muted;
+      ctx.font = '12px ui-monospace, monospace';
+      ctx.fillText(`${structure.layerSizes[name]} neurons`, sx(BOX_X + 12), sy(y + 46));
+      // expand affordance
+      ctx.fillStyle = layerColor[name];
+      ctx.font = '18px ui-monospace, monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(isSel ? '−' : '+', sx(BOX_X + BOX_W - 12), sy(y + 26));
     }
 
     // pulse dot, moved by the player along the current connection
-    pulse = svgEl('circle', { r: 5, fill: c2, stroke: paper, 'stroke-width': 1.5 });
-    pulse.style.display = 'none';
-    svg.appendChild(pulse);
-
-    svgHost.innerHTML = '';
-    svgHost.appendChild(svg);
+    const { key, fraction } = pulsePosition(currentCycle, CONN_ORDER);
+    const pts = connPaths[key];
+    if (pts) {
+      const [px, py] = pointOnPath(pts, fraction);
+      ctx.fillStyle = c2;
+      ctx.strokeStyle = paper;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(sx(px), sy(py), 5, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+    }
+    hero.narration(columnNarration({ conn: key, connOrder: CONN_ORDER }));
   }
 
   // Position the pulse at fraction f (0..1) along a connection's elbow path.
@@ -187,17 +258,8 @@ export function mount(root, ui) {
   }
 
   function drawPulse(t) {
-    if (!pulse) return;
-    const n = CONN_ORDER.length;
-    const pos = (t / 100) * n; // one full pass over 100 a.u. of player time
-    const idx = Math.floor(pos) % n;
-    const f = pos - Math.floor(pos);
-    const pts = connPaths[CONN_ORDER[idx]];
-    if (!pts) { pulse.style.display = 'none'; return; }
-    const [px, py] = pointOnPath(pts, f);
-    pulse.setAttribute('cx', px);
-    pulse.setAttribute('cy', py);
-    pulse.style.display = '';
+    currentCycle = (t / 100) % 1;
+    render();
   }
 
   function showDetail(name) {
@@ -211,6 +273,36 @@ export function mount(root, ui) {
     `;
   }
 
+  // click a layer card to select it
+  const canvas = hero.canvas;
+  canvas.addEventListener('click', (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    let vx, vy;
+    if (mobileMode) {
+      // mobile boxes are in canvas pixels
+      vx = ev.clientX - rect.left;
+      vy = ev.clientY - rect.top;
+    } else {
+      const s = Math.min(hero.width / VW, hero.height / VH);
+      const ox = (hero.width - VW * s) / 2;
+      const oy = (hero.height - VH * s) / 2;
+      vx = (ev.clientX - rect.left - ox) / s;
+      vy = (ev.clientY - rect.top - oy) / s;
+    }
+    for (const name of LAYER_ORDER) {
+      const b = layerBoxes[name];
+      if (b && vx >= b.x && vx <= b.x + b.w && vy >= b.y && vy <= b.y + b.h) {
+        selected = name;
+        showDetail(name);
+        render();
+        return;
+      }
+    }
+  });
+
+  // The hero canvas must draw inside onResize (called after layout and on
+  // every resize); drawing once at mount with a 0 width would leave it empty.
+  hero.onResize(render);
   render();
   ui.onTheme(render);
 
@@ -242,7 +334,8 @@ export function mount(root, ui) {
     <strong>L5</strong> produces output, and <strong>L6</strong> modulates
     precision. Only the connections the code actually creates are drawn here.</p>
     <p>Layer sizes scale with <code>column_size</code>: L2/3 is 1.5&times;, L5 is
-    0.8&times; and L6 is 0.5&times; the base size.</p>
+    0.8&times; and L6 is 0.5&times; the base size. Select a layer card to see its
+    neuron group and the behaviors it carries.</p>
   `);
   ui.note(notes, `
     <p><strong>ML analogy:</strong> a column is like a small residual block with

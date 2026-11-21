@@ -1,4 +1,5 @@
 import { TemporalMemory, TemporalMemoryDefaults } from '../js/models/htm.js';
+import { ease } from '../js/core.js';
 
 export const meta = {
   id: 'htm-tm',
@@ -6,6 +7,48 @@ export const meta = {
   conex: ['TemporalMemory', 'TemporalMemoryConfig', 'SegmentStorage'],
   source: 'conex/behaviors/neurons/numenta/sequence_memory.py',
 };
+
+// The set of column indices that have at least one active cell.
+function columnsWithCells(cells, nCells) {
+  const cols = new Set();
+  for (let i = 0; i < cells.length; i++) if (cells[i]) cols.add(Math.floor(i / nCells));
+  return cols;
+}
+
+// The symbols whose columns are in the given set (any predictive cell in a
+// symbol's columns counts).
+function symbolsOfColumns(cols) {
+  return Object.keys(SYMBOLS).filter((s) => SYMBOLS[s].some((c) => cols.has(c)));
+}
+
+// Pure hero state for the Temporal Memory plate. Two predictions are shown:
+// "was predicted" is the one computed at the previous step (it is what glows
+// before this step's input arrives), and "predicts next" is the one computed
+// at this step (the model's current predictive cells, for the next input).
+// The eased progress f drives the two-phase motion: the predictive cells glow
+// in the first half, then the input lights the active cells and bursting
+// columns flash in the second half.
+export function tmHeroState(run, t) {
+  const N = run.steps.length;
+  const idx = Math.max(0, Math.min(N - 1, Math.floor(t)));
+  const f = ease(t - idx);
+  const st = run.steps[idx];
+  const prev = idx > 0 ? run.steps[idx - 1] : null;
+  // The prediction FOR this step (made at the previous step) — these cells glow.
+  const prediction = prev ? prev.predictive : new Array(run.nCells).fill(false);
+  const nBurst = st.bursting.filter(Boolean).length;
+  const nPred = prediction.filter(Boolean).length;
+  const currentSymbol = symbolsOfColumns(columnsWithCells(st.active, run.cells))[0] || '?';
+  const wasPredictedSymbols = symbolsOfColumns(columnsWithCells(prediction, run.cells));
+  const predictsNextSymbols = symbolsOfColumns(columnsWithCells(st.predictive, run.cells));
+  const narration =
+    `step ${idx + 1}/${N} (${st.symbol}): ${nPred} predicted cells glow, then the input arrives — ` +
+    `${nBurst} column${nBurst === 1 ? '' : 's'} burst, anomaly ${st.anomaly.toFixed(2)}`;
+  return {
+    idx, f, prediction, active: st.active, bursting: st.bursting, anomaly: st.anomaly,
+    currentSymbol, wasPredictedSymbols, predictsNextSymbols, narration,
+  };
+}
 
 // Six 3-column symbols over 18 columns, matching the golden scenario.
 const SYMBOLS = {
@@ -37,24 +80,21 @@ export function mount(root, ui) {
   const stepBtn = ui.button(controls, { label: 'Step', onClick: () => { if (player) player.seek(Math.min(run ? run.steps.length : 0, Math.floor(lastT) + 1)); } });
   const resetBtn = ui.button(controls, { label: 'Reset', onClick: () => recompute() });
 
-  const gridCanvas = ui.canvas(figures, { height: 220 });
-  // ui.canvas does not expose its <figure>, and site.css is shell-owned, so the
-  // caption is styled inline to match the .ui-figure figcaption look.
-  const gridCap = document.createElement('div');
-  gridCap.style.cssText = 'font-style:italic;color:var(--muted);font-size:0.85rem;margin-top:0.3rem;';
-  gridCap.textContent = 'cells (teal = active, ochre = predictive, coral outline = bursting column)';
-  figures.appendChild(gridCap);
+  // Hero: the columns x cells grid. Predicted cells glow before the input
+  // arrives, then the input lights the columns; segment links run from the
+  // current winners to the previous winners.
+  const hero = ui.hero(figures, { height: 240 });
+  const heroCap = { set(text) { hero.narration(text); } };
   const anomalyPlot = ui.plot(figures, { height: 180, xLabel: 'step', yLabel: 'anomaly score', xUnit: 'steps', yUnit: 'a.u.' });
-  // Register the redraw on resize when the ui supports it (the real ui.js does);
-  // the direct drawGrid() call in frame() covers the no-onResize case.
-  if (typeof gridCanvas.onResize === 'function') gridCanvas.onResize(() => { if (run) drawGrid(Math.max(0, Math.min(run.steps.length - 1, Math.floor(lastT)))); });
+  hero.onResize(() => { if (run) drawGrid(); });
 
   let run = null; // precomputed replay run (state recorded per step)
   let lastT = 0; // current player time, in steps
 
-  // The player replays the recorded steps one by one.
+  // The player replays the recorded steps one by one. integer:false so
+  // onFrame gets the fractional time and the hero eases between steps.
   const player = typeof ui.player === 'function'
-    ? ui.player(figures, { duration: 1, unit: 'steps', playSeconds: 5, loop: true, onFrame: frame })
+    ? ui.player(figures, { duration: 1, unit: 'steps', playSeconds: 5, loop: true, integer: false, onFrame: frame })
     : null;
 
   function frame(t) {
@@ -62,7 +102,7 @@ export function mount(root, ui) {
     lastT = t;
     const N = run.steps.length;
     const idx = Math.max(0, Math.min(N - 1, Math.floor(t)));
-    drawGrid(idx);
+    drawGrid();
     anomalyPlot.draw([{ x: run.steps.map((_, i) => i), y: run.steps.map((s) => s.anomaly), label: 'anomaly', color: 'c2', style: 'line' }], {
       yRange: [0, 1],
       revealX: idx,
@@ -70,36 +110,117 @@ export function mount(root, ui) {
     updateNotes(idx);
   }
 
-  function drawGrid(idx) {
-    const st = run.steps[idx];
-    const { ctx, width, height } = gridCanvas;
+  // Hero: the current symbol large on the left, the predicted next symbol(s),
+  // and the columns as vertical stacks of small circles. Inactive cells are
+  // very faint; active cells are teal; predictive cells get an ochre glowing
+  // ring in the first half of the step; bursting columns flash coral in the
+  // second half, then settle.
+  function drawGrid() {
+    const st = tmHeroState(run, lastT);
+    const { ctx, width, height } = hero;
     ctx.clearRect(0, 0, width, height);
-    const nCols = 18;
+    const pad = 8;
+    const nCols = run.nCols;
     const nCells = run.cells;
-    const pad = 6;
-    const cellW = (width - 2 * pad) / nCols;
-    const cellH = (height - 2 * pad) / nCells;
     const c1 = ui.color('c1'); // active
     const c3 = ui.color('c3'); // predictive
-    const c2 = ui.color('c2'); // bursting column
+    const c2 = ui.color('c2'); // bursting
     const muted = ui.color('muted');
+    const ink = ui.color('ink');
+
+    // Left panel: the current symbol, what was predicted FOR this step (made
+    // at the previous step), and what the model now predicts for the next step.
+    const panelW = Math.min(170, width * 0.24);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = muted;
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.fillText('now', pad, pad);
+    ctx.fillStyle = ink;
+    ctx.font = 'bold 34px ui-serif, Georgia, serif';
+    ctx.fillText(st.currentSymbol, pad, pad + 12);
+    ctx.fillStyle = muted;
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.fillText('was predicted', pad, pad + 54);
+    ctx.fillStyle = c3;
+    ctx.font = 'bold 16px ui-serif, Georgia, serif';
+    ctx.fillText(st.wasPredictedSymbols.length ? st.wasPredictedSymbols.join(' / ') : 'nothing', pad, pad + 66);
+    ctx.fillStyle = muted;
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.fillText('predicts next', pad, pad + 90);
+    ctx.fillStyle = c3;
+    ctx.font = 'bold 16px ui-serif, Georgia, serif';
+    ctx.fillText(st.predictsNextSymbols.length ? st.predictsNextSymbols.join(' / ') : 'nothing', pad, pad + 102);
+
+    // Columns: vertical stacks of small circles to the right of the panel,
+    // with the symbol label under each group of columns.
+    const gridX = panelW + pad;
+    const gridW = width - gridX - pad;
+    const labelH = 16;
+    const gridH = height - 2 * pad - labelH;
+    const colW = gridW / nCols;
+    const cellR = Math.min(colW * 0.42, gridH / nCells * 0.42);
+    // Two-phase motion: predictive glow in the first half, burst flash in the
+    // second half, both eased over the step.
+    const glow = st.f < 0.5 ? ease(st.f * 2) : 1;
+    const flash = st.f < 0.5 ? 0 : ease((st.f - 0.5) * 2);
+
     for (let c = 0; c < nCols; c++) {
       const bursting = st.bursting[c];
+      const cx = gridX + c * colW + colW / 2;
       for (let k = 0; k < nCells; k++) {
         const cell = c * nCells + k;
-        const x = pad + c * cellW;
-        const y = pad + (nCells - 1 - k) * cellH;
-        let fill = muted;
-        if (st.predictive[cell]) fill = c3;
-        if (st.active[cell]) fill = c1;
-        ctx.fillStyle = fill;
-        ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
-        if (bursting) {
+        const cy = pad + (nCells - 1 - k) * (gridH / nCells) + gridH / nCells / 2;
+        const active = st.active[cell];
+        const predicted = st.prediction[cell];
+        // Inactive cells stay quiet (very faint) so the active ones stand out.
+        if (!active && !predicted) {
+          ctx.globalAlpha = 0.12;
+          ctx.fillStyle = muted;
+          ctx.beginPath();
+          ctx.arc(cx, cy, cellR, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+          continue;
+        }
+        ctx.fillStyle = active ? c1 : muted;
+        ctx.beginPath();
+        ctx.arc(cx, cy, cellR, 0, Math.PI * 2);
+        ctx.fill();
+        // Predictive cells: an ochre glowing ring (brightest in the first half).
+        if (predicted) {
+          ctx.strokeStyle = c3;
+          ctx.lineWidth = 2;
+          ctx.globalAlpha = 0.4 + 0.6 * glow;
+          ctx.beginPath();
+          ctx.arc(cx, cy, cellR + 2, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+        // Bursting columns: the whole column flashes coral in the second half.
+        if (bursting && flash > 0) {
           ctx.strokeStyle = c2;
-          ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
+          ctx.lineWidth = 2;
+          ctx.globalAlpha = flash;
+          ctx.beginPath();
+          ctx.arc(cx, cy, cellR + 3, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
         }
       }
     }
+
+    // Symbol labels under each group of columns (which columns belong to which
+    // symbol), so the student can read the A-B-C-D / X-B-C-Y story off the grid.
+    ctx.fillStyle = muted;
+    ctx.font = '11px ui-serif, Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (const [sym, cols] of Object.entries(SYMBOLS)) {
+      const mid = gridX + ((cols[0] + cols[cols.length - 1]) / 2 + 0.5) * colW;
+      ctx.fillText(sym, mid, pad + gridH + 4);
+    }
+    heroCap.set(st.narration);
   }
 
   function recompute() {
@@ -125,11 +246,12 @@ export function mount(root, ui) {
           active: tm.active_cells.slice(),
           predictive: tm.predictive_cells.slice(),
           bursting: tm.bursting_columns.slice(),
+          winners: tm.winner_cells.slice(),
           anomaly: tm.anomaly_score,
         });
       }
     }
-    run = { cells: cellsCtl.get(), steps };
+    run = { cells: cellsCtl.get(), nCells: tm.n_cells, nCols: tm.n_columns, steps };
     if (player) {
       player.setDuration(steps.length);
       // Keep the current position (clamped) so a parameter change does not restart the replay.

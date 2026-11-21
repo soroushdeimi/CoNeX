@@ -3,6 +3,7 @@
 // Mirrors conex/behaviors/synapses/learning.py lines 15-27.
 
 import * as M from '../js/models/learning.js';
+import * as A from '../js/anim.js';
 
 export const meta = {
   id: 'learn-bounds',
@@ -13,6 +14,10 @@ export const meta = {
 
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
+
+  ui.tryThis(figures, 'Try this: raise dw+ and watch the hard_bound bead stick at w_max while no_bound keeps climbing.');
+
+  const hero = ui.hero(figures, { height: 300 });
 
   const state = {
     w_min: 0.0,
@@ -66,6 +71,79 @@ export function mount(root, ui) {
       });
     }
     return trajectories;
+  }
+
+  // Hero: three weights as beads on rails spanning [w_min, w_max], pushed by
+  // potentiation (first half) then depression (second half). The bound factor
+  // B(w) is drawn as a spring stiffness; the hard_bound bead sticks at w_max.
+  // no_bound can leave [w_min, w_max]; its bead clamps at the rail end with an
+  // off-scale arrow so the rail stays a true weight axis.
+  function drawHero(t) {
+    const ctx = hero.ctx, W = hero.width, H = hero.height;
+    const c1 = ui.color('c1'), c2 = ui.color('c2'), c3 = ui.color('c3');
+    const ink = ui.color('ink'), muted = ui.color('muted');
+    ctx.clearRect(0, 0, W, H);
+    const trajs = cachedTrajectories;
+    const bounds = [
+      { name: 'hard_bound', color: c1 },
+      { name: 'no_bound', color: c2 },
+      { name: 'soft_bound', color: c3 },
+    ];
+    // rail is the physical weight axis [w_min, w_max]
+    const lo = state.w_min, hi = state.w_max;
+    const railX0 = W * 0.24, railX1 = W * 0.9;
+    const railY = (i) => H * (0.26 + i * 0.26);
+    const sx = (w) => railX0 + A.boundsBeadPos(w, lo, hi) * (railX1 - railX0);
+
+    // w_min / w_max markers at the rail ends
+    ctx.strokeStyle = muted; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+    for (const wm of [state.w_min, state.w_max]) {
+      ctx.beginPath(); ctx.moveTo(sx(wm), H * 0.12); ctx.lineTo(sx(wm), H * 0.92); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.fillStyle = muted; ctx.font = '10px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText('w_min', sx(state.w_min), H * 0.11);
+    ctx.fillText('w_max', sx(state.w_max), H * 0.11);
+
+    bounds.forEach((b, i) => {
+      const w = trajs[b.name][t];
+      const factor = M.BOUNDS[b.name](w, state.w_min, state.w_max);
+      const y = railY(i);
+      // bound name on the left (fixed, right-aligned) so it is never clipped
+      ctx.fillStyle = ink; ctx.font = '11px system-ui, sans-serif';
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText(b.name, railX0 - 8, y);
+      // rail
+      ctx.strokeStyle = muted; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(railX0, y); ctx.lineTo(railX1, y); ctx.stroke();
+      // spring from the w_min end to the bead; stiffness = bound factor
+      const bx = sx(w);
+      const stiff = A.boundsSpring(factor);
+      ctx.strokeStyle = b.color; ctx.lineWidth = 1 + 3 * stiff; ctx.globalAlpha = 0.3 + 0.7 * stiff;
+      const coils = 8, span = Math.max(0, bx - railX0);
+      ctx.beginPath(); ctx.moveTo(railX0, y);
+      for (let k = 1; k < coils; k++) {
+        const x = railX0 + (span * k) / coils;
+        ctx.lineTo(x, y + (k % 2 ? -6 : 6) * (0.4 + stiff));
+      }
+      ctx.lineTo(bx, y); ctx.stroke();
+      ctx.globalAlpha = 1;
+      // bead
+      ctx.fillStyle = b.color;
+      ctx.beginPath(); ctx.arc(bx, y, 8, 0, Math.PI * 2); ctx.fill();
+      // value above the bead (never clipped by the canvas edge)
+      ctx.fillStyle = ink; ctx.font = '11px ui-monospace, monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText(`w = ${w.toFixed(3)}`, bx, y - 12);
+      // off-scale arrow when the weight leaves [w_min, w_max]
+      if (w > state.w_max + 1e-9) {
+        ctx.fillStyle = b.color; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText('→', railX1 + 4, y);
+      } else if (w < state.w_min - 1e-9) {
+        ctx.fillStyle = b.color; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        ctx.fillText('←', railX0 - 4, y);
+      }
+    });
   }
 
   function renderAt(step) {
@@ -127,6 +205,12 @@ export function mount(root, ui) {
         ],
       }
     );
+
+    // 3. Hero: beads on rails
+    drawHero(t);
+    const phase = t <= state.steps ? 'plus' : 'minus';
+    const hw = cachedTrajectories.hard_bound[t];
+    hero.narration(A.boundsNarration('hard_bound', hw, state.w_min, state.w_max, phase));
   }
 
   function update() {
@@ -213,6 +297,7 @@ export function mount(root, ui) {
     });
   }
 
+  hero.onResize(() => renderAt(currentStep));
   ui.onTheme(update);
   update();
 

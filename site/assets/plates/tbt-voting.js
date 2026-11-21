@@ -7,6 +7,43 @@ export const meta = {
   source: 'conex/behaviors/network/numenta/voting.py',
 };
 
+// --- Pure mappings (model state -> drawn quantity / narration) -------------
+// Exported so site/tests/tbt.test.mjs can test them by hand-computed values.
+
+// A candidate bar's length (0..1) is its accumulator over the max accumulator.
+export function barFraction(value, max) {
+  if (max <= 0) return 0;
+  return Math.max(0, Math.min(1, value / max));
+}
+
+// The object a column currently favours (highest accumulator).
+export function topObject(acc) {
+  let top = -1, topV = -Infinity;
+  for (let o = 0; o < acc.length; o++) {
+    if (acc[o] > topV) { topV = acc[o]; top = o; }
+  }
+  return top;
+}
+
+// Consensus: every column that has reached consensus agrees on one object.
+export function consensusObject(objs) {
+  const counts = {};
+  for (const o of objs) if (o >= 0) counts[o] = (counts[o] || 0) + 1;
+  let best = -1, bestCount = 0;
+  for (const k in counts) if (counts[k] > bestCount) { bestCount = counts[k]; best = Number(k); }
+  return bestCount > 0 ? best : -1;
+}
+
+// One-line narration driven by the model state. When every column shares the
+// same top candidate the network has reached consensus.
+export function votingNarration({ step, objs, net }) {
+  const agree = consensusObject(objs);
+  const allSame = objs.length > 0 && objs.every((o) => o === agree && o >= 0);
+  if (allSame) return `consensus: object ${agree} after ${step} steps`;
+  if (agree >= 0) return `step ${step}: columns are converging on object ${agree}`;
+  return `step ${step}: no consensus yet`;
+}
+
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
@@ -123,12 +160,12 @@ export function mount(root, ui) {
   const rebuild = () => { build(); player.setDuration(frames.length - 1); render(); };
   [nObjects, repSize, sparsity, voteThresh, decay, minVotes, nColumns, trueObj, noise, convThresh, seed, nSteps].forEach((c) => c.onInput(rebuild));
 
-  // --- figures ---
+  // --- figures: hero on top, plot below ---
+  ui.tryThis(figures, 'Try this: raise <code>noise</code> and watch the columns still converge — SDR voting tolerates a few flipped bits.');
+  const hero = ui.hero(figures, { height: 240 });
   const votePlot = ui.plot(figures, {
     height: 240, xLabel: 'voting step', xUnit: 'index', yLabel: 'vote accumulator', yUnit: 'a.u.',
   });
-  const status = ui.note(figures, '<em>press play</em>');
-  const colCanvas = ui.canvas(figures, { height: 180 });
 
   function stepOnce() {
     lastVotes = [];
@@ -147,76 +184,102 @@ export function mount(root, ui) {
     void netConsensus;
   }
 
-  // Draw each column as a box with one horizontal bar per candidate object
-  // (bar length = that object's vote at this step); the column's top object is
-  // highlighted. A line between two adjacent columns pulses when they share the
-  // same top object at this step (their votes are aligned).
-  function drawColumns(f) {
-    const { ctx, width, height } = colCanvas;
+  // Draw each column as a card with one horizontal bar per candidate object.
+  // Bar lengths ease between step k and k+1; vote particles travel between
+  // adjacent columns; all cards glow the same colour at network consensus.
+  function drawHero(f, fNext, frac) {
+    const { ctx, width, height } = hero;
     ctx.clearRect(0, 0, width, height);
     const ink = ui.color('ink');
     const muted = ui.color('muted');
     const c1 = ui.color('c1');
     const c2 = ui.color('c2');
+    const c5 = ui.color('c5');
     const n = columns.length;
     const nObj = nObjects.get();
-    const boxW = Math.min(150, (width - 20) / n - 12);
+    const boxW = Math.min(190, (width - 20) / n - 14);
     const boxH = height - 24;
-    const topY = 26;
-    const barH = Math.min(16, (boxH - 8) / nObj - 2);
+    const topY = 24;
+    const botY = 10 + boxH - 6;
+    // Bars fill the whole card height (no empty lower half).
+    const barH = (botY - topY) / nObj - 2;
     const xs = [];
-    const tops = [];
+    const net = f.net;
+    const e = ui.ease(frac); // ease-in-out between step k and k+1
     for (let c = 0; c < n; c++) {
       const x = 10 + c * ((width - 20) / n) + ((width - 20) / n - boxW) / 2;
       xs.push(x);
-      ctx.strokeStyle = muted;
+      // card: glows the consensus colour when the network agrees
+      ctx.strokeStyle = net ? c5 : muted;
+      ctx.lineWidth = net ? 2.5 : 1;
       ctx.strokeRect(x, 10, boxW, boxH);
+      ctx.lineWidth = 1;
       ctx.fillStyle = ink;
       ctx.font = '12px ui-monospace, monospace';
-      ctx.fillText('col ' + c, x + 4, 20);
-      const votes = f.votes[c] || [];
-      // the column's top object at this step (highest vote)
+      ctx.fillText('col ' + c, x + 4, 18);
+      // eased accumulator between this step and the next
+      const acc = f.acc[c];
+      const accN = fNext ? fNext.acc[c] : acc;
+      let maxV = 1e-6;
+      for (let o = 0; o < nObj; o++) maxV = Math.max(maxV, acc[o], accN[o]);
       let top = -1, topV = -1;
-      for (let o = 0; o < votes.length; o++) if (votes[o] > topV) { topV = votes[o]; top = o; }
-      tops.push(top);
-      const maxV = Math.max(1e-6, topV);
       for (let o = 0; o < nObj; o++) {
-        const v = votes[o] || 0;
+        const v = acc[o] + (accN[o] - acc[o]) * e;
+        if (v > topV) { topV = v; top = o; }
+      }
+      for (let o = 0; o < nObj; o++) {
+        const v = acc[o] + (accN[o] - acc[o]) * e;
         const y = topY + o * (barH + 2);
         const isTop = o === top;
-        // label
+        // object index on the left, value on the right
         ctx.fillStyle = isTop ? c2 : muted;
         ctx.font = '10px ui-monospace, monospace';
-        ctx.fillText(String(o), x + 4, y + barH - 3);
-        // bar: length proportional to the vote at this step
-        const bw = (v / maxV) * (boxW - 24);
+        ctx.fillText(String(o), x + 4, y + barH / 2 + 3);
+        ctx.fillStyle = isTop ? c2 : ink;
+        ctx.fillText(v.toFixed(2), x + boxW - 34, y + barH / 2 + 3);
+        const bw = barFraction(v, maxV) * (boxW - 44);
         ctx.fillStyle = isTop ? c2 : c1;
         ctx.globalAlpha = v > 0 ? 0.85 : 0.15;
-        ctx.fillRect(x + 16, y, Math.max(0, bw), barH - 3);
+        ctx.fillRect(x + 16, y, Math.max(0, bw), barH - 2);
         ctx.globalAlpha = 1;
       }
     }
-    // lines between adjacent columns, pulsing when they share the same top object
-    const pulse = 0.5 + 0.5 * Math.sin((f.step / Math.max(1, frames.length - 1)) * Math.PI * 4);
-    ctx.strokeStyle = c1;
-    for (let c = 0; c < n - 1; c++) {
-      const shared = tops[c] >= 0 && tops[c] === tops[c + 1];
-      const y = 10 + boxH / 2;
-      ctx.globalAlpha = shared ? 0.4 + 0.5 * pulse : 0.12;
-      ctx.lineWidth = shared ? 2 + 2 * pulse : 1;
-      ctx.beginPath();
-      ctx.moveTo(xs[c] + boxW, y);
-      ctx.lineTo(xs[c + 1], y);
-      ctx.stroke();
+    // vote particles fly from each card to the others; count and opacity come
+    // from the real vote strength that column cast this step (decorative).
+    if (frac > 0 && frac < 1) {
+      const votes = f.votes || [];
+      for (let c = 0; c < n; c++) {
+        const v = votes[c] || [];
+        let strength = 0;
+        for (let o = 0; o < v.length; o++) strength += v[o];
+        if (strength <= 0) continue;
+        const y = 10 + boxH / 2;
+        for (let d = 0; d < n; d++) {
+          if (d === c) continue;
+          const x0 = xs[c] + boxW / 2;
+          const x1 = xs[d] + boxW / 2;
+          const nP = Math.max(1, Math.min(4, Math.round(strength * 4)));
+          for (let p = 0; p < nP; p++) {
+            const pf = Math.max(0, Math.min(1, frac * 1.2 - p * 0.12));
+            const px = x0 + (x1 - x0) * pf;
+            ctx.globalAlpha = Math.min(0.85, 0.3 + strength * 0.5) * (1 - pf * 0.4);
+            ctx.fillStyle = c1;
+            ctx.beginPath(); ctx.arc(px, y, 2.5, 0, 2 * Math.PI); ctx.fill();
+          }
+        }
+      }
+      ctx.globalAlpha = 1;
     }
-    ctx.globalAlpha = 1;
-    ctx.lineWidth = 1;
+    hero.narration(votingNarration({ step: f.step, objs: f.objs, net: f.net }));
   }
 
   function render() {
     const f = frames[currentStep];
     if (!f) return;
-    drawColumns(f);
+    const i = Math.max(0, Math.min(frames.length - 1, Math.floor(currentStep)));
+    const fNext = frames[i + 1] || frames[i];
+    const frac = currentStep - i;
+    drawHero(f, fNext, frac);
     // one series per column: its top accumulator at each step, revealed up to now
     const series = columns.map((col, c) => ({
       x: frames.map((p) => p.step),
@@ -225,21 +288,18 @@ export function mount(root, ui) {
       color: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'][c % 6],
     }));
     votePlot.draw(series, { xRange: [0, Math.max(1, frames.length - 1)], revealX: f.step });
-    status.innerHTML = `step ${f.step} &nbsp;|&nbsp; column consensus: ${
-      f.objs.map((o) => (o < 0 ? '&ndash;' : 'obj ' + o)).join(', ')
-    } &nbsp;|&nbsp; network consensus: ${f.net ? '<strong>yes</strong>' : 'no'}`;
   }
 
-  // The player time is the step index (0..nSteps), so t maps 1:1 to a frame.
+  // The player time is the step index (0..nSteps); the fractional part eases
+  // the bars between step k and k+1.
   function onFrame(t) {
-    const i = Math.max(0, Math.min(frames.length - 1, Math.round(t)));
-    currentStep = i;
+    currentStep = Math.max(0, Math.min(frames.length - 1, t));
     render();
   }
 
-  // The column canvas must draw inside onResize (called after layout and on
+  // The hero canvas must draw inside onResize (called after layout and on
   // every resize); drawing once at mount with a 0 width would leave it empty.
-  colCanvas.onResize(() => { if (frames[currentStep]) drawColumns(frames[currentStep]); });
+  hero.onResize(render);
 
   // Create the player before build() so rebuild() can resize it; the player
   // calls onFrame synchronously on creation, which renders the current frame.
@@ -270,13 +330,12 @@ export function mount(root, ui) {
     <p>SDR voting is robust to noise: a partial overlap still counts, which is why
     a few flipped bits (the noise slider) do not stop the columns from converging
     on the true object.</p>
-    <p>The player replays the voting step by step (the <em>voting steps</em> control
-    sets how many steps are run). Each column box shows one horizontal bar per
-    candidate object &mdash; the bar's length is that object's vote at the current
-    step &mdash; with the column's top object highlighted. A line between two
-    adjacent columns pulses when they share the same top object at that step (their
-    votes are aligned). The plot below reveals each column's top accumulator over the
-    steps. Every vote, bar, and accumulator shown is the real value from that step.</p>
+    <p>The hero shows each column as a card with one bar per candidate object; the
+    bar's length is that object's vote accumulator, eased between voting steps.
+    Vote particles travel between adjacent columns as the network broadcasts. When
+    the network reaches consensus, every card glows the same colour. The plot below
+    reveals each column's top accumulator over the steps. Every vote, bar, and
+    accumulator shown is the real value from that step.</p>
   `);
   ui.equation(notes, `
     <p>vote<sub>o</sub> = |local &cap; memory<sub>o</sub>| / |local|, &nbsp; kept only if &ge; voting_threshold</p>

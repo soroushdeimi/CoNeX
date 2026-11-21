@@ -1,4 +1,5 @@
 import { SDR, falseMatchProbability, expectedOverlap } from '../js/models/htm.js';
+import { ease } from '../js/core.js';
 
 export const meta = {
   id: 'htm-sdr',
@@ -7,7 +8,34 @@ export const meta = {
   source: 'conex/behaviors/neurons/numenta/sdr.py',
 };
 
-// Draw a row of bits: active bits filled, inactive hollow.
+// Pure hero state for the SDR plate. Cross-fades the sampled code between
+// step idx and idx+1 (the "fade in") and reports the overlap with the fixed
+// code a. t is the player time, in samples.
+export function sdrHeroState(run, t) {
+  const m = run.m;
+  const idx = Math.max(0, Math.min(m - 1, Math.floor(t)));
+  const next = Math.min(m - 1, idx + 1);
+  const f = ease(t - idx);
+  const n = run.n;
+  const a = run.a.toDense();
+  const sample = new Array(n);
+  const overlapMask = new Array(n).fill(0);
+  for (let i = 0; i < n; i++) {
+    const v = run.bits[idx][i] * (1 - f) + run.bits[next][i] * f;
+    sample[i] = v;
+    if (a[i] && v > 0.5) overlapMask[i] = 1;
+  }
+  // Eased overlap count (bits) for the growing bar: blends the two samples.
+  const overlapBar = run.ov[idx] * (1 - f) + run.ov[next] * f;
+  const match = run.ov[idx] >= run.theta;
+  const narration =
+    `sample ${idx + 1}/${m}: overlap ${run.ov[idx]} bits (expected ${run.pExp.toFixed(2)} bits)` +
+    (match ? ` — ≥ θ=${run.theta}, a match` : '');
+  return { idx, next, f, a, sample, overlapMask, overlapBar, narration };
+}
+
+// Draw a row of bits: active bits filled, inactive faint (dimmed so they do
+// not stand out in dark mode).
 function drawBits(ctx, bits, x0, y, w, h, color, muted) {
   const n = bits.length;
   const gap = 2;
@@ -15,7 +43,9 @@ function drawBits(ctx, bits, x0, y, w, h, color, muted) {
   for (let i = 0; i < n; i++) {
     const x = x0 + i * (bw + gap);
     ctx.fillStyle = bits[i] ? color : muted;
+    ctx.globalAlpha = bits[i] ? 1 : 0.35;
     ctx.fillRect(x, y, bw, h);
+    ctx.globalAlpha = 1;
   }
 }
 
@@ -28,13 +58,9 @@ export function mount(root, ui) {
   const seedCtl = ui.number(controls, { key: 'seed', label: 'random seed', unit: '', value: 1234, onInput: () => recompute() });
   const samplesCtl = ui.number(controls, { key: 'samples', label: 'Monte-Carlo samples', unit: '', value: 20000, onInput: () => recompute() });
 
-  const bitsCanvas = ui.canvas(figures, { height: 120 });
-  // ui.canvas does not expose its <figure>, and site.css is shell-owned, so the
-  // caption is styled inline to match the .ui-figure figcaption look.
-  const bitsCap = document.createElement('div');
-  bitsCap.style.cssText = 'font-style:italic;color:var(--muted);font-size:0.85rem;margin-top:0.3rem;';
-  bitsCap.textContent = 'bits (teal = fixed code a, coral = current random sample, ink = their intersection)';
-  figures.appendChild(bitsCap);
+  // Hero: the large animated diagram at the top of the figures column.
+  const hero = ui.hero(figures, { height: 130 });
+  const heroCap = { set(text) { hero.narration(text); } };
   const histPlot = ui.plot(figures, { height: 220, xLabel: 'overlap b', yLabel: 'P(B = b)', xUnit: 'bits', yUnit: 'a.u.' });
   const readout = document.createElement('div');
   readout.className = 'ui-note';
@@ -43,9 +69,10 @@ export function mount(root, ui) {
   let run = null; // precomputed sampling run
   let lastT = 0; // current player time, in samples
 
-  // The player reveals the precomputed run sample by sample.
+  // The player reveals the precomputed run sample by sample. integer:false so
+  // onFrame gets the fractional time and the hero eases between samples.
   const player = typeof ui.player === 'function'
-    ? ui.player(figures, { duration: 1, unit: 'samples', playSeconds: 5, loop: true, onFrame: frame })
+    ? ui.player(figures, { duration: 1, unit: 'samples', playSeconds: 5, loop: true, integer: false, onFrame: frame })
     : null;
 
   function frame(t) {
@@ -53,7 +80,7 @@ export function mount(root, ui) {
     lastT = t;
     const m = run.m;
     const idx = Math.max(0, Math.min(m - 1, Math.floor(t)));
-    drawBitsFig(idx);
+    drawHero();
 
     // Histogram of the overlaps so far, normalized to a probability,
     // against the exact hypergeometric PMF.
@@ -67,33 +94,54 @@ export function mount(root, ui) {
       {
         xRange: [0, run.w],
         yRange: [0, run.maxPmf * 1.1],
-        // The hline label would sit on the bars at the low pMatch level, so the
-        // value is shown in the top vline label instead; the hline stays as a guide.
+        // The θ and P(B≥θ) values live in the caption below (they collide with
+        // the legend at the top on mobile); the lines stay as guides.
         hlines: [{ y: run.pMatch, label: '' }],
-        vlines: [{ x: run.theta, label: `θ=${run.theta} · P(B≥θ)=${run.pMatch.toExponential(2)}` }],
+        vlines: [{ x: run.theta, label: '' }],
       }
     );
     readout.textContent =
-      `sample ${idx + 1}/${m}: overlap ${run.ov[idx]} bits, ` +
-      `P̂(B≥θ) = ${(run.hits[idx] / (idx + 1)).toExponential(3)}`;
+      `sample ${idx + 1}/${m}: overlap ${run.ov[idx]} bits · θ=${run.theta} bits · ` +
+      `P(B≥θ)=${run.pMatch.toExponential(2)} · P̂(B≥θ)=${(run.hits[idx] / (idx + 1)).toExponential(3)}`;
   }
 
-  // Rows: fixed code a, the current random sample, their intersection.
-  function drawBitsFig(idx) {
-    const { ctx, width, height } = bitsCanvas;
+  // Hero: fixed code a, the cross-fading random sample, their intersection,
+  // and a bar whose height is the eased overlap count.
+  function drawHero() {
+    const st = sdrHeroState(run, lastT);
+    const { ctx, width, height } = hero;
     const rowH = 18;
     const pad = 8;
+    const labelW = 34;
+    const barW = 26;
+    const bitsX = pad + labelW;
+    const bitsW = width - bitsX - pad - barW - 12;
     ctx.clearRect(0, 0, width, height);
-    const a = run.a.toDense();
-    const s = run.bits[idx];
-    const inter = a.map((v, i) => (v && s[i] ? 1 : 0));
-    drawBits(ctx, a, pad, pad, width - 2 * pad, rowH, ui.color('c1'), ui.color('muted'));
-    drawBits(ctx, s, pad, pad + rowH + 6, width - 2 * pad, rowH, ui.color('c2'), ui.color('muted'));
-    drawBits(ctx, inter, pad, pad + 2 * (rowH + 6), width - 2 * pad, rowH, ui.color('ink'), ui.color('muted'));
+    // Row labels (A, B, A∩B) outside the bit rows.
+    ctx.fillStyle = ui.color('muted');
+    ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    const labels = ['a', 'b', 'a∩b'];
+    for (let r = 0; r < 3; r++) {
+      ctx.fillText(labels[r], bitsX - 6, pad + r * (rowH + 6) + rowH / 2);
+    }
+    drawBits(ctx, st.a, bitsX, pad, bitsW, rowH, ui.color('c1'), ui.color('muted'));
+    drawBits(ctx, st.sample, bitsX, pad + rowH + 6, bitsW, rowH, ui.color('c2'), ui.color('muted'));
+    drawBits(ctx, st.overlapMask, bitsX, pad + 2 * (rowH + 6), bitsW, rowH, ui.color('ink'), ui.color('muted'));
+    // Overlap bar: height eased between the two samples' overlap counts.
+    const barX = width - pad - barW;
+    const barH = height - 2 * pad;
+    const frac = Math.max(0, Math.min(1, st.overlapBar / run.w));
+    ctx.fillStyle = ui.color('c3');
+    ctx.fillRect(barX, pad + barH * (1 - frac), barW, barH * frac);
+    ctx.strokeStyle = ui.color('muted');
+    ctx.strokeRect(barX + 0.5, pad + 0.5, barW - 1, barH - 1);
+    heroCap.set(st.narration);
   }
-  // The canvas backing store is reset on layout/resize, so register the draw
-  // via onResize (called after layout and on every resize) rather than once.
-  if (typeof bitsCanvas.onResize === 'function') bitsCanvas.onResize(() => drawBitsFig(Math.max(0, Math.min(run ? run.m - 1 : 0, Math.floor(lastT)))));
+  // The hero canvas resets its backing store on resize and theme change, so
+  // register the draw via onResize (called after layout and on every resize).
+  hero.onResize(() => { if (run) drawHero(); });
 
   function recompute() {
     const n = sizeCtl.get();

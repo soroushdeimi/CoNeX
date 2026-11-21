@@ -13,11 +13,20 @@ import {
   bucketFlows,
   bucketLevel,
   splashActive,
+  lifNarration,
+  dropletCount,
+  elifExpTerm,
+  elifPhaseLine,
+  elifFixedPoints,
+  elifNarration,
+  aelifNarration,
   fiCurve,
   kwta,
   inherentNoise,
   makeActivityHomeostasis,
   makeVoltageHomeostasis,
+  homeostasisNarration,
+  kwtaNarration,
   spikeTimes,
   firingStats,
 } from '../assets/js/models/neurons.js';
@@ -87,6 +96,50 @@ test('splashActive: 0.5 ms model-time window after a spike', () => {
   assert.equal(splashActive(10, null, 0.5), false, 'no spike -> inactive');
 });
 
+test('lifNarration: three regimes driven by the real flows (hand-computed)', () => {
+  const p = { R: 0.5, tau: 20, v_rest: -70, threshold: -50 };
+  // just spiked -> reset line
+  assert.equal(lifNarration({ v: -55, p, I: 65, splashing: true }), 'threshold crossed: spike, reset to v_reset');
+  // v=-60: input = 0.5*65/20 = 1.625, leak = (-60+70)/20 = 0.5 -> input > leak -> rises
+  assert.equal(lifNarration({ v: -60, p, I: 65, splashing: false }), 'input beats leak: v rises');
+  // v=-52: input = 1.625, leak = (-52+70)/20 = 0.9 -> still rising
+  assert.equal(lifNarration({ v: -52, p, I: 65, splashing: false }), 'input beats leak: v rises');
+  // v=-40 (above steady state -37.5? no, vss=-37.5): leak = (-40+70)/20 = 1.5 < 1.625 -> rising
+  // use a low I so leak exceeds input: I=10 -> input=0.25; v=-50 -> leak=1.0 -> settles
+  assert.equal(lifNarration({ v: -50, p, I: 10, splashing: false }), 'leak balances input: v settles below threshold');
+});
+
+test('dropletCount: proportional to flow, zero at no flow, capped, seeded', () => {
+  const rng = { next: () => 0.99 }; // always rounds up the fractional part
+  assert.equal(dropletCount(0, 0.016, rng), 0, 'no flow -> no droplets');
+  assert.equal(dropletCount(-1, 0.016, rng), 0, 'negative flow -> no droplets');
+  // flow=10 mV/ms, frame 0.016 s, rate 30 -> expected 4.8 -> 4 + (0.99<0.8? no) = 4
+  assert.equal(dropletCount(10, 0.016, rng), 4, 'whole part, fraction not met');
+  // fraction met: expected 4.2 with rng 0.1 -> 4 + 1 = 5
+  assert.equal(dropletCount(10, 0.014, { next: () => 0.1 }), 5, 'fractional part met');
+  // capped at 40
+  assert.equal(dropletCount(1000, 1, rng), 40, 'capped');
+});
+
+test('LIF: N live steps equal the precomputed run bit-for-bit', () => {
+  // The plate's live step() calls lifStep once per dt with the current params.
+  // Stepping it N times must reproduce simulate() exactly (same order, same math).
+  const p = { R: 0.5, tau: 20, threshold: -50, v_reset: -55, v_rest: -70, dt: 0.1 };
+  const I = 65;
+  const N = 500;
+  const ref = simulate('lif', p, I, N, p.dt, p.v_rest);
+  let state = { v: p.v_rest };
+  const liveV = [], liveSpikes = [];
+  for (let i = 0; i < N; i++) {
+    const r = lifStep(state, p, I, p.dt);
+    state = { v: r.v };
+    liveV.push(r.v);
+    liveSpikes.push(r.spike);
+  }
+  assert.deepEqual(liveV, ref.v, 'live v trace must match the precomputed run exactly');
+  assert.deepEqual(liveSpikes, ref.spikes, 'live spike flags must match exactly');
+});
+
 test('LIF at rheobase never fires; just above it fires (golden)', () => {
   const p = S.lif_rheobase.params;
   const at = simulate('lif', p, S.lif_rheobase.at_rheobase.current, S.lif_rheobase.at_rheobase.steps);
@@ -113,6 +166,76 @@ test('elifStep matches golden elif_step trace', () => {
   assert.deepEqual(r.spikes, S.elif_step.spikes);
 });
 
+test('elifExpTerm: delta*exp((v-theta_rh)/delta) (hand-computed)', () => {
+  const p = { delta: 2, theta_rh: -50 };
+  // v = theta_rh -> delta*exp(0) = delta = 2
+  close(elifExpTerm(-50, p), 2.0, 1e-9, 'at theta_rh');
+  // v = theta_rh + delta -> delta*exp(1) = 2*e
+  close(elifExpTerm(-48, p), 2 * Math.E, 1e-9, 'one delta above');
+  // v = theta_rh - 10*delta -> delta*exp(-10) = 2*4.54e-5 = 9.08e-5 (tiny)
+  close(elifExpTerm(-70, p), 2 * Math.exp(-10), 1e-9, 'far below theta_rh');
+});
+
+test('elifExpTerm throws on non-positive delta', () => {
+  assert.throws(() => elifExpTerm(0, { delta: 0, theta_rh: -50 }), /delta must be a positive finite number/);
+});
+
+test('elifPhaseLine: f(v) = (-(v-v_rest) + delta*exp((v-theta_rh)/delta) + R*I)/tau (hand-computed)', () => {
+  const p = { R: 0.5, tau: 20, v_rest: -70, delta: 2, theta_rh: -50 };
+  // v = v_rest: leak term 0, exp term = 2*exp(-10) = 9.08e-5, R*I = 0.5*20 = 10
+  // f = (0 + 9.08e-5 + 10)/20 = 0.5000045 mV/ms
+  close(elifPhaseLine(-70, p, 20), (0 + 2 * Math.exp(-10) + 10) / 20, 1e-9, 'at v_rest');
+  // v = theta_rh: exp term = delta = 2; leak = -(-50+70) = -20; R*I = 10
+  // f = (-20 + 2 + 10)/20 = -0.4 mV/ms
+  close(elifPhaseLine(-50, p, 20), (-20 + 2 + 10) / 20, 1e-9, 'at theta_rh');
+});
+
+test('elifFixedPoints: fixed points by hand for the defaults (stable/unstable)', () => {
+  const p = { R: 0.5, tau: 20, v_rest: -70, delta: 2, theta_rh: -50 };
+  const vMin = p.v_rest - 5, vMax = 0;
+  // I = 20: two fixed points, the lower one stable, the upper one unstable.
+  const fp20 = elifFixedPoints(p, 20, vMin, vMax);
+  assert.equal(fp20.length, 2, 'I=20 has two fixed points');
+  close(fp20[0].v, -59.9864, 1e-3, 'lower fixed point');
+  assert.equal(fp20[0].stable, true, 'lower fixed point is stable');
+  close(fp20[1].v, -46.1263, 1e-3, 'upper fixed point');
+  assert.equal(fp20[1].stable, false, 'upper fixed point is unstable');
+  // I = 65: no fixed point below threshold (the neuron fires).
+  assert.equal(elifFixedPoints(p, 65, vMin, vMax).length, 0, 'I=65 has no fixed point');
+});
+
+test('elifNarration: derived from the phase line, three regimes (hand-computed)', () => {
+  const p = { R: 0.5, tau: 20, v_rest: -70, threshold: 0, delta: 2, theta_rh: -50 };
+  // just spiked -> reset line
+  assert.equal(elifNarration({ v: -55, p, I: 65, splashing: true }), 'threshold crossed: spike, reset to v_reset');
+  // I=65: f(v) = (-(v+70) + 2*exp((v+50)/2) + 32.5)/20 > 0 for every v in
+  // [-75, 0] (at v=-75 it is (5+32.5)/20 = 1.875; at v=0 it is huge), so there
+  // is no fixed point -> v always rises toward take-off.
+  assert.equal(elifNarration({ v: -65, p, I: 65, splashing: false }), 'no balance point: v always rises toward take-off');
+  // I=20: two fixed points, stable v* = -59.99 mV and unstable -46.13 mV.
+  // v=-60 is below the unstable point -> drawn to the stable fixed point.
+  assert.equal(elifNarration({ v: -60, p, I: 20, splashing: false }), 'input and leak balance at v* = -59.99 mV');
+  // v=-45 is above the unstable point (-46.13) -> exponential take-off.
+  assert.equal(elifNarration({ v: -45, p, I: 20, splashing: false }), 'exponential take-off: spike');
+});
+
+test('ELIF: N live steps equal the precomputed run bit-for-bit', () => {
+  const p = { R: 0.5, tau: 20, threshold: 0, v_reset: -55, v_rest: -70, delta: 2, theta_rh: -50, dt: 0.1 };
+  const I = 65;
+  const N = 500;
+  const ref = simulate('elif', p, I, N, p.dt, p.v_rest);
+  let state = { v: p.v_rest };
+  const liveV = [], liveSpikes = [];
+  for (let i = 0; i < N; i++) {
+    const r = elifStep(state, p, I, p.dt);
+    state = { v: r.v };
+    liveV.push(r.v);
+    liveSpikes.push(r.spike);
+  }
+  assert.deepEqual(liveV, ref.v, 'live v trace must match the precomputed run exactly');
+  assert.deepEqual(liveSpikes, ref.spikes, 'live spike flags must match exactly');
+});
+
 // --- AELIF ---
 test('aelifStep matches golden aelif_step trace (v and omega)', () => {
   const p = S.aelif_step.params;
@@ -120,6 +243,36 @@ test('aelifStep matches golden aelif_step trace (v and omega)', () => {
   traceClose(r.v, S.aelif_step.v);
   traceClose(r.omega, S.aelif_step.omega);
   assert.deepEqual(r.spikes, S.aelif_step.spikes);
+});
+
+test('aelifNarration: adaptation vs input, driven by the real quantities (hand-computed)', () => {
+  const p = { R: 0.5, tau: 20, v_rest: -70, threshold: 0 };
+  const I = 65;
+  // just spiked -> reset line
+  assert.equal(aelifNarration({ v: -55, omega: 5, p, I, splashing: true }), 'threshold crossed: spike, reset to v_reset');
+  // w below I -> input wins -> rises
+  assert.equal(aelifNarration({ v: -60, omega: 10, p, I, splashing: false }), 'input beats adaptation: v rises toward threshold');
+  // w above I -> adaptation wins -> pulled down
+  assert.equal(aelifNarration({ v: -60, omega: 80, p, I, splashing: false }), 'adaptation w exceeds input: v is pulled down, firing slows');
+});
+
+test('AELIF: N live steps equal the precomputed run bit-for-bit', () => {
+  const p = { R: 0.5, tau: 20, threshold: 0, v_reset: -55, v_rest: -70, delta: 2, theta_rh: -50, alpha: 0, beta: 60, w_tau: 30, dt: 0.1 };
+  const I = 65;
+  const N = 500;
+  const ref = simulate('aelif', p, I, N, p.dt, p.v_rest);
+  let state = { v: p.v_rest, omega: 0.0 };
+  const liveV = [], liveW = [], liveSpikes = [];
+  for (let i = 0; i < N; i++) {
+    const r = aelifStep(state, p, I, p.dt);
+    state = { v: r.v, omega: r.omega };
+    liveV.push(r.v);
+    liveW.push(r.omega);
+    liveSpikes.push(r.spike);
+  }
+  assert.deepEqual(liveV, ref.v, 'live v trace must match the precomputed run exactly');
+  assert.deepEqual(liveW, ref.omega, 'live w trace must match the precomputed run exactly');
+  assert.deepEqual(liveSpikes, ref.spikes, 'live spike flags must match exactly');
 });
 
 // --- f-I curves ---
@@ -145,6 +298,12 @@ test('kwta matches golden cases (top-k keep v, losers reset)', () => {
 
 test('kwta throws on non-integer k', () => {
   assert.throws(() => kwta([1, 2], 0, 0, 1.5), /k must be a non-negative integer/);
+});
+
+test('kwtaNarration: winners vs inhibition, driven by the real count (hand-computed)', () => {
+  assert.equal(kwtaNarration({ nAbove: 5, k: 2 }), '5 above threshold: top 2 win, the rest are reset');
+  assert.equal(kwtaNarration({ nAbove: 2, k: 2 }), '2 above threshold (≤ 2): all fire, no inhibition');
+  assert.equal(kwtaNarration({ nAbove: 0, k: 2 }), 'no neuron above threshold');
 });
 
 // --- InherentNoise ---
@@ -196,6 +355,42 @@ test('activity homeostasis throws when window_size <= activity_rate', () => {
     () => makeActivityHomeostasis({ activity_rate: 5, window_size: 5, updating_rate: 0.1 }),
     /window_size must exceed activity_rate/
   );
+});
+
+test('homeostasisNarration: rate vs target, driven by the real quantities (hand-computed)', () => {
+  assert.equal(homeostasisNarration({ rate: 20, target: 10, mode: 'activity' }), 'rate above target: threshold rises to slow firing');
+  assert.equal(homeostasisNarration({ rate: 5, target: 10, mode: 'activity' }), 'rate below target: threshold falls to speed firing');
+  assert.equal(homeostasisNarration({ rate: 10, target: 10, mode: 'activity' }), 'rate at target: threshold holds');
+  assert.equal(homeostasisNarration({ rate: 20, target: 10, mode: 'voltage' }), 'voltage pushed toward the target band');
+});
+
+test('homeostasis: N live steps equal the precomputed run bit-for-bit', () => {
+  // The plate's live step() runs the same per-neuron LIF + homeostasis as the
+  // golden test. Stepping it N times must reproduce the golden window_spikes
+  // exactly (the precomputed run), for a fixed parameter set.
+  const p = S.homeostasis_activity.params;
+  const h = S.homeostasis_activity.homeostasis;
+  const size = S.homeostasis_activity.size;
+  const I = S.homeostasis_activity.current;
+  const dt = S.homeostasis_activity.dt;
+  const N = S.homeostasis_activity.steps;
+  const hos = Array.from({ length: size }, () => makeActivityHomeostasis(h));
+  const vs = new Array(size).fill(0.0);
+  const thresholds = new Array(size).fill(p.threshold);
+  const windowSpikes = [];
+  let acc = 0;
+  for (let it = 1; it <= N; it++) {
+    let groupSpikes = 0;
+    for (let j = 0; j < size; j++) {
+      const r = lifStep({ v: vs[j] }, { ...p, threshold: thresholds[j] }, I, dt);
+      vs[j] = r.v;
+      groupSpikes += r.spike ? 1 : 0;
+      thresholds[j] = hos[j].step(r.spike, thresholds[j], it);
+    }
+    acc += groupSpikes;
+    if (it % h.window_size === 0) { windowSpikes.push(acc); acc = 0; }
+  }
+  assert.deepEqual(windowSpikes, S.homeostasis_activity.window_spikes, 'live window spikes must equal the precomputed run');
 });
 
 // --- Voltage homeostasis (single LIF, current 1.0, band at target 5.0) ---

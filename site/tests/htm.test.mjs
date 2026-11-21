@@ -17,6 +17,11 @@ import {
   TemporalMemory,
   TemporalMemoryDefaults,
 } from '../assets/js/models/htm.js';
+import { sdrHeroState } from '../assets/plates/htm-sdr.js';
+import { encoderHeroState } from '../assets/plates/htm-encoder.js';
+import { spHeroState } from '../assets/plates/htm-sp.js';
+import { tmHeroState } from '../assets/plates/htm-tm.js';
+import { clfHeroState } from '../assets/plates/htm-classifier.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const golden = JSON.parse(readFileSync(join(here, 'golden', 'htm.json'), 'utf8'));
@@ -408,4 +413,279 @@ test('temporal-memory: learning decrements permanence on inactive targets', () =
   // active target above it (incremented).
   assert.ok(permsByTarget[2] < 0.21, 'inactive target permanence should be decremented');
   assert.ok(permsByTarget[0] > 0.21, 'active target permanence should be incremented');
+});
+
+// --- Hero animation mapping (AMENDMENT 5) ----------------------------------
+
+// A tiny fixed run: n=4, two samples, fixed code a = {0,1}.
+function sdrRun() {
+  return {
+    n: 4,
+    m: 2,
+    w: 2,
+    theta: 2,
+    a: new SDR(4, [0, 1]),
+    bits: [[1, 1, 0, 0], [0, 1, 1, 0]], // sample 0 overlaps a in 2 bits, sample 1 in 1
+    ov: [2, 1],
+    pExp: 1.0,
+  };
+}
+
+test('sdr hero: at an integer step the sample is that sample, not a blend', () => {
+  const st = sdrHeroState(sdrRun(), 0);
+  assert.equal(st.idx, 0);
+  assert.equal(st.f, 0);
+  assert.deepEqual(st.sample, [1, 1, 0, 0]);
+  assert.equal(st.overlapBar, 2);
+});
+
+test('sdr hero: at the midpoint the sample is a 50/50 blend and the bar eases', () => {
+  const st = sdrHeroState(sdrRun(), 0.5);
+  assert.equal(st.idx, 0);
+  assert.equal(st.next, 1);
+  assert.equal(st.f, 0.5);
+  // bit 0: 1->0, bit 1: 1->1, bit 2: 0->1, bit 3: 0->0
+  assert.deepEqual(st.sample, [0.5, 1, 0.5, 0]);
+  // overlap bar eases between 2 and 1 at f=0.5 -> 1.5
+  assert.equal(st.overlapBar, 1.5);
+});
+
+test('sdr hero: the overlap mask marks only bits shared with the fixed code', () => {
+  const st = sdrHeroState(sdrRun(), 0);
+  // a = {0,1}; sample 0 = {0,1}; intersection = {0,1}
+  assert.deepEqual(st.overlapMask, [1, 1, 0, 0]);
+});
+
+test('sdr hero: narration names the sample, overlap and the match threshold', () => {
+  const st = sdrHeroState(sdrRun(), 0);
+  assert.match(st.narration, /sample 1\/2/);
+  assert.match(st.narration, /overlap 2 bits/);
+  assert.match(st.narration, /a match/);
+  const st1 = sdrHeroState(sdrRun(), 1);
+  assert.match(st1.narration, /overlap 1 bits/);
+  assert.doesNotMatch(st1.narration, /a match/);
+});
+
+test('sdr hero: time is clamped to the last sample at the end of the run', () => {
+  const st = sdrHeroState(sdrRun(), 99);
+  assert.equal(st.idx, 1);
+  assert.equal(st.next, 1);
+  assert.deepEqual(st.sample, [0, 1, 1, 0]);
+});
+
+// Encoder hero: size=10, n_active=4, range [0,1]. center = trunc(norm*6).
+// v=0 -> bits 0-3; v=0.5 -> bits 3-6; v=1 -> bits 6-9. Reference at 0.5.
+function encRun() {
+  const o = { size: 10, n_active: 4, min_val: 0, max_val: 1 };
+  return { o, ref: 0.5, base: encodeScalar(0.5, o) };
+}
+
+test('encoder hero: at the reference value the sweep block fully overlaps', () => {
+  const st = encoderHeroState(encRun(), 0.5);
+  assert.equal(st.v, 0.5);
+  assert.equal(st.norm, 0.5);
+  assert.equal(st.nOverlap, 4); // same block as the reference
+  assert.deepEqual(st.curDense, st.refDense);
+});
+
+test('encoder hero: at the range edge the block shares one bit with the reference', () => {
+  const st = encoderHeroState(encRun(), 0); // v=0 -> bits 0-3, ref bits 3-6
+  assert.equal(st.nOverlap, 1); // only bit 3
+  assert.equal(st.overlap[3], 1);
+  assert.equal(st.overlap[0], 0);
+});
+
+test('encoder hero: the needle position is the normalized value', () => {
+  assert.equal(encoderHeroState(encRun(), 0).norm, 0);
+  assert.equal(encoderHeroState(encRun(), 1).norm, 1);
+});
+
+test('encoder hero: narration names the value, block size and overlap', () => {
+  const st = encoderHeroState(encRun(), 0.5);
+  assert.match(st.narration, /value 0\.50 a\.u\./);
+  assert.match(st.narration, /block of 4 bits/);
+  assert.match(st.narration, /overlap with reference \(0\.50\) = 4 bits/);
+});
+
+// SP hero: 2 columns, 2 potential inputs each, 2 steps.
+// Step 0: col0 overlap 1 (winner), perms [0.1, 0.3]; col1 overlap 0, perms [0.05, 0.2].
+// Step 1: col0 overlap 2, perms [0.2, 0.4]; col1 overlap 1, perms [0.15, 0.3].
+function spRun() {
+  return {
+    n: 2,
+    nPotential: 2,
+    input: [1, 0],
+    potential_inputs: [[0, 1], [0, 1]],
+    steps: [
+      { overlap: [1, 0], perm: [0.1, 0.3, 0.05, 0.2], activeSet: new Set([0]) },
+      { overlap: [2, 1], perm: [0.2, 0.4, 0.15, 0.3], activeSet: new Set([0, 1]) },
+    ],
+  };
+}
+
+test('sp hero: at an integer step the overlap and permanences are that step', () => {
+  const st = spHeroState(spRun(), 0, 0.1);
+  assert.equal(st.idx, 0);
+  assert.equal(st.cols[0].overlap, 1);
+  assert.equal(st.cols[0].winner, true);
+  assert.equal(st.cols[1].winner, false);
+  assert.equal(st.cols[0].syn[0].perm, 0.1);
+  assert.equal(st.cols[0].syn[1].perm, 0.3);
+});
+
+test('sp hero: at the midpoint the overlap and permanences ease between steps', () => {
+  const st = spHeroState(spRun(), 0.5, 0.1);
+  assert.ok(Math.abs(st.cols[0].overlap - 1.5) < 1e-9); // (1+2)/2
+  assert.ok(Math.abs(st.cols[0].syn[0].perm - 0.15) < 1e-9); // (0.1+0.2)/2
+  assert.ok(Math.abs(st.cols[1].overlap - 0.5) < 1e-9); // (0+1)/2
+});
+
+test('sp hero: a synapse is connected when its eased permanence crosses the threshold', () => {
+  // At step 0, col0 syn0 perm=0.1 is exactly at threshold 0.1 -> connected.
+  const at = spHeroState(spRun(), 0, 0.1);
+  assert.equal(at.cols[0].syn[0].connected, true);
+  // col1 syn0 perm=0.05 < 0.1 -> not connected.
+  assert.equal(at.cols[1].syn[0].connected, false);
+  // At the midpoint col1 syn0 perm=0.1 -> now connected (crossed the threshold).
+  const mid = spHeroState(spRun(), 0.5, 0.1);
+  assert.equal(mid.cols[1].syn[0].connected, true);
+});
+
+test('sp hero: the synapse lines are the connected winner synapses on active inputs', () => {
+  // Step 0: only col0 is a winner. Its connected synapses on active inputs:
+  // syn0 (input 0, active, perm 0.1 >= 0.1) and syn1 (input 1, inactive) ->
+  // only input 0 is active, so one line to col0.
+  const st = spHeroState(spRun(), 0, 0.1);
+  assert.deepEqual(st.lines, [{ inputIdx: 0, colIdx: 0 }]);
+  // Step 1: col0 and col1 are winners; both have a connected synapse on input 0.
+  const st1 = spHeroState(spRun(), 1, 0.1);
+  assert.equal(st1.lines.length, 2);
+  assert.ok(st1.lines.every((l) => l.inputIdx === 0));
+});
+
+test('sp hero: maxOverlap is the eased maximum column overlap', () => {
+  assert.equal(spHeroState(spRun(), 0, 0.1).maxOverlap, 1);
+  assert.equal(spHeroState(spRun(), 1, 0.1).maxOverlap, 2);
+});
+
+test('sp hero: narration names the step and the number of active columns', () => {
+  const st = spHeroState(spRun(), 0, 0.1);
+  assert.match(st.narration, /step 1\/2/);
+  assert.match(st.narration, /1 active columns/);
+  const st1 = spHeroState(spRun(), 1, 0.1);
+  assert.match(st1.narration, /2 active columns/);
+});
+
+// TM hero: the real 18-column layout (6 symbols x 3 columns), 4 cells each.
+// A = cols 0-2, B = cols 6-8, C = cols 9-11, D = cols 12-14.
+function tmRun() {
+  const cells = 4;
+  const nCells = 18 * cells;
+  const allFalse = new Array(nCells).fill(false);
+  const activeOf = (cols) => {
+    const a = new Array(nCells).fill(false);
+    for (const c of cols) for (let k = 0; k < cells; k++) a[c * cells + k] = true;
+    return a;
+  };
+  const predOf = (cols) => {
+    const p = new Array(nCells).fill(false);
+    for (const c of cols) p[c * cells] = true; // one predictive cell per column
+    return p;
+  };
+  return {
+    cells,
+    nCells,
+    nCols: 18,
+    steps: [
+      // step 0: input B, the model predicts C for the next step.
+      { symbol: 'B', active: activeOf([6, 7, 8]), predictive: predOf([9, 10, 11]), bursting: new Array(18).fill(false), anomaly: 0.0 },
+      // step 1: input C (in context A-B), the model predicts D for the next step.
+      { symbol: 'C', active: activeOf([9, 10, 11]), predictive: predOf([12, 13, 14]), bursting: new Array(18).fill(false), anomaly: 0.0 },
+    ],
+  };
+}
+
+test('tm hero: at the first step there is no prior prediction', () => {
+  const st = tmHeroState(tmRun(), 0);
+  assert.equal(st.idx, 0);
+  assert.deepEqual(st.prediction, new Array(72).fill(false));
+  assert.deepEqual(st.wasPredictedSymbols, []);
+  assert.match(st.narration, /step 1\/2 \(B\)/);
+});
+
+test('tm hero: the prediction shown is the previous step\'s prediction', () => {
+  const st = tmHeroState(tmRun(), 1);
+  // step 1 shows step 0's predictive cells (one cell in each of cols 9,10,11)
+  assert.equal(st.prediction[9 * 4], true);
+  assert.equal(st.prediction.filter(Boolean).length, 3);
+});
+
+test('tm hero: input C in context A-B predicts next D only (hand-derived)', () => {
+  const st = tmHeroState(tmRun(), 1);
+  assert.equal(st.currentSymbol, 'C');
+  // "was predicted" is what the previous step (B) predicted for this step: C.
+  assert.deepEqual(st.wasPredictedSymbols, ['C']);
+  // "predicts next" is the model's current predictive cells: D only.
+  assert.deepEqual(st.predictsNextSymbols, ['D']);
+});
+
+test('tm hero: narration names the step, symbol, burst count and anomaly', () => {
+  const st = tmHeroState(tmRun(), 0);
+  assert.match(st.narration, /step 1\/2 \(B\)/);
+  assert.match(st.narration, /0 columns? burst/);
+  assert.match(st.narration, /anomaly 0\.00/);
+});
+
+// Classifier hero: n=4, 2 classes, 1 example each, lr=0.1.
+// class0 -> bit0, class1 -> bit2. test = class0 pattern [1,0,0,0].
+function clfRun() {
+  return {
+    n: 4,
+    classIdx: [0, 1],
+    trainSeq: [
+      { c: 0, dense: [1, 0, 0, 0] },
+      { c: 1, dense: [0, 0, 1, 0] },
+    ],
+    weightsAfter: [
+      [[0.1, 0, 0, 0], [0, 0, 0, 0]],
+      [[0.1, 0, 0, 0], [0, 0, 0.1, 0]],
+    ],
+    nTrain: 2,
+    counts: [1, 1],
+    testDense: [1, 0, 0, 0],
+    pred: 0,
+    total: 6,
+  };
+}
+
+test('clf hero: during training the SDR flies into its class bucket', () => {
+  const at0 = clfHeroState(clfRun(), 0);
+  assert.equal(at0.phase, 'train');
+  assert.equal(at0.class, 0);
+  assert.equal(at0.fly, 0); // at the start of example 0, not yet flown in
+  const mid = clfHeroState(clfRun(), 0.5);
+  assert.equal(mid.fly, 0.5); // eased halfway into the bucket
+  assert.deepEqual(mid.dense, [1, 0, 0, 0]);
+});
+
+test('clf hero: training bars are the per-class weight sums', () => {
+  const st = clfHeroState(clfRun(), 1); // example 1 applied
+  assert.ok(Math.abs(st.bars[0] - 0.1) < 1e-9);
+  assert.ok(Math.abs(st.bars[1] - 0.1) < 1e-9);
+});
+
+test('clf hero: during inference the score bars accumulate as bits are revealed', () => {
+  const none = clfHeroState(clfRun(), 2); // 0 bits revealed
+  assert.equal(none.phase, 'infer');
+  assert.equal(none.kbits, 0);
+  assert.deepEqual(none.bars, [0, 0]);
+  const one = clfHeroState(clfRun(), 3); // bit 0 revealed -> class0 scores
+  assert.equal(one.kbits, 1);
+  assert.ok(Math.abs(one.bars[0] - 0.1) < 1e-6);
+  assert.equal(one.bars[1], 0);
+});
+
+test('clf hero: narration names the phase and progress', () => {
+  assert.match(clfHeroState(clfRun(), 0).narration, /training: example 1\/2 \(class 0\)/);
+  assert.match(clfHeroState(clfRun(), 3).narration, /inference: test SDR pulses, 1\/4 bits revealed/);
 });

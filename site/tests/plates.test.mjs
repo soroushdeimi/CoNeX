@@ -5,7 +5,8 @@
 //
 // Mounts every plate in site/assets/plates/*.js (except _example.js) against a
 // mock of the CONTRACT ui.js API (including AMENDMENT 1: controls expose
-// onInput(fn) as a method). No real DOM, no dependencies. For each plate it
+// onInput(fn) as a method, and AMENDMENT 4: ui.live steps the model a few
+// times and fires onFrame). No real DOM, no dependencies. For each plate it
 // checks: meta.id matches the file name, mount() does not throw, every created
 // plot/raster/heatmap received at least one draw() with finite numbers, every
 // ui.code function returns a non-empty string, and sweeping each slider to its
@@ -41,6 +42,11 @@ function makeEl(tag = 'div') {
       contains() { return false; },
     },
     appendChild(c) { e.children.push(c); return c; },
+    insertBefore(c, ref) {
+      const i = ref ? e.children.indexOf(ref) : -1;
+      if (i < 0) e.children.push(c); else e.children.splice(i, 0, c);
+      return c;
+    },
     removeChild(c) { e.children = e.children.filter((x) => x !== c); return c; },
     addEventListener() {},
     removeEventListener() {},
@@ -64,6 +70,7 @@ function makeCtx() {
   return new Proxy(state, {
     get(t, prop) {
       if (prop in t) return t[prop];
+      if (prop === 'measureText') return (s) => ({ width: String(s).length * 6 });
       return () => {};
     },
     set(t, prop, v) { t[prop] = v; return true; },
@@ -102,7 +109,11 @@ function makeUi() {
     _buttons: [],
     _canvasResizes: [], // onResize handlers, fired after mount (initial layout)
     _players: [], // player() handles created by the plate
+    _lives: [], // live() handles created by the plate
+    _heroes: [], // hero() handles created by the plate
+    _narrations: [], // narration() handles created by the plate
     _animated: false, // set true when the plate calls ui.animate
+    _tryThis: [], // texts passed to ui.tryThis
   };
 
   ui.layout = (root) => {
@@ -176,6 +187,34 @@ function makeUi() {
     return st;
   };
 
+  // AMENDMENT 5: hero canvas + narration line. The hero behaves like ui.canvas
+  // (onResize fired once after mount) plus a narration(text) method.
+  ui.hero = (parent, opts) => {
+    const st = ui.canvas(parent, opts);
+    st.narration = (text) => { st._narration = text; };
+    ui._heroes.push(st);
+    return st;
+  };
+
+  ui.narration = (parent) => {
+    const e = makeEl('p');
+    parent.appendChild(e);
+    const h = { _text: '', set(t) { h._text = t; }, get() { return h._text; } };
+    ui._narrations.push(h);
+    return h;
+  };
+
+  ui.fitText = (ctx, text, x, width, align = 'left') => x;
+
+  ui.tryThis = (parent, text) => {
+    ui._tryThis.push(text);
+    const e = makeEl('div');
+    e.className = 'ui-trythis';
+    e.textContent = text;
+    parent.insertBefore(e, parent.firstChild);
+    return e;
+  };
+
   ui.note = (parent, html) => {
     const e = makeEl('p');
     e.innerHTML = html;
@@ -214,6 +253,12 @@ function makeUi() {
 
   ui.color = () => '#000000';
   ui.onTheme = () => {};
+  // AMENDMENT 4: the same smoothstep the real ui.ease uses.
+  ui.ease = (f) => {
+    const x = Math.min(1, Math.max(0, f));
+    if (!Number.isFinite(x)) return 0;
+    return x * x * (3 - 2 * x);
+  };
   ui.animate = () => {
     ui._animated = true;
     let running = false;
@@ -236,6 +281,34 @@ function makeUi() {
     };
     ui._players.push(handle);
     for (const t of [0, duration / 2, duration]) {
+      if (onFrame) onFrame(t);
+    }
+    return handle;
+  };
+
+  // AMENDMENT 4: a live runner that steps the model a few times and fires
+  // onFrame after each step, like the real ui.live does per animation frame.
+  // The real ui.live does NOT call reset() on mount (only the Reset button
+  // does), so the mock must not either: a plate that relies on an auto-reset
+  // to initialize its state will throw here, as it would in the browser.
+  ui.live = (parent, opts) => {
+    const { dt, step, reset, onFrame } = opts;
+    let t = 0;
+    const handle = {
+      play() {},
+      pause() {},
+      playing() { return false; },
+      reset() {
+        t = 0;
+        if (reset) reset();
+        if (onFrame) onFrame(t);
+      },
+      t: () => t,
+    };
+    ui._lives.push(handle);
+    for (let i = 0; i < 3; i++) {
+      if (step) step();
+      t += dt;
       if (onFrame) onFrame(t);
     }
     return handle;
@@ -306,17 +379,18 @@ async function checkPlate(platePath) {
     assertFiniteFigure(fig, id);
   }
 
-  // AMENDMENT 2: every plate animates via a ui.player or ui.animate.
+  // AMENDMENT 2/4: every plate animates via a ui.player, a ui.live or ui.animate.
   assert.ok(
-    ui._players.length > 0 || ui._animated,
-    `${id}: plate neither creates a ui.player nor calls ui.animate`,
+    ui._players.length > 0 || ui._lives.length > 0 || ui._animated,
+    `${id}: plate neither creates a ui.player nor a ui.live nor calls ui.animate`,
   );
 
   // TASK 3: every animation must have the player controls. A plate that calls
-  // ui.animate must also create a ui.player (the speed slider lives there).
+  // ui.animate must also create a ui.player or ui.live (the speed slider
+  // lives there).
   assert.ok(
-    !ui._animated || ui._players.length > 0,
-    `${id}: plate calls ui.animate without also creating a ui.player`,
+    !ui._animated || ui._players.length > 0 || ui._lives.length > 0,
+    `${id}: plate calls ui.animate without also creating a ui.player or ui.live`,
   );
 
   // Every ui.code function returns a non-empty string.
@@ -367,3 +441,34 @@ for (const f of plateFiles) {
     await checkPlate(join(PLATES_DIR, f));
   });
 }
+
+// Remove every ui.tryThis(...) call expression (balanced parens) from source.
+function stripTryThisCalls(src) {
+  const marker = 'ui.tryThis(';
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const at = src.indexOf(marker, i);
+    if (at === -1) { out += src.slice(i); break; }
+    out += src.slice(i, at);
+    let depth = 0;
+    let j = at + marker.length - 1; // the opening '('
+    for (; j < src.length; j++) {
+      if (src[j] === '(') depth++;
+      else if (src[j] === ')') { depth--; if (depth === 0) break; }
+    }
+    i = j + 1;
+  }
+  return out;
+}
+
+// REVIEW A: every "Try this" line must come from the shared ui.tryThis, so the
+// look is identical on every plate. No plate may build its own markup.
+test('every "Try this" line uses the shared ui.tryThis', () => {
+  for (const f of plateFiles) {
+    const id = f.replace(/\.js$/, '');
+    const src = readFileSync(join(PLATES_DIR, f), 'utf8');
+    const stripped = stripTryThisCalls(src);
+    assert.ok(!/try this/i.test(stripped), `${id}: "Try this" markup outside ui.tryThis`);
+  }
+});

@@ -11,6 +11,7 @@ import {
   learnPrecision,
   PredictiveCodingNetwork,
 } from '../assets/js/models/learning_numenta.js';
+import { segHeroState, beadRadius } from '../assets/plates/learn-segments.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const golden = JSON.parse(readFileSync(join(here, 'golden', 'learning_numenta.json'), 'utf8'));
@@ -363,4 +364,79 @@ test('predictive network: prediction error monotonically decreases during learni
 test('predictive network: rejects invalid size', () => {
   assert.throws(() => new PredictiveCodingNetwork(0), /size must be positive integer, got 0/);
   assert.throws(() => new PredictiveCodingNetwork(-1), /size must be positive integer, got -1/);
+});
+
+// --- Hero animation mapping (AMENDMENT 5) ----------------------------------
+
+test('bead radius maps permanence [0,1] to [2,8] px', () => {
+  assert.equal(beadRadius(0), 2);
+  assert.equal(beadRadius(1), 8);
+  assert.equal(beadRadius(0.5), 5);
+  // out-of-range permanence is clamped
+  assert.equal(beadRadius(-1), 2);
+  assert.equal(beadRadius(2), 8);
+});
+
+// A tiny 2-step run: segment 0 has 2 synapses, segment 1 has 1.
+function segRun() {
+  return {
+    steps: [
+      {
+        step: 0,
+        presynapticActivity: [true, false, false],
+        activation: [1, 0],
+        active: [false, false],
+        matching: [true, false],
+        depolarization: 0.5,
+        seg0Before: { targets: [0, 1], permanences: [0.2, 0.4] },
+        seg1Before: { targets: [2], permanences: [0.1] },
+        seg0After: { targets: [0, 1], permanences: [0.3, 0.38] },
+        seg1After: { targets: [2], permanences: [0.08] },
+        actions: [
+          [
+            { action: 'reinforced' },
+            { action: 'punished' },
+          ],
+          [{ action: 'punished' }],
+        ],
+      },
+    ],
+  };
+}
+
+test('seg hero: at an integer step the bead permanence is the before value', () => {
+  const st = segHeroState(segRun(), 0);
+  assert.equal(st.idx, 0);
+  assert.equal(st.f, 0);
+  assert.equal(st.segs[0].syn[0].perm, 0.2);
+  assert.equal(st.segs[0].syn[1].perm, 0.4);
+  assert.equal(st.depol, 0.5);
+});
+
+test('seg hero: at the midpoint the bead permanence eases toward the after value', () => {
+  const st = segHeroState(segRun(), 0.5);
+  assert.equal(st.f, 0.5);
+  assert.ok(Math.abs(st.segs[0].syn[0].perm - 0.25) < 1e-9); // (0.2+0.3)/2
+  assert.ok(Math.abs(st.segs[0].syn[1].perm - 0.39) < 1e-9); // (0.4+0.38)/2
+});
+
+test('seg hero: the bead radius tracks the eased permanence', () => {
+  const st = segHeroState(segRun(), 0);
+  assert.equal(st.segs[0].syn[0].radius, beadRadius(0.2));
+  const mid = segHeroState(segRun(), 0.5);
+  assert.ok(Math.abs(mid.segs[0].syn[0].radius - beadRadius(0.25)) < 1e-9);
+});
+
+test('seg hero: a bead is active when its presynaptic target is active', () => {
+  const st = segHeroState(segRun(), 0);
+  // target 0 is active, target 1 is not
+  assert.equal(st.segs[0].syn[0].active, true);
+  assert.equal(st.segs[0].syn[1].active, false);
+});
+
+test('seg hero: narration names the step, match state and depolarization', () => {
+  const st = segHeroState(segRun(), 0);
+  assert.match(st.narration, /step 1\/1/);
+  assert.match(st.narration, /matched=yes/);
+  assert.match(st.narration, /depolarization 50%/);
 });

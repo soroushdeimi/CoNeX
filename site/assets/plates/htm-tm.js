@@ -165,10 +165,10 @@ export function mount(root, ui) {
 
   // Dynamic notes (readout + code) live in their own box, cleared each update
   // so they do not accumulate as the student steps through.
-  const dynNotes = document.createElement('div');
-  notes.appendChild(dynNotes);
+  let dynNotes = null;
 
   function updateNotes() {
+    if (!dynNotes) return;
     dynNotes.innerHTML = '';
     const nBurst = tm.bursting_columns.filter(Boolean).length;
     ui.note(
@@ -210,6 +210,8 @@ export function mount(root, ui) {
         `bursts. <b>ML analogy:</b> a recurrent network / finite-state predictor. The analogy breaks because learning is local, ` +
         `Hebbian, and context is stored in which cell (not which column) wins — there is no global loss.</p>`
     );
+    dynNotes = document.createElement('div');
+    notes.appendChild(dynNotes);
   }
 
   staticNotes();

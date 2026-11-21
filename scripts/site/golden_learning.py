@@ -320,7 +320,7 @@ def main():
 
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:
-        json.dump(result, f, indent=2)
+        json.dump(result, f, separators=(",", ":"))
 
     print(f"Wrote golden reference to {OUT}")
 

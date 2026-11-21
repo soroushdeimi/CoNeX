@@ -427,7 +427,7 @@ def main():
     out = os.path.normpath(OUT)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w") as f:
-        json.dump(data, f, indent=2)
+        json.dump(data, f, separators=(",", ":"))
     print(f"wrote {out}")
 
 

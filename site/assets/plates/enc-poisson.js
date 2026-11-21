@@ -68,8 +68,9 @@ export function mount(root, ui) {
   ui.code(notes, () => {
     const cls = state.encoder === 'i2l' ? 'Intensity2Latency' : state.encoder === 'poisson' ? 'Poisson' : 'SimplePoisson';
     const ratioArg = state.encoder === 'i2l' ? '' : `, ratio=${state.ratio}`;
-    return `from conex.helpers.transforms.encoders import ${cls}
-img = ...  # 16x16, values in [0, 1]
+    return `import torch
+from conex.helpers.transforms.encoders import ${cls}
+img = torch.rand(16, 16)  # 16x16, values in [0, 1]
 spikes = ${cls}(time_window=${state.time_window}${ratioArg})(img)`;
   });
   return { destroy() {} };

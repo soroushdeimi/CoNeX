@@ -14,21 +14,6 @@ export const meta = {
 const P = { ...DEFAULTS };
 const STEPS = 500;
 
-// Use ui.player when the shell provides it; otherwise fall back to a stub that
-// reveals the whole run once, so figures are never empty in the test mock.
-function makePlayer(ui, parent, onFrame) {
-  if (typeof ui.player === 'function') {
-    return ui.player(parent, { duration: 0, unit: 'ms', playSeconds: 5, loop: true, onFrame });
-  }
-  let t = 0;
-  return {
-    play() {}, pause() {},
-    seek(x) { t = x; }, // no player to animate; setDuration reveals the full run
-    playing() { return false; },
-    setDuration(d) { t = d; onFrame(d); },
-  };
-}
-
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
@@ -44,12 +29,40 @@ export function mount(root, ui) {
   const secI = ui.section(controls, 'Input current');
   const cI = ui.slider(secI, { key: 'I', label: 'I (constant)', unit: 'pA', min: 0, max: 120, step: 1, value: 65.0 });
 
+  function params() {
+    return {
+      R: cR.get(), tau: cTau.get(), threshold: cTh.get(),
+      v_reset: cReset.get(), v_rest: cRest.get(), dt: cDt.get(),
+    };
+  }
+
+  // Compute the whole run once; the player reveals it frame by frame.
+  let runData = null;
+  function computeRun() {
+    const p = params();
+    const I = cI.get();
+    const t = [], v = [], i = [];
+    let state = { v: p.v_rest };
+    for (let n = 0; n < STEPS; n++) {
+      const r = lifStep(state, p, I, p.dt);
+      state = { v: r.v };
+      t.push(n * p.dt);
+      v.push(r.v);
+      i.push(I);
+    }
+    const ir = lifRheobase(p);
+    const vss = p.v_rest + p.R * I;
+    runData = { p, I, t, v, i, ir, vss };
+    return t[t.length - 1];
+  }
+
   // --- figures ---
   const fig = ui.plot(figures, { height: 260, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
   const figI = ui.plot(figures, { height: 120, xLabel: 't', yLabel: 'I', xUnit: 'ms', yUnit: 'pA' });
   // Membrane gauge: a vertical bar from v_rest to threshold filled to the current v.
   const gauge = ui.canvas(figures, { height: 260 });
-  const player = makePlayer(ui, figures, frame);
+  // Build the run before the player: ui.player may call onFrame synchronously.
+  const player = ui.player(figures, { duration: computeRun(), unit: 'ms', playSeconds: 5, loop: true, onFrame: frame });
 
   // --- notes ---
   ui.note(notes, `The LIF neuron integrates its input current and leaks back to rest. CoNeX updates the
@@ -66,35 +79,6 @@ export function mount(root, ui) {
   analogy breaks because the leak (<var>tau</var>) makes it a dynamical system with memory, not a static
   threshold, and the firing rate (not the voltage) is what carries information.`);
   ui.code(notes, () => codeSnippet());
-
-  function params() {
-    return {
-      R: cR.get(), tau: cTau.get(), threshold: cTh.get(),
-      v_reset: cReset.get(), v_rest: cRest.get(), dt: cDt.get(),
-    };
-  }
-
-  let runData = null;
-
-  // Recompute the whole run once; the player then reveals it frame by frame.
-  function run() {
-    const p = params();
-    const I = cI.get();
-    const t = [], v = [], i = [];
-    let state = { v: p.v_rest };
-    for (let n = 0; n < STEPS; n++) {
-      const r = lifStep(state, p, I, p.dt);
-      state = { v: r.v };
-      t.push(n * p.dt);
-      v.push(r.v);
-      i.push(I);
-    }
-    const ir = lifRheobase(p);
-    const vss = p.v_rest + p.R * I;
-    runData = { p, I, t, v, i, ir, vss };
-    player.setDuration(t[t.length - 1]);
-    player.seek(0); // reveals the first frame (also covers reduced-motion, which starts paused)
-  }
 
   // Reveal the traces up to time t and draw the membrane gauge at the real v(t).
   function frame(t) {
@@ -174,9 +158,13 @@ pop.I = pop.vector(mode=${cI.get()})   # constant input current (pA)
 net.simulate_iterations(${STEPS})`;
   }
 
+  // On a parameter change: recompute the run and continue from the current t (clamped).
+  function run() {
+    player.setDuration(computeRun());
+  }
+
   for (const c of [cR, cTau, cTh, cReset, cRest, cDt, cI]) c.onInput(run);
   ui.onTheme(run);
-  run();
 
   return { destroy() {} };
 }

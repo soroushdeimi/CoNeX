@@ -16,21 +16,6 @@ const P = { ...DEFAULTS };
 const SIZE = 8;
 const STEPS = 50000; // 5 s at dt = 0.1 ms, long enough to converge
 
-// Use ui.player when the shell provides it; otherwise fall back to a stub that
-// reveals the whole run once, so figures are never empty in the test mock.
-function makePlayer(ui, parent, onFrame) {
-  if (typeof ui.player === 'function') {
-    return ui.player(parent, { duration: 0, unit: 'ms', playSeconds: 5, loop: true, onFrame });
-  }
-  let t = 0;
-  return {
-    play() {}, pause() {},
-    seek(x) { t = x; }, // no player to animate; setDuration reveals the full run
-    playing() { return false; },
-    setDuration(d) { t = d; onFrame(d); },
-  };
-}
-
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
@@ -70,7 +55,6 @@ export function mount(root, ui) {
   const figRate = ui.plot(figures, { height: 220, xLabel: 't', yLabel: 'firing rate', xUnit: 'ms', yUnit: 'Hz' });
   // Raster of the group, revealed in sync with the player.
   const figRaster = ui.raster(figures, { height: 160, xLabel: 't', xUnit: 'ms' });
-  const player = makePlayer(ui, figures, frame);
   // Two control plots (one per mode) so the y-axis label is correct for each.
   // Each is wrapped in a div we can hide; ui.plot appends its <figure> to the parent.
   const wrapAct = document.createElement('div');
@@ -83,24 +67,6 @@ export function mount(root, ui) {
   caption.style.fontStyle = 'italic';
   figures.appendChild(caption);
 
-  ui.note(notes, `Homeostasis keeps a population near a target. <b>ActivityBaseHomeostasis</b> counts spikes in
-  a sliding window and shifts each neuron's threshold up or down so its activity tracks the target
-  <var>activity_rate</var>. <b>VoltageBaseHomeostasis</b> instead pushes each neuron's voltage toward a target band
-  by accumulating an "exhaustion" term. Both run on top of the same LIF dynamics under a random input.
-  Units: v in mV, t in ms, I in pA, R in GOhm.`);
-  ui.equation(notes, `activity: <var>threshold</var> ← <var>threshold</var> − <var>activities</var>·<var>updating_rate</var> (every <var>window_size</var> steps)<br>
-  voltage: <var>exhaustion</var> += (<var>v</var>−band)·<var>eta_ip</var>, &nbsp; <var>v</var> ← <var>v</var> − <var>exhaustion</var>`);
-  ui.note(notes, `The top figure shows the group firing rate (Hz) over 5 s; the dashed line is the target
-  rate. The bottom shows the control variable (mean threshold for activity-based, mean voltage for
-  voltage-based) converging toward the value that produces the target. The defaults aim for a cortical
-  rate (~10 Hz): 1 spike per 100 ms window. The input (I_base 40 pA, I_amp 5 pA) is chosen so the
-  starting rate is about 2× the target (~20 Hz); with R at the neuron default (0.5 GOhm) the threshold
-  then settles within a couple of mV of the initial −50 mV, so it stays physiological. The caption
-  reports the settled threshold. ML analogy: this is like a learning-rate / weight-decay loop that
-  keeps activation levels in a healthy range; the analogy breaks because it is a slow, local,
-  activity-driven rule with no error signal or label.`);
-  ui.code(notes, () => codeSnippet());
-
   function params() {
     return {
       R: cR.get(), tau: cTau.get(), threshold: cTh.get(), v_reset: cReset.get(),
@@ -108,9 +74,9 @@ export function mount(root, ui) {
     };
   }
 
+  // Compute the whole run once; the player reveals it frame by frame.
   let runData = null;
-
-  function run() {
+  function computeRun() {
     const p = params();
     const rng = ui.rng(cSeed.get());
     const type = cType.get();
@@ -155,8 +121,6 @@ export function mount(root, ui) {
       }
     }
     runData = { t, rate, ctrl, spikes, targetHz, type };
-    player.setDuration(t[t.length - 1]);
-    player.seek(0); // reveals the first frame (also covers reduced-motion, which starts paused)
 
     // Mean over the last 2 s (the per-window rate fluctuates, so a single window
     // is not representative).
@@ -170,6 +134,33 @@ export function mount(root, ui) {
     } else {
       caption.textContent = `mean over the last 2 s: voltage ${meanCtrl.toPrecision(4)} mV (target ${cTarget.get()} mV)`;
     }
+    return tMax;
+  }
+
+  // Build the run before the player: ui.player may call onFrame synchronously.
+  const player = ui.player(figures, { duration: computeRun(), unit: 'ms', playSeconds: 5, loop: true, onFrame: frame });
+
+  ui.note(notes, `Homeostasis keeps a population near a target. <b>ActivityBaseHomeostasis</b> counts spikes in
+  a sliding window and shifts each neuron's threshold up or down so its activity tracks the target
+  <var>activity_rate</var>. <b>VoltageBaseHomeostasis</b> instead pushes each neuron's voltage toward a target band
+  by accumulating an "exhaustion" term. Both run on top of the same LIF dynamics under a random input.
+  Units: v in mV, t in ms, I in pA, R in GOhm.`);
+  ui.equation(notes, `activity: <var>threshold</var> ← <var>threshold</var> − <var>activities</var>·<var>updating_rate</var> (every <var>window_size</var> steps)<br>
+  voltage: <var>exhaustion</var> += (<var>v</var>−band)·<var>eta_ip</var>, &nbsp; <var>v</var> ← <var>v</var> − <var>exhaustion</var>`);
+  ui.note(notes, `The top figure shows the group firing rate (Hz) over 5 s; the dashed line is the target
+  rate. The bottom shows the control variable (mean threshold for activity-based, mean voltage for
+  voltage-based) converging toward the value that produces the target. The defaults aim for a cortical
+  rate (~10 Hz): 1 spike per 100 ms window. The input (I_base 40 pA, I_amp 5 pA) is chosen so the
+  starting rate is about 2× the target (~20 Hz); with R at the neuron default (0.5 GOhm) the threshold
+  then settles within a couple of mV of the initial −50 mV, so it stays physiological. The caption
+  reports the settled threshold. ML analogy: this is like a learning-rate / weight-decay loop that
+  keeps activation levels in a healthy range; the analogy breaks because it is a slow, local,
+  activity-driven rule with no error signal or label.`);
+  ui.code(notes, () => codeSnippet());
+
+  // On a parameter change: recompute the run and continue from the current t (clamped).
+  function run() {
+    player.setDuration(computeRun());
   }
 
   // Reveal the rate, the control variable, and the group raster up to time t.
@@ -215,7 +206,6 @@ net.simulate_iterations(${STEPS})`;
     cARate, cWin, cUpd, cDecay, cTarget, cEta];
   for (const c of all) c.onInput(run);
   ui.onTheme(run);
-  run();
 
   return { destroy() {} };
 }

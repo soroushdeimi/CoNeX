@@ -16,21 +16,6 @@ function dvdt(v, p, I) {
   return (Fu + p.R * I) / p.tau;
 }
 
-// Use ui.player when the shell provides it; otherwise fall back to a stub that
-// reveals the whole run once, so figures are never empty in the test mock.
-function makePlayer(ui, parent, onFrame) {
-  if (typeof ui.player === 'function') {
-    return ui.player(parent, { duration: 0, unit: 'ms', playSeconds: 5, loop: true, onFrame });
-  }
-  let t = 0;
-  return {
-    play() {}, pause() {},
-    seek(x) { t = x; }, // no player to animate; setDuration reveals the full run
-    playing() { return false; },
-    setDuration(d) { t = d; onFrame(d); },
-  };
-}
-
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
@@ -45,36 +30,6 @@ export function mount(root, ui) {
   const cDt = ui.slider(sec, { key: 'dt', label: 'dt', unit: 'ms', min: 0.01, max: 1, step: 0.01, value: P.dt });
   const cI = ui.slider(sec, { key: 'I', label: 'I (constant)', unit: 'pA', min: 0, max: 120, step: 1, value: 65.0 });
 
-  // Phase line on a canvas so the moving dot and its dv/dt arrow can be overlaid.
-  const phase = ui.canvas(figures, { height: 240 });
-  const phaseCap = document.createElement('p');
-  phaseCap.style.fontStyle = 'italic';
-  phaseCap.textContent = 'Phase line: dv/dt (mV/ms) vs v (mV); the dot is the current v(t) and the arrow is dv/dt.';
-  figures.appendChild(phaseCap);
-  const figV = ui.plot(figures, { height: 200, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
-  // Membrane gauge: a vertical bar from v_rest to threshold filled to the current v.
-  const gauge = ui.canvas(figures, { height: 240 });
-  const player = makePlayer(ui, figures, frame);
-
-  ui.note(notes, `The ELIF adds an exponential spike-initiation term to the LIF leak. As the voltage
-  approaches the boosting threshold <var>theta</var><sub>rh</sub>, the term <var>delta</var>·exp((<var>v</var>−<var>theta</var><sub>rh</sub>)/<var>delta</var>)
-  grows sharply, so the neuron accelerates toward threshold on its own. <var>delta</var> sets how sharp that
-  take-off is; <var>theta</var><sub>rh</sub> sets where it starts. Units: v in mV, t in ms, I in pA, R in GOhm. The
-  spike-detection threshold (0 mV here) is a simulation choice — Gerstner gives no value for it.`);
-  ui.equation(notes, `<var>tau</var>·d<var>v</var>/d<var>t</var> = (<var>v</var><sub>rest</sub> − <var>v</var>) + <var>delta</var>·exp((<var>v</var>−<var>theta</var><sub>rh</sub>)/<var>delta</var>) + <var>R</var>·<var>I</var>`);
-  ui.note(notes, `The phase line plots d<var>v</var>/d<var>t</var> against <var>v</var> for the current input. Where the curve
-  crosses zero is a fixed point: if it is below threshold the neuron settles there (no firing); if the
-  input is strong enough that no stable fixed point sits below threshold, the voltage runs away and fires.
-  The vertical axis is clipped to a readable window; above <var>theta</var><sub>rh</sub> the exponential term makes
-  d<var>v</var>/d<var>t</var> grow without bound, so the curve leaves the top of the window there.
-  In the voltage trace the spike peaks look like they only reach about −25 mV even though the
-  detection threshold is 0 mV: at dt=0.1 ms the upstroke is a single Euler step, so the step that
-  crosses threshold is reset before it is recorded and the plotted peak is the last value below
-  threshold, not the true peak.
-  ML analogy: the exponential term is like a soft, self-reinforcing "excitation" — the analogy breaks
-  because it is a deterministic dynamical term, not a learned weight.`);
-  ui.code(notes, () => codeSnippet());
-
   function params() {
     return {
       R: cR.get(), tau: cTau.get(), threshold: cTh.get(), v_reset: cReset.get(),
@@ -82,10 +37,9 @@ export function mount(root, ui) {
     };
   }
 
+  // Compute the whole run once; the player reveals it frame by frame.
   let runData = null;
-
-  // Recompute the whole run once; the player then reveals it frame by frame.
-  function run() {
+  function computeRun() {
     const p = params();
     const I = cI.get();
 
@@ -119,9 +73,39 @@ export function mount(root, ui) {
       t.push(n * p.dt); v.push(r.v);
     }
     runData = { p, I, xs, ys, fixed, vMin, vMax, yLo, yHi, t, v };
-    player.setDuration(t[t.length - 1]);
-    player.seek(0); // reveals the first frame (also covers reduced-motion, which starts paused)
+    return t[t.length - 1];
   }
+
+  // Phase line on a canvas so the moving dot and its dv/dt arrow can be overlaid.
+  const phase = ui.canvas(figures, { height: 240 });
+  const phaseCap = document.createElement('p');
+  phaseCap.style.fontStyle = 'italic';
+  phaseCap.textContent = 'Phase line: dv/dt (mV/ms) vs v (mV); the dot is the current v(t) and the arrow is dv/dt.';
+  figures.appendChild(phaseCap);
+  const figV = ui.plot(figures, { height: 200, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
+  // Membrane gauge: a vertical bar from v_rest to threshold filled to the current v.
+  const gauge = ui.canvas(figures, { height: 240 });
+  // Build the run before the player: ui.player may call onFrame synchronously.
+  const player = ui.player(figures, { duration: computeRun(), unit: 'ms', playSeconds: 5, loop: true, onFrame: frame });
+
+  ui.note(notes, `The ELIF adds an exponential spike-initiation term to the LIF leak. As the voltage
+  approaches the boosting threshold <var>theta</var><sub>rh</sub>, the term <var>delta</var>·exp((<var>v</var>−<var>theta</var><sub>rh</sub>)/<var>delta</var>)
+  grows sharply, so the neuron accelerates toward threshold on its own. <var>delta</var> sets how sharp that
+  take-off is; <var>theta</var><sub>rh</sub> sets where it starts. Units: v in mV, t in ms, I in pA, R in GOhm. The
+  spike-detection threshold (0 mV here) is a simulation choice — Gerstner gives no value for it.`);
+  ui.equation(notes, `<var>tau</var>·d<var>v</var>/d<var>t</var> = (<var>v</var><sub>rest</sub> − <var>v</var>) + <var>delta</var>·exp((<var>v</var>−<var>theta</var><sub>rh</sub>)/<var>delta</var>) + <var>R</var>·<var>I</var>`);
+  ui.note(notes, `The phase line plots d<var>v</var>/d<var>t</var> against <var>v</var> for the current input. Where the curve
+  crosses zero is a fixed point: if it is below threshold the neuron settles there (no firing); if the
+  input is strong enough that no stable fixed point sits below threshold, the voltage runs away and fires.
+  The vertical axis is clipped to a readable window; above <var>theta</var><sub>rh</sub> the exponential term makes
+  d<var>v</var>/d<var>t</var> grow without bound, so the curve leaves the top of the window there.
+  In the voltage trace the spike peaks look like they only reach about −25 mV even though the
+  detection threshold is 0 mV: at dt=0.1 ms the upstroke is a single Euler step, so the step that
+  crosses threshold is reset before it is recorded and the plotted peak is the last value below
+  threshold, not the true peak.
+  ML analogy: the exponential term is like a soft, self-reinforcing "excitation" — the analogy breaks
+  because it is a deterministic dynamical term, not a learned weight.`);
+  ui.code(notes, () => codeSnippet());
 
   // Reveal the voltage trace up to time t, draw the gauge, and move the phase dot.
   function frame(t) {
@@ -254,9 +238,13 @@ pop.I = pop.vector(mode=${cI.get()})   # constant input current (pA)
 net.simulate_iterations(${STEPS})`;
   }
 
+  // On a parameter change: recompute the run and continue from the current t (clamped).
+  function run() {
+    player.setDuration(computeRun());
+  }
+
   for (const c of [cR, cTau, cTh, cReset, cRest, cDelta, cTheta, cDt, cI]) c.onInput(run);
   ui.onTheme(run);
-  run();
 
   return { destroy() {} };
 }

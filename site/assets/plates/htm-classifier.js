@@ -91,16 +91,33 @@ export function mount(root, ui) {
     updateNotes();
   }
 
+  // Dynamic notes (readout + code) live in their own box, cleared each update
+  // so they do not accumulate as the student changes controls.
+  let dynNotes = null;
+
   function updateNotes() {
+    if (!dynNotes) return;
+    dynNotes.innerHTML = '';
     const k = nClassesCtl.get();
     const pred = lastResult ? lastResult.pred : null;
     ui.note(
-      notes,
+      dynNotes,
       `<p>The SDR classifier stores, for each class, a weight vector over the SDR bits. <b>learn()</b> adds ` +
         `<b>learning_rate = ${lrCtl.get()}</b> to the active bits of the labelled class; <b>infer()</b> scores each class as ` +
         `(weights · dense) / (count + 1e-6) and returns the argmax. After training on ${examplesCtl.get()} examples per class, ` +
         `the first code is classified as <b>${pred === null ? '—' : 'class ' + pred}</b>.</p>`
     );
+    ui.code(dynNotes, () =>
+      `from conex import SDRClassifier, SDR\n` +
+      `clf = SDRClassifier(n_classes=${k}, sdr_size=${sdrSizeCtl.get()}, learning_rate=${lrCtl.get()})\n` +
+      `for label, sdr in patterns:\n` +
+      `    for _ in range(${examplesCtl.get()}):\n` +
+      `        clf.learn(neurons, sdr, label)\n` +
+      `pred, scores = clf.infer(neurons, sdr)`
+    );
+  }
+
+  function staticNotes() {
     ui.note(
       notes,
       `<p><b>Background.</b> This is a minimal content-addressable readout: the SDR is the input, the class weights are the stored ` +
@@ -112,16 +129,11 @@ export function mount(root, ui) {
       `<div>score<sub>c</sub> = (<var>w</var><sub>c</sub> · <var>x</var>) / (count<sub>c</sub> + 1e-6), &nbsp; ` +
         `predict = arg<sub>c</sub> score<sub>c</sub></div>`
     );
-    ui.code(notes, () =>
-      `from conex import SDRClassifier, SDR\n` +
-      `clf = SDRClassifier(n_classes=${k}, sdr_size=${sdrSizeCtl.get()}, learning_rate=${lrCtl.get()})\n` +
-      `for label, sdr in patterns:\n` +
-      `    for _ in range(${examplesCtl.get()}):\n` +
-      `        clf.learn(neurons, sdr, label)\n` +
-      `pred, scores = clf.infer(neurons, sdr)`
-    );
+    dynNotes = document.createElement('div');
+    notes.appendChild(dynNotes);
   }
 
+  staticNotes();
   reset();
   ui.onTheme(redraw);
   return { destroy() {} };

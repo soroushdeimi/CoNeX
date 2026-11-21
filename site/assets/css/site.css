@@ -729,6 +729,50 @@ pre {
   color: var(--muted);
 }
 
+/* numbered stop badge inside each start-here step */
+.start-path .step-num {
+  display: inline-block;
+  min-width: 1.2em;
+  margin-right: 0.4rem;
+  padding: 0 0.25rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* compact category jump row under the search box */
+.area-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.4rem 0 0.8rem;
+}
+.area-jump-link {
+  font-size: 0.82rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  background: var(--card);
+}
+
+/* on phones the start-here arrows wrap unevenly; number the stops vertically */
+@media (max-width: 600px) {
+  .start-path {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .start-path .arrow {
+    display: none;
+  }
+  .start-path .step {
+    display: block;
+    text-align: left;
+  }
+}
+
 .plate-header {
   border-bottom: 1px solid var(--rule);
   padding-bottom: 0.8rem;

@@ -33,6 +33,8 @@
       <a href="#rules">Jump to the learning-rules table ↓</a>
     </p>
 
+    <div id="area-jump" class="area-jump" hidden></div>
+
     <div id="start-path-wrap" class="card" hidden>
       <h3>Start here</h3>
       <div id="start-path" class="start-path"></div>
@@ -88,11 +90,11 @@
 
     // "Start here": first intro plate of each area, in area order.
     const starters = catalogs
-      .map((c) => c.plates.find((p) => p.level === 'intro') || c.plates[0])
-      .filter(Boolean);
+      .map((c) => ({ plate: c.plates.find((p) => p.level === 'intro') || c.plates[0], catalog: c }))
+      .filter((s) => s.plate);
     if (starters.length) {
       startWrap.hidden = false;
-      starters.forEach((p, i) => {
+      starters.forEach(({ plate: p }, i) => {
         if (i) {
           const arrow = document.createElement('span');
           arrow.className = 'arrow';
@@ -102,9 +104,25 @@
         const step = document.createElement('a');
         step.className = 'step';
         step.href = `plate.html?id=${encodeURIComponent(p.id)}`;
-        step.textContent = p.title;
+        const num = document.createElement('span');
+        num.className = 'step-num';
+        num.textContent = String(i + 1);
+        step.append(num, document.createTextNode(p.title));
         startPath.appendChild(step);
       });
+    }
+
+    // Compact category jump row, directly under the search box.
+    const areaJump = document.getElementById('area-jump');
+    if (starters.length) {
+      areaJump.hidden = false;
+      for (const { catalog: c } of starters) {
+        const a = document.createElement('a');
+        a.className = 'area-jump-link';
+        a.href = `#${c.area}`;
+        a.textContent = c.title;
+        areaJump.appendChild(a);
+      }
     }
 
     function matches(p, q) {

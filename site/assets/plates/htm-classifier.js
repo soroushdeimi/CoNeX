@@ -73,7 +73,9 @@ export function mount(root, ui) {
       ctx.fillRect(pad + i * (bw + gap), pad, bw, 18);
     }
   }
-  bitsCanvas.onResize(drawBitsFig);
+  // Register the redraw on resize when the ui supports it (the real ui.js does);
+  // the direct drawBitsFig() call in redraw() covers the no-onResize case.
+  if (typeof bitsCanvas.onResize === 'function') bitsCanvas.onResize(drawBitsFig);
 
   function redraw() {
     if (!clf) return;
@@ -108,12 +110,24 @@ export function mount(root, ui) {
         `the first code is classified as <b>${pred === null ? '—' : 'class ' + pred}</b>.</p>`
     );
     ui.code(dynNotes, () =>
-      `from conex import SDRClassifier, SDR\n` +
-      `clf = SDRClassifier(n_classes=${k}, sdr_size=${sdrSizeCtl.get()}, learning_rate=${lrCtl.get()})\n` +
+      `import torch\n` +
+      `from pymonntorch import Network, NeuronGroup\n` +
+      `from conex import SDRClassifier, SDR, TimeResolution\n` +
+      `net = Network(behavior={1: TimeResolution(dt=1.0)}, dtype=torch.float32, device="cpu")\n` +
+      `neurons = NeuronGroup(net=net, size=${sdrSizeCtl.get()},\n` +
+      `    behavior={100: SDRClassifier(n_classes=${k}, sdr_size=${sdrSizeCtl.get()},\n` +
+      `                                  learning_rate=${lrCtl.get()})}, tag="clf")\n` +
+      `net.initialize()\n` +
+      `clf = neurons.sdr_classifier\n` +
+      `patterns = [\n` +
+      `    (0, SDR(size=${sdrSizeCtl.get()}, indices=torch.arange(0, 8))),\n` +
+      `    (1, SDR(size=${sdrSizeCtl.get()}, indices=torch.arange(20, 28))),\n` +
+      `    (2, SDR(size=${sdrSizeCtl.get()}, indices=torch.arange(40, 48))),\n` +
+      `]\n` +
       `for label, sdr in patterns:\n` +
       `    for _ in range(${examplesCtl.get()}):\n` +
       `        clf.learn(neurons, sdr, label)\n` +
-      `pred, scores = clf.infer(neurons, sdr)`
+      `pred, scores = clf.infer(neurons, patterns[0][1])`
     );
   }
 

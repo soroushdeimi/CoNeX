@@ -50,7 +50,9 @@ export function mount(root, ui) {
       ctx.fillRect(x, pad + rowH + 6, bw, rowH);
     }
   }
-  bitsCanvas.onResize(drawBitsFig);
+  // Register the redraw on resize when the ui supports it (the real ui.js does);
+  // the direct drawBitsFig() call in redraw() covers the no-onResize case.
+  if (typeof bitsCanvas.onResize === 'function') bitsCanvas.onResize(drawBitsFig);
 
   function redraw() {
     const o = opts();
@@ -88,9 +90,15 @@ export function mount(root, ui) {
         `Values are clamped to [<b>${o.min_val}</b>, <b>${o.max_val}</b>]. All values are dimensionless (a.u.).</p>`
     );
     ui.code(dynNotes, () =>
-      `from conex import SDREncoder\n` +
-      `enc = SDREncoder(size=${o.size}, n_active=${o.n_active}, encoder_type="scalar",\n` +
-      `                 min_val=${o.min_val}, max_val=${o.max_val})\n` +
+      `import torch\n` +
+      `from pymonntorch import Network, NeuronGroup\n` +
+      `from conex import SDREncoder, TimeResolution\n` +
+      `net = Network(behavior={1: TimeResolution(dt=1.0)}, dtype=torch.float32, device="cpu")\n` +
+      `neurons = NeuronGroup(net=net, size=${o.size},\n` +
+      `    behavior={100: SDREncoder(size=${o.size}, n_active=${o.n_active}, encoder_type="scalar",\n` +
+      `                              min_val=${o.min_val}, max_val=${o.max_val})}, tag="enc")\n` +
+      `net.initialize()\n` +
+      `enc = neurons.sdr_encoder\n` +
       `a = enc.encode_scalar(${value.toFixed(2)})\n` +
       `b = enc.encode_scalar(${(value + delta).toFixed(2)})\n` +
       `a.overlap(b)   # ${overlap} bits`

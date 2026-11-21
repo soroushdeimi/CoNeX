@@ -49,7 +49,9 @@ export function mount(root, ui) {
     });
     usagePlot = ui.plot(figBox, { height: 200, xLabel: 'column', yLabel: 'usage', xUnit: 'index', yUnit: 'a.u.' });
     activeCanvas = ui.canvas(figBox, { height: 60 });
-    activeCanvas.onResize(drawActive);
+    // Register the redraw on resize when the ui supports it (the real ui.js
+    // does); the direct drawActive() call in redraw() covers the no-onResize case.
+    if (typeof activeCanvas.onResize === 'function') activeCanvas.onResize(drawActive);
   }
 
   function buildInput() {
@@ -183,13 +185,19 @@ export function mount(root, ui) {
         `The analogy breaks because permanence learning is local and homeostatic, not a global loss gradient.</p>`
     );
     ui.code(notes, () =>
-      `from conex import SpatialPooler, SpatialPoolerConfig\n` +
+      `import torch\n` +
+      `from pymonntorch import Network, NeuronGroup\n` +
+      `from conex import SpatialPooler, SpatialPoolerConfig, TimeResolution\n` +
       `cfg = SpatialPoolerConfig(input_size=${inputSizeCtl.get()}, n_columns=${n},\n` +
       `    potential_pct=${potentialPctCtl.get()}, local_area_density=${densityCtl.get()},\n` +
       `    syn_perm_connected=${connectedCtl.get()}, syn_perm_active_inc=${incCtl.get()},\n` +
       `    syn_perm_inactive_dec=${decCtl.get()}, boost_strength=${boostCtl.get()}, seed=${seedCtl.get()})\n` +
-      `pooler = SpatialPooler(config=cfg)\n` +
-      `active = pooler.compute(neurons, input, learn=True)`
+      `net = Network(behavior={1: TimeResolution(dt=1.0)}, dtype=torch.float32, device="cpu")\n` +
+      `neurons = NeuronGroup(net=net, size=${n}, behavior={100: SpatialPooler(config=cfg)}, tag="sp")\n` +
+      `net.initialize()\n` +
+      `sp = neurons.spatial_pooler\n` +
+      `x = torch.zeros(${inputSizeCtl.get()}); x[8:16] = 1.0\n` +
+      `active = sp.compute(neurons, x, learn=True)`
     );
   }
 

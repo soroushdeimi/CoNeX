@@ -40,9 +40,9 @@ export function mount(root, ui) {
 
   const gridCanvas = ui.canvas(figures, { height: 220 });
   const anomalyPlot = ui.plot(figures, { height: 180, xLabel: 'step', yLabel: 'anomaly score', xUnit: 'steps', yUnit: 'a.u.' });
-  // The canvas backing store resets on layout/resize, so register the draw via
-  // onResize (called after layout and on every resize) rather than once.
-  gridCanvas.onResize(drawGrid);
+  // Register the redraw on resize when the ui supports it (the real ui.js does);
+  // the direct drawGrid() call in redraw() covers the no-onResize case.
+  if (typeof gridCanvas.onResize === 'function') gridCanvas.onResize(drawGrid);
 
   let tm = null;
   let seq = [];
@@ -180,14 +180,25 @@ export function mount(root, ui) {
         `<b>${tm.anomaly_score.toFixed(2)}</b> (fraction of active columns that burst).</p>`
     );
     ui.code(dynNotes, () =>
-      `from conex import TemporalMemory, TemporalMemoryConfig\n` +
+      `import torch\n` +
+      `from pymonntorch import Network, NeuronGroup\n` +
+      `from conex import TemporalMemory, TemporalMemoryConfig, TimeResolution\n` +
       `cfg = TemporalMemoryConfig(n_columns=18, cells_per_column=${tm.cells_per_column},\n` +
       `    activation_threshold=${actThCtl.get()}, learning_threshold=${learnThCtl.get()},\n` +
       `    max_new_synapses=${maxNewCtl.get()}, permanence_increment=${incCtl.get()},\n` +
       `    permanence_decrement=${decCtl.get()})\n` +
-      `tm = TemporalMemory(config=cfg)\n` +
+      `net = Network(behavior={1: TimeResolution(dt=1.0)}, dtype=torch.float32, device="cpu")\n` +
+      `neurons = NeuronGroup(net=net, size=18 * ${tm.cells_per_column},\n` +
+      `    behavior={100: TemporalMemory(config=cfg)}, tag="tm")\n` +
+      `net.initialize()\n` +
+      `tm = neurons.temporal_memory\n` +
+      `def cols(*idx):\n` +
+      `    c = torch.zeros(18, dtype=torch.bool)\n` +
+      `    c[list(idx)] = True\n` +
+      `    return c\n` +
+      `sequence = [cols(0, 1, 2), cols(6, 7, 8), cols(9, 10, 11), cols(12, 13, 14)]\n` +
       `for active_columns in sequence:\n` +
-      `    tm.compute(neurons, active_columns, learn=${learnToggle.get()})`
+      `    tm.compute(neurons, active_columns, learn=${learnToggle.get() ? 'True' : 'False'})`
     );
   }
 

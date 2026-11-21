@@ -85,7 +85,9 @@ export function mount(root, ui) {
       color: 'c1',
       style: 'dots',
     });
-    fig.draw(series, {});
+    // Rate curves start at 0; pin the axis to 0 so the onset is readable.
+    const maxRate = Math.max(...series.flatMap((s) => s.y), 1);
+    fig.draw(series, { yRange: [0, maxRate * 1.1] });
   }
 
   function codeSnippet() {

@@ -80,6 +80,12 @@ export function mount(root, ui) {
   }
 
   // --- figures ---
+  const tryThis = document.createElement('p');
+tryThis.style.fontStyle = 'italic';
+  tryThis.style.color = 'var(--muted)';
+  tryThis.style.fontSize = '0.9rem';
+  tryThis.innerHTML = '<b>Try this:</b> raise <var>beta</var>; watch the w tank jump higher on each spike and the firing slow down.';
+  figures.appendChild(tryThis);
   const hero = ui.hero(figures, { height: 340 });
   const figV = ui.plot(figures, { height: 200, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
   const figW = ui.plot(figures, { height: 140, xLabel: 't', yLabel: 'w (omega)', xUnit: 'ms', yUnit: 'pA' });

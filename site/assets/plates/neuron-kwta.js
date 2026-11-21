@@ -87,8 +87,27 @@ export function mount(root, ui) {
   }
 
   // --- figures ---
+  const tryThis = document.createElement('p');
+tryThis.style.fontStyle = 'italic';
+  tryThis.style.color = 'var(--muted)';
+  tryThis.style.fontSize = '0.9rem';
+  tryThis.innerHTML = '<b>Try this:</b> lower <var>k</var>; watch fewer neurons win and more losers dim with the inhibition ripple.';
+  figures.appendChild(tryThis);
   const hero = ui.hero(figures, { height: 300 });
+  // In-place titles for the two rasters (the visual review asks for them).
+  const titleBefore = document.createElement('p');
+  titleBefore.style.fontStyle = 'italic';
+  titleBefore.style.color = 'var(--muted)';
+  titleBefore.style.fontSize = '0.85rem';
+  titleBefore.textContent = 'Without KWTA (every neuron above threshold fires)';
+  figures.appendChild(titleBefore);
   const figBefore = ui.raster(figures, { height: 180, xLabel: 't', xUnit: 'ms' });
+  const titleAfter = document.createElement('p');
+  titleAfter.style.fontStyle = 'italic';
+  titleAfter.style.color = 'var(--muted)';
+  titleAfter.style.fontSize = '0.85rem';
+  titleAfter.textContent = 'With KWTA (top-k win, the rest reset)';
+  figures.appendChild(titleAfter);
   const figAfter = ui.raster(figures, { height: 180, xLabel: 't', xUnit: 'ms' });
   const figCount = ui.plot(figures, { height: 160, xLabel: 't', yLabel: 'spiking neurons', xUnit: 'ms', yUnit: 'count' });
 

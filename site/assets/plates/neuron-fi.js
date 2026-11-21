@@ -95,6 +95,12 @@ export function mount(root, ui) {
   }
 
   // --- figures ---
+  const tryThis = document.createElement('p');
+tryThis.style.fontStyle = 'italic';
+  tryThis.style.color = 'var(--muted)';
+  tryThis.style.fontSize = '0.9rem';
+  tryThis.innerHTML = '<b>Try this:</b> raise <var>tau</var>; watch the whole f-I curve drop (slower integration, lower rate).';
+  figures.appendChild(tryThis);
   const hero = ui.hero(figures, { height: 300 });
   const fig = ui.plot(figures, { height: 300, xLabel: 'I', yLabel: 'f', xUnit: 'pA', yUnit: 'Hz' });
 

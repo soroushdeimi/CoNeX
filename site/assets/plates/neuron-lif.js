@@ -76,6 +76,12 @@ export function mount(root, ui) {
 
   // --- figures ---
   // Hero: the leaky bucket (the mechanism). Plots scroll below it, same time.
+  const tryThis = document.createElement('p');
+tryThis.style.fontStyle = 'italic';
+  tryThis.style.color = 'var(--muted)';
+  tryThis.style.fontSize = '0.9rem';
+  tryThis.innerHTML = '<b>Try this:</b> raise <var>I</var>; watch the bucket fill faster and spike more often.';
+  figures.appendChild(tryThis);
   const hero = ui.hero(figures, { height: 344 });
   const fig = ui.plot(figures, { height: 220, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
   const figI = ui.plot(figures, { height: 120, xLabel: 't', yLabel: 'I', xUnit: 'ms', yUnit: 'pA' });

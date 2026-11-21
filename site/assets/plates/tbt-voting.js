@@ -34,10 +34,12 @@ export function consensusObject(objs) {
   return bestCount > 0 ? best : -1;
 }
 
-// One-line narration driven by the model state.
+// One-line narration driven by the model state. When every column shares the
+// same top candidate the network has reached consensus.
 export function votingNarration({ step, objs, net }) {
   const agree = consensusObject(objs);
-  if (net) return `step ${step}: network consensus on object ${agree}`;
+  const allSame = objs.length > 0 && objs.every((o) => o === agree && o >= 0);
+  if (allSame) return `consensus: object ${agree} after ${step} steps`;
   if (agree >= 0) return `step ${step}: columns are converging on object ${agree}`;
   return `step ${step}: no consensus yet`;
 }
@@ -195,10 +197,12 @@ export function mount(root, ui) {
     const c5 = ui.color('c5');
     const n = columns.length;
     const nObj = nObjects.get();
-    const boxW = Math.min(170, (width - 20) / n - 14);
-    const boxH = height - 30;
-    const topY = 26;
-    const barH = Math.min(16, (boxH - 10) / nObj - 2);
+    const boxW = Math.min(190, (width - 20) / n - 14);
+    const boxH = height - 24;
+    const topY = 24;
+    const botY = 10 + boxH - 6;
+    // Bars fill the whole card height (no empty lower half).
+    const barH = (botY - topY) / nObj - 2;
     const xs = [];
     const net = f.net;
     const e = ui.ease(frac); // ease-in-out between step k and k+1
@@ -212,7 +216,7 @@ export function mount(root, ui) {
       ctx.lineWidth = 1;
       ctx.fillStyle = ink;
       ctx.font = '12px ui-monospace, monospace';
-      ctx.fillText('col ' + c, x + 4, 20);
+      ctx.fillText('col ' + c, x + 4, 18);
       // eased accumulator between this step and the next
       const acc = f.acc[c];
       const accN = fNext ? fNext.acc[c] : acc;
@@ -227,29 +231,41 @@ export function mount(root, ui) {
         const v = acc[o] + (accN[o] - acc[o]) * e;
         const y = topY + o * (barH + 2);
         const isTop = o === top;
+        // object index on the left, value on the right
         ctx.fillStyle = isTop ? c2 : muted;
         ctx.font = '10px ui-monospace, monospace';
-        ctx.fillText(String(o), x + 4, y + barH - 3);
-        const bw = barFraction(v, maxV) * (boxW - 24);
+        ctx.fillText(String(o), x + 4, y + barH / 2 + 3);
+        ctx.fillStyle = isTop ? c2 : ink;
+        ctx.fillText(v.toFixed(2), x + boxW - 34, y + barH / 2 + 3);
+        const bw = barFraction(v, maxV) * (boxW - 44);
         ctx.fillStyle = isTop ? c2 : c1;
         ctx.globalAlpha = v > 0 ? 0.85 : 0.15;
-        ctx.fillRect(x + 16, y, Math.max(0, bw), barH - 3);
+        ctx.fillRect(x + 16, y, Math.max(0, bw), barH - 2);
         ctx.globalAlpha = 1;
       }
     }
-    // vote particles travel between adjacent columns each step (decorative)
+    // vote particles fly from each card to the others; count and opacity come
+    // from the real vote strength that column cast this step (decorative).
     if (frac > 0 && frac < 1) {
-      for (let c = 0; c < n - 1; c++) {
+      const votes = f.votes || [];
+      for (let c = 0; c < n; c++) {
+        const v = votes[c] || [];
+        let strength = 0;
+        for (let o = 0; o < v.length; o++) strength += v[o];
+        if (strength <= 0) continue;
         const y = 10 + boxH / 2;
-        const x0 = xs[c] + boxW;
-        const x1 = xs[c + 1];
-        const nP = 3;
-        for (let p = 0; p < nP; p++) {
-          const pf = Math.max(0, Math.min(1, frac * 1.3 - p * 0.15));
-          const px = x0 + (x1 - x0) * pf;
-          ctx.globalAlpha = 0.8 * (1 - pf * 0.4);
-          ctx.fillStyle = c1;
-          ctx.beginPath(); ctx.arc(px, y, 2.5, 0, 2 * Math.PI); ctx.fill();
+        for (let d = 0; d < n; d++) {
+          if (d === c) continue;
+          const x0 = xs[c] + boxW / 2;
+          const x1 = xs[d] + boxW / 2;
+          const nP = Math.max(1, Math.min(4, Math.round(strength * 4)));
+          for (let p = 0; p < nP; p++) {
+            const pf = Math.max(0, Math.min(1, frac * 1.2 - p * 0.12));
+            const px = x0 + (x1 - x0) * pf;
+            ctx.globalAlpha = Math.min(0.85, 0.3 + strength * 0.5) * (1 - pf * 0.4);
+            ctx.fillStyle = c1;
+            ctx.beginPath(); ctx.arc(px, y, 2.5, 0, 2 * Math.PI); ctx.fill();
+          }
         }
       }
       ctx.globalAlpha = 1;

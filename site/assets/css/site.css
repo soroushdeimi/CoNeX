@@ -275,6 +275,20 @@ pre {
   margin-top: 0.3rem;
 }
 
+/* inline SVGs scale to the column width instead of their intrinsic size */
+.ui-figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* on phones, shrink code so a line fits the viewport instead of scrolling */
+@media (max-width: 480px) {
+  pre {
+    font-size: 0.72rem;
+  }
+}
+
 /* Notes */
 .ui-note {
   max-width: 70ch;
@@ -324,7 +338,7 @@ pre {
 
 .gallery-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
   gap: 0.8rem;
 }
 
@@ -407,16 +421,49 @@ pre {
   display: inline-block;
 }
 
+/* min(100%, 220px) keeps a single column from overflowing a narrow viewport */
 .concept-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
   gap: 0.8rem;
 }
 
 .area-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 1rem;
+}
+
+.area-card {
+  display: block;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--c1);
+  border-radius: 4px;
+  padding: 1.1rem 1.2rem;
+}
+.area-card:hover {
+  text-decoration: none;
+  border-left-color: var(--c2);
+}
+
+.area-card .title {
+  font-family: ui-serif, Georgia, serif;
+  font-weight: 600;
+  font-size: 1.15rem;
+  margin: 0.4rem 0 0.2rem;
+}
+
+.area-card .summary {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.area-icon {
+  width: 44px;
+  height: 44px;
+  display: block;
 }
 
 .start-path {

@@ -23,6 +23,20 @@ To take a check screenshot of the example plate at phone width:
   --screenshot=/tmp/x.png "http://localhost:8000/atlas/plate.html?id=_example"
 ```
 
+## Check the layout (no horizontal overflow)
+
+With the local server running, this drives headless Chrome over the DevTools
+protocol (no npm packages) and lists every element whose right edge exceeds
+the viewport on the landing, atlas and example-plate pages. It exits non-zero
+if any page overflows:
+
+```bash
+node site/tests/check_layout.mjs 390     # phone width
+node site/tests/check_layout.mjs 1440    # desktop width
+```
+
+Set `CHROME_BIN` to point at a different Chrome if needed.
+
 ## Add a plate
 
 A plate is one ES module in `assets/plates/<id>.js` plus one entry in the

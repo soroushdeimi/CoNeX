@@ -275,9 +275,13 @@ export function mount(root, ui) {
       const dy = y0 + ((SPAN / 2 - ay) / SPAN) * side;
       ctx.fillStyle = c2;
       ctx.beginPath(); ctx.arc(dx, dy, 3, 0, 2 * Math.PI); ctx.fill();
+      // Two lines per caption so it fits the narrow map (a single line overflows
+      // into the neighbouring map at 390px).
       ctx.fillStyle = ink;
       ctx.font = '10px ui-monospace, monospace';
-      ctx.fillText(`module ${m}  λ=${module.scales[cell].toFixed(2)} a.u.`, x0, y0 + side + 14);
+      ctx.textAlign = 'left';
+      ctx.fillText(`module ${m}`, x0, y0 + side + 12);
+      ctx.fillText(`λ = ${module.scales[cell].toFixed(2)} a.u.`, x0, y0 + side + 24);
     }
   }
 

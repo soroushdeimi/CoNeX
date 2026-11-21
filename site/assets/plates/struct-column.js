@@ -3,7 +3,9 @@ import { corticalColumnStructure } from '../js/models/tbt.js';
 export const meta = {
   id: 'struct-column',
   title: 'Cortical column structure',
-  conex: ['CorticalColumn', 'Layer', 'Neocortex', 'CorticalLayerConnection'],
+  conex: ['PredictiveCorticalColumn', 'Layer', 'ErrorUnit', 'PrecisionWeighting', 'FreeEnergyMinimization',
+    'PredictionUnit', 'PredictiveCodingLearning', 'PredictiveSynapseInit', 'FeedforwardErrorSynapse',
+    'FeedbackPredictionSynapse', 'PredictiveSynapseLearning'],
   source: 'conex/nn/structure/numenta/predictive_hierarchy.py',
 };
 
@@ -29,11 +31,17 @@ export function mount(root, ui) {
   const colSize = ui.number(sec, { key: 'columnSize', label: 'column_size', unit: 'neurons', value: 100 });
 
   const svgHost = ui.note(figures, '');
-  ui.note(figures, '<em>Connections read from <code>PredictiveCorticalColumn._create_connections</code> in <code>conex/nn/structure/numenta/predictive_hierarchy.py</code>.</em>');
+  ui.note(figures, '<em>Connections read from <code>PredictiveCorticalColumn._create_connections</code> in <code>conex/nn/structure/numenta/predictive_hierarchy.py</code>. The travelling pulse is <strong>schematic, not simulated</strong> &mdash; it only shows the order CoNeX applies the connections.</em>');
   const detail = ui.note(figures, '<em>click a layer to see its neuron groups and behaviors</em>');
 
   let structure = corticalColumnStructure(colSize.get());
   colSize.onInput(() => { structure = corticalColumnStructure(colSize.get()); render(); });
+
+  // Pulses travel the connections in the order CoNeX builds them
+  // (L4->L23, L23->L4, L23->L5, L6->L4). Schematic: no signal is simulated.
+  const CONN_ORDER = ['L4_to_L23', 'L23_to_L4', 'L23_to_L5', 'L6_to_L4'];
+  let connPaths = []; // per connection: the 4 elbow points, for pulse positioning
+  let pulse = null;
 
   const SVGNS = 'http://www.w3.org/2000/svg';
   function svgEl(tag, attrs) {
@@ -95,6 +103,7 @@ export function mount(root, ui) {
         'marker-end': `url(#arrow-${conn.type})`,
       });
       svg.appendChild(path);
+      connPaths[key] = [[edge, yFrom], [L.x, yFrom], [L.x, yTo], [edge, yTo]];
       // label: sits in the open space beside the boxes, on its own lane. The two
       // short connections share the L23-L4 gap, so nudge them apart vertically.
       const text = `${conn.label} (${conn.type})`;
@@ -158,8 +167,37 @@ export function mount(root, ui) {
       svg.appendChild(g);
     }
 
+    // pulse dot, moved by the player along the current connection
+    pulse = svgEl('circle', { r: 5, fill: c2, stroke: paper, 'stroke-width': 1.5 });
+    pulse.style.display = 'none';
+    svg.appendChild(pulse);
+
     svgHost.innerHTML = '';
     svgHost.appendChild(svg);
+  }
+
+  // Position the pulse at fraction f (0..1) along a connection's elbow path.
+  function pointOnPath(pts, f) {
+    const segs = 3;
+    const total = segs * f;
+    const i = Math.min(segs - 1, Math.floor(total));
+    const local = total - i;
+    const a = pts[i], b = pts[i + 1];
+    return [a[0] + (b[0] - a[0]) * local, a[1] + (b[1] - a[1]) * local];
+  }
+
+  function drawPulse(t) {
+    if (!pulse) return;
+    const n = CONN_ORDER.length;
+    const pos = (t / 100) * n; // one full pass over 100 a.u. of player time
+    const idx = Math.floor(pos) % n;
+    const f = pos - Math.floor(pos);
+    const pts = connPaths[CONN_ORDER[idx]];
+    if (!pts) { pulse.style.display = 'none'; return; }
+    const [px, py] = pointOnPath(pts, f);
+    pulse.setAttribute('cx', px);
+    pulse.setAttribute('cy', py);
+    pulse.style.display = '';
   }
 
   function showDetail(name) {
@@ -176,14 +214,28 @@ export function mount(root, ui) {
   render();
   ui.onTheme(render);
 
+  // Player drives the pulse along the connections; time is a schematic
+  // "cycle" counter, not a simulated signal.
+  ui.player(figures, {
+    duration: 100,
+    unit: 'cycle',
+    playSeconds: 6,
+    loop: true,
+    onFrame: drawPulse,
+  });
+
   // --- notes ---
   ui.note(notes, `
     <p>A cortical column is a vertical stack of layers that all process the same
-    patch of input. CoNeX builds the column from <code>Layer</code> containers
-    (each holding one or more neuron groups) joined by
-    <code>CorticalLayerConnection</code> objects, all inside a
-    <code>CorticalColumn</code> container, which itself lives in a
-    <code>Neocortex</code> network.</p>
+    patch of input. <code>PredictiveCorticalColumn</code> builds each layer as a
+    <code>Layer</code> container holding one neuron group, and wires the layers
+    together with plain <code>SynapseGroup</code> objects carrying the predictive
+    coding behaviors. It is an independent class (not a
+    <code>CorticalColumn</code> subclass) and takes any PyMonntorch
+    <code>Network</code>. CoNeX also has the
+    <code>CorticalColumn</code> / <code>CorticalLayer</code> /
+    <code>CorticalLayerConnection</code> / <code>Neocortex</code> containers in
+    <code>conex/nn/structure</code>, but this plate does not use them.</p>
     <p>The predictive coding column wires the layers into the canonical
     microcircuit: <strong>L4</strong> receives feedforward input and computes
     errors, <strong>L2/3</strong> generates predictions and sends them back down,

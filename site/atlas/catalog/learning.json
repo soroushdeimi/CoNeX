@@ -1,0 +1,60 @@
+{
+  "area": "learning",
+  "title": "Learning rules",
+  "order": 5,
+  "plates": [
+    {
+      "id": "learn-stdp-family",
+      "title": "STDP rule family",
+      "summary": "STDP, iSTDP, and RSTDP across simple, sparse, one-to-one, convolutional, and local synaptic topologies.",
+      "level": "core",
+      "conex": [
+        "SimpleSTDP",
+        "SparseSTDP",
+        "One2OneSTDP",
+        "Conv2dSTDP",
+        "Local2dSTDP",
+        "SimpleiSTDP",
+        "One2OneiSTDP",
+        "SparseiSTDP",
+        "SimpleRSTDP",
+        "One2OneRSTDP",
+        "SparseRSTDP",
+        "Conv2dRSTDP",
+        "Local2dRSTDP"
+      ],
+      "learning_rules": [
+        "SimpleSTDP",
+        "SparseSTDP",
+        "One2OneSTDP",
+        "Conv2dSTDP",
+        "Local2dSTDP",
+        "SimpleiSTDP",
+        "One2OneiSTDP",
+        "SparseiSTDP",
+        "SimpleRSTDP",
+        "One2OneRSTDP",
+        "SparseRSTDP",
+        "Conv2dRSTDP",
+        "Local2dRSTDP"
+      ]
+    },
+    {
+      "id": "learn-bounds",
+      "title": "Synaptic weight bounds",
+      "summary": "Soft, hard, and unbounded dynamics for positive and negative learning under repeated potentiation and depression.",
+      "level": "intro",
+      "conex": [
+        "soft_bound",
+        "hard_bound",
+        "no_bound",
+        "SimpleSTDP"
+      ],
+      "learning_rules": [
+        "soft_bound",
+        "hard_bound",
+        "no_bound"
+      ]
+    }
+  ]
+}

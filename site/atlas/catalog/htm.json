@@ -8,35 +8,40 @@
       "title": "Sparse Distributed Representations",
       "summary": "How n-bit SDRs overlap, union and intersect, and the false-match probability of a threshold.",
       "level": "intro",
-      "conex": ["SDR", "SDRConfig", "UnionSDR"]
+      "conex": ["SDR", "SDRConfig", "UnionSDR"],
+      "learning_rules": []
     },
     {
       "id": "htm-encoder",
       "title": "Scalar SDR encoder",
       "summary": "Encode a scalar as a sliding block of active bits; overlap falls as the values drift apart.",
       "level": "intro",
-      "conex": ["SDREncoder"]
+      "conex": ["SDREncoder"],
+      "learning_rules": []
     },
     {
       "id": "htm-sp",
       "title": "Spatial Pooler",
       "summary": "Competitive columns with permanence learning, duty-cycle boosting and top-k inhibition.",
       "level": "core",
-      "conex": ["SpatialPooler", "SpatialPoolerConfig"]
+      "conex": ["SpatialPooler", "SpatialPoolerConfig"],
+      "learning_rules": ["SpatialPooler._learn"]
     },
     {
       "id": "htm-tm",
       "title": "Temporal Memory",
       "summary": "Learn A-B-C-D and X-B-C-Y; see how the prediction after the shared C depends on context.",
       "level": "core",
-      "conex": ["TemporalMemory", "TemporalMemoryConfig", "SegmentStorage"]
+      "conex": ["TemporalMemory", "TemporalMemoryConfig", "SegmentStorage"],
+      "learning_rules": ["TemporalMemory._learn", "SegmentStorage.adapt_segment"]
     },
     {
       "id": "htm-classifier",
       "title": "SDR classifier",
       "summary": "Decode a class from an SDR with Hebbian-style weight accumulation and its output distribution.",
       "level": "advanced",
-      "conex": ["SDRClassifier"]
+      "conex": ["SDRClassifier"],
+      "learning_rules": ["SDRClassifier.learn"]
     }
   ]
 }

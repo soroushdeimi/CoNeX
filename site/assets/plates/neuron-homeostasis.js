@@ -50,9 +50,11 @@ export function mount(root, ui) {
   const cDecay = ui.slider(secH, { key: 'decay_rate', label: 'decay_rate', unit: '', min: 0.5, max: 1, step: 0.01, value: 1.0 });
   // Voltage-based
   const cTarget = ui.slider(secH, { key: 'target_voltage', label: 'target_voltage', unit: 'mV', min: -70, max: -40, step: 0.5, value: -60.0 });
-  const cEta = ui.slider(secH, { key: 'eta_ip', label: 'eta_ip', unit: 'mV', min: 0, max: 0.01, step: 0.0005, value: 0.001 });
+  const cEta = ui.slider(secH, { key: 'eta_ip', label: 'eta_ip', unit: '1/step', min: 0, max: 0.01, step: 0.0005, value: 0.001 });
 
   const figRate = ui.plot(figures, { height: 220, xLabel: 't', yLabel: 'firing rate', xUnit: 'ms', yUnit: 'Hz' });
+  // Raster of the group, revealed in sync with the player.
+  const figRaster = ui.raster(figures, { height: 160, xLabel: 't', xUnit: 'ms' });
   // Two control plots (one per mode) so the y-axis label is correct for each.
   // Each is wrapped in a div we can hide; ui.plot appends its <figure> to the parent.
   const wrapAct = document.createElement('div');
@@ -65,24 +67,6 @@ export function mount(root, ui) {
   caption.style.fontStyle = 'italic';
   figures.appendChild(caption);
 
-  ui.note(notes, `Homeostasis keeps a population near a target. <b>ActivityBaseHomeostasis</b> counts spikes in
-  a sliding window and shifts each neuron's threshold up or down so its activity tracks the target
-  <var>activity_rate</var>. <b>VoltageBaseHomeostasis</b> instead pushes each neuron's voltage toward a target band
-  by accumulating an "exhaustion" term. Both run on top of the same LIF dynamics under a random input.
-  Units: v in mV, t in ms, I in pA, R in GOhm.`);
-  ui.equation(notes, `activity: <var>threshold</var> ← <var>threshold</var> − <var>activities</var>·<var>updating_rate</var> (every <var>window_size</var> steps)<br>
-  voltage: <var>exhaustion</var> += (<var>v</var>−band)·<var>eta_ip</var>, &nbsp; <var>v</var> ← <var>v</var> − <var>exhaustion</var>`);
-  ui.note(notes, `The top figure shows the group firing rate (Hz) over 5 s; the dashed line is the target
-  rate. The bottom shows the control variable (mean threshold for activity-based, mean voltage for
-  voltage-based) converging toward the value that produces the target. The defaults aim for a cortical
-  rate (~10 Hz): 1 spike per 100 ms window. The input (I_base 40 pA, I_amp 5 pA) is chosen so the
-  starting rate is about 2× the target (~20 Hz); with R at the neuron default (0.5 GOhm) the threshold
-  then settles within a couple of mV of the initial −50 mV, so it stays physiological. The caption
-  reports the settled threshold. ML analogy: this is like a learning-rate / weight-decay loop that
-  keeps activation levels in a healthy range; the analogy breaks because it is a slow, local,
-  activity-driven rule with no error signal or label.`);
-  ui.code(notes, () => codeSnippet());
-
   function params() {
     return {
       R: cR.get(), tau: cTau.get(), threshold: cTh.get(), v_reset: cReset.get(),
@@ -90,7 +74,9 @@ export function mount(root, ui) {
     };
   }
 
-  function run() {
+  // Compute the whole run once; the player reveals it frame by frame.
+  let runData = null;
+  function computeRun() {
     const p = params();
     const rng = ui.rng(cSeed.get());
     const type = cType.get();
@@ -107,7 +93,7 @@ export function mount(root, ui) {
 
     const win = type === 'activity' ? cWin.get() : 1000;
     const targetHz = cARate.get() / (cWin.get() * p.dt / 1000);
-    const t = [], rate = [], ctrl = [];
+    const t = [], rate = [], ctrl = [], spikes = [];
     let acc = 0;
     for (let it = 1; it <= STEPS; it++) {
       let groupSpikes = 0;
@@ -117,7 +103,7 @@ export function mount(root, ui) {
         const pj = type === 'activity' ? { ...p, threshold: thresholds[j] } : p;
         const r = lifStep({ v: vs[j] }, pj, I, p.dt);
         vs[j] = r.v;
-        groupSpikes += r.spike ? 1 : 0;
+        if (r.spike) { groupSpikes++; spikes.push([it * p.dt, j]); }
         if (type === 'activity') {
           thresholds[j] = hos[j].step(r.spike, thresholds[j], it);
         } else {
@@ -134,8 +120,7 @@ export function mount(root, ui) {
         acc = 0;
       }
     }
-    figRate.draw([{ x: t, y: rate, label: 'firing rate', color: 'c1', style: 'line' }],
-      { hlines: [{ y: targetHz, label: 'target' }], yRange: [0, Math.max(targetHz * 3, 50)] });
+    runData = { t, rate, ctrl, spikes, targetHz, type };
 
     // Mean over the last 2 s (the per-window rate fluctuates, so a single window
     // is not representative).
@@ -143,20 +128,55 @@ export function mount(root, ui) {
     const last2 = t.map((x, i) => ({ x, i })).filter((o) => o.x >= tMax - 2000);
     const meanRate = last2.reduce((a, o) => a + rate[o.i], 0) / last2.length;
     const meanCtrl = last2.reduce((a, o) => a + ctrl[o.i], 0) / last2.length;
-
-    // Draw BOTH control plots every run (the hidden one is stale-but-hidden and
-    // refreshes on the next run); show only the one whose y-axis label matches the mode.
-    wrapAct.style.display = type === 'activity' ? '' : 'none';
-    wrapVolt.style.display = type === 'voltage' ? '' : 'none';
-    figCtrlAct.draw([{ x: t, y: ctrl, label: 'mean threshold', color: 'c2', style: 'line' }], {});
-    figCtrlVolt.draw([{ x: t, y: ctrl, label: 'mean v', color: 'c2', style: 'line' }],
-      { hlines: [{ y: cTarget.get(), label: 'target_voltage' }] });
     if (type === 'activity') {
       caption.textContent = `mean over the last 2 s: rate ${meanRate.toPrecision(3)} Hz (target ${targetHz.toPrecision(3)} Hz), ` +
         `threshold ${meanCtrl.toPrecision(4)} mV (start ${p.threshold} mV)`;
     } else {
       caption.textContent = `mean over the last 2 s: voltage ${meanCtrl.toPrecision(4)} mV (target ${cTarget.get()} mV)`;
     }
+    return tMax;
+  }
+
+  // Build the run before the player: ui.player may call onFrame synchronously.
+  const player = ui.player(figures, { duration: computeRun(), unit: 'ms', playSeconds: 5, loop: true, onFrame: frame });
+
+  ui.note(notes, `Homeostasis keeps a population near a target. <b>ActivityBaseHomeostasis</b> counts spikes in
+  a sliding window and shifts each neuron's threshold up or down so its activity tracks the target
+  <var>activity_rate</var>. <b>VoltageBaseHomeostasis</b> instead pushes each neuron's voltage toward a target band
+  by accumulating an "exhaustion" term. Both run on top of the same LIF dynamics under a random input.
+  Units: v in mV, t in ms, I in pA, R in GOhm.`);
+  ui.equation(notes, `activity: <var>threshold</var> ← <var>threshold</var> + <var>activities</var>·<var>updating_rate</var> (every <var>window_size</var> steps)<br>
+  voltage: <var>exhaustion</var> += (<var>v</var>−band)·<var>eta_ip</var>, &nbsp; <var>v</var> ← <var>v</var> − <var>exhaustion</var>`);
+  ui.note(notes, `The top figure shows the group firing rate (Hz) over 5 s; the dashed line is the target
+  rate. The bottom shows the control variable (mean threshold for activity-based, mean voltage for
+  voltage-based) converging toward the value that produces the target. The defaults aim for a cortical
+  rate (~10 Hz): 1 spike per 100 ms window. The input (I_base 40 pA, I_amp 5 pA) is chosen so the
+  starting rate is about 2× the target (~20 Hz); with R at the neuron default (0.5 GOhm) the threshold
+  then settles within a couple of mV of the initial −50 mV, so it stays physiological. The caption
+  reports the settled threshold. ML analogy: this is like a learning-rate / weight-decay loop that
+  keeps activation levels in a healthy range; the analogy breaks because it is a slow, local,
+  activity-driven rule with no error signal or label.`);
+  ui.code(notes, () => codeSnippet());
+
+  // On a parameter change: recompute the run and continue from the current t (clamped).
+  function run() {
+    player.setDuration(computeRun());
+  }
+
+  // Reveal the rate, the control variable, and the group raster up to time t.
+  function frame(t) {
+    if (!runData) return;
+    const { t: tt, rate, ctrl, spikes, targetHz, type } = runData;
+    figRate.draw([{ x: tt, y: rate, label: 'firing rate', color: 'c1', style: 'line' }],
+      { revealX: t, hlines: [{ y: targetHz, label: 'target' }], yRange: [0, Math.max(targetHz * 3, 50)] });
+    // Draw BOTH control plots every frame (the hidden one is stale-but-hidden and
+    // refreshes on the next run); show only the one whose y-axis label matches the mode.
+    wrapAct.style.display = type === 'activity' ? '' : 'none';
+    wrapVolt.style.display = type === 'voltage' ? '' : 'none';
+    figCtrlAct.draw([{ x: tt, y: ctrl, label: 'mean threshold', color: 'c2', style: 'line' }], { revealX: t });
+    figCtrlVolt.draw([{ x: tt, y: ctrl, label: 'mean v', color: 'c2', style: 'line' }],
+      { revealX: t, hlines: [{ y: cTarget.get(), label: 'target_voltage' }] });
+    figRaster.draw(spikes, SIZE, tt[tt.length - 1], { revealT: t });
   }
 
   function codeSnippet() {
@@ -186,7 +206,6 @@ net.simulate_iterations(${STEPS})`;
     cARate, cWin, cUpd, cDecay, cTarget, cEta];
   for (const c of all) c.onInput(run);
   ui.onTheme(run);
-  run();
 
   return { destroy() {} };
 }

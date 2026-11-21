@@ -29,9 +29,40 @@ export function mount(root, ui) {
   const secI = ui.section(controls, 'Input current');
   const cI = ui.slider(secI, { key: 'I', label: 'I (constant)', unit: 'pA', min: 0, max: 120, step: 1, value: 65.0 });
 
+  function params() {
+    return {
+      R: cR.get(), tau: cTau.get(), threshold: cTh.get(),
+      v_reset: cReset.get(), v_rest: cRest.get(), dt: cDt.get(),
+    };
+  }
+
+  // Compute the whole run once; the player reveals it frame by frame.
+  let runData = null;
+  function computeRun() {
+    const p = params();
+    const I = cI.get();
+    const t = [], v = [], i = [];
+    let state = { v: p.v_rest };
+    for (let n = 0; n < STEPS; n++) {
+      const r = lifStep(state, p, I, p.dt);
+      state = { v: r.v };
+      t.push(n * p.dt);
+      v.push(r.v);
+      i.push(I);
+    }
+    const ir = lifRheobase(p);
+    const vss = p.v_rest + p.R * I;
+    runData = { p, I, t, v, i, ir, vss };
+    return t[t.length - 1];
+  }
+
   // --- figures ---
   const fig = ui.plot(figures, { height: 260, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
   const figI = ui.plot(figures, { height: 120, xLabel: 't', yLabel: 'I', xUnit: 'ms', yUnit: 'pA' });
+  // Membrane gauge: a vertical bar from v_rest to threshold filled to the current v.
+  const gauge = ui.canvas(figures, { height: 260 });
+  // Build the run before the player: ui.player may call onFrame synchronously.
+  const player = ui.player(figures, { duration: computeRun(), unit: 'ms', playSeconds: 5, loop: true, onFrame: frame });
 
   // --- notes ---
   ui.note(notes, `The LIF neuron integrates its input current and leaks back to rest. CoNeX updates the
@@ -49,40 +80,65 @@ export function mount(root, ui) {
   threshold, and the firing rate (not the voltage) is what carries information.`);
   ui.code(notes, () => codeSnippet());
 
-  function params() {
-    return {
-      R: cR.get(), tau: cTau.get(), threshold: cTh.get(),
-      v_reset: cReset.get(), v_rest: cRest.get(), dt: cDt.get(),
-    };
-  }
-
-  function run() {
-    const p = params();
-    const I = cI.get();
-    const t = [], v = [], i = [];
-    let state = { v: p.v_rest };
-    for (let n = 0; n < STEPS; n++) {
-      const r = lifStep(state, p, I, p.dt);
-      state = { v: r.v };
-      t.push(n * p.dt);
-      v.push(r.v);
-      i.push(I);
-    }
-    const ir = lifRheobase(p);
-    const vss = p.v_rest + p.R * I;
+  // Reveal the traces up to time t and draw the membrane gauge at the real v(t).
+  function frame(t) {
+    if (!runData) return;
+    const { p, I, t: tt, v, i, ir, vss } = runData;
     fig.draw(
-      [
-        { x: t, y: v, label: 'v', color: 'c1', style: 'line' },
-      ],
-      { hlines: [
+      [{ x: tt, y: v, label: 'v', color: 'c1', style: 'line' }],
+      { revealX: t, hlines: [
         { y: p.threshold, label: 'threshold' },
         { y: vss, label: 'v_ss (steady state)' },
       ] }
     );
     // Constant input: pin the axis to start at 0 so the value is readable.
     const iTop = Math.max(I, ir) * 1.1 || 1;
-    figI.draw([{ x: t, y: i, label: 'I', color: 'c3', style: 'line' }],
-      { yRange: [0, iTop], hlines: [{ y: ir, label: 'I_rheo' }] });
+    figI.draw([{ x: tt, y: i, label: 'I', color: 'c3', style: 'line' }],
+      { revealX: t, yRange: [0, iTop], hlines: [{ y: ir, label: 'I_rheo' }] });
+    drawGauge(t);
+  }
+
+  // Vertical bar from v_rest to threshold; the fill is the real v at time t.
+  // Coral flash on the step where the neuron just spiked.
+  function drawGauge(t) {
+    const { p, v } = runData;
+    const idx = Math.min(v.length - 1, Math.max(0, Math.round(t / p.dt)));
+    const vNow = v[idx];
+    const spiked = vNow <= p.v_reset + 1e-9; // reset value means this step fired
+    const ctx = gauge.ctx;
+    const W = gauge.width, H = gauge.height;
+    ctx.clearRect(0, 0, W, H);
+    const pal = { ink: ui.color('ink'), muted: ui.color('muted'), rule: ui.color('rule'), coral: ui.color('c2') };
+    const x = W / 2, bw = 26, top = 14, bot = H - 14;
+    const yOf = (val) => bot - ((val - p.v_rest) / (p.threshold - p.v_rest)) * (bot - top);
+    // track
+    ctx.strokeStyle = pal.rule;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - bw / 2, top, bw, bot - top);
+    // fill from v_rest up to the current v (clipped to the track)
+    const vClamped = Math.max(p.v_rest, Math.min(p.threshold, vNow));
+    const yTop = yOf(vClamped);
+    ctx.fillStyle = spiked ? pal.coral : ui.color('c1');
+    ctx.fillRect(x - bw / 2 + 1, yTop, bw - 2, bot - yTop);
+    // threshold and rest markers
+    ctx.strokeStyle = pal.muted;
+    ctx.setLineDash([3, 3]);
+    for (const [val, lab] of [[p.threshold, 'threshold'], [p.v_rest, 'v_rest']]) {
+      const y = yOf(val);
+      ctx.beginPath(); ctx.moveTo(x - bw / 2 - 4, y); ctx.lineTo(x + bw / 2 + 4, y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = pal.muted;
+      ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(`${lab} ${val} mV`, x + bw / 2 + 8, y);
+      ctx.setLineDash([3, 3]);
+    }
+    ctx.setLineDash([]);
+    // v readout to the left of the bar at the current level (the right side holds the markers).
+    ctx.fillStyle = pal.ink;
+    ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, x - bw / 2 - 8, yTop);
   }
 
   function codeSnippet() {
@@ -103,9 +159,13 @@ pop.I = pop.vector(mode=${cI.get()})   # constant input current (pA)
 net.simulate_iterations(${STEPS})`;
   }
 
+  // On a parameter change: recompute the run and continue from the current t (clamped).
+  function run() {
+    player.setDuration(computeRun());
+  }
+
   for (const c of [cR, cTau, cTh, cReset, cRest, cDt, cI]) c.onInput(run);
   ui.onTheme(run);
-  run();
 
   return { destroy() {} };
 }

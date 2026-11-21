@@ -84,13 +84,14 @@ export function mount(root, ui) {
     level.topDownInput = Float64Array.from(higher);
     trace.length = 0;
   }
-  const rebuild = () => { build(); render(); };
+  // Re-running on every control change keeps the plots populated (G1).
+  const rebuild = () => { build(); runSteps(40); };
   [signalType, sigSeed, hiSeed, lr, precTau, precLr, minPrec, maxPrec, nonlin, sparse, errThresh].forEach((c) => c.onInput(rebuild));
 
   // --- figures ---
-  const errPlot = ui.plot(figures, { height: 220, xLabel: 'step', xUnit: '', yLabel: 'mean |error| / prediction', yUnit: 'a.u.' });
-  const fePlot = ui.plot(figures, { height: 200, xLabel: 'step', xUnit: '', yLabel: 'free energy', yUnit: 'a.u.' });
-  const precPlot = ui.plot(figures, { height: 200, xLabel: 'step', xUnit: '', yLabel: 'mean precision', yUnit: 'a.u.' });
+  const errPlot = ui.plot(figures, { height: 220, xLabel: 'step', xUnit: 'index', yLabel: 'mean |error| / prediction', yUnit: 'a.u.' });
+  const fePlot = ui.plot(figures, { height: 200, xLabel: 'step', xUnit: 'index', yLabel: 'free energy', yUnit: 'a.u.' });
+  const precPlot = ui.plot(figures, { height: 200, xLabel: 'step', xUnit: 'index', yLabel: 'mean precision', yUnit: 'a.u.' });
 
   function record() {
     const meanAbs = level.errorMagnitude.reduce((a, b) => a + b, 0) / SIZE;
@@ -144,7 +145,9 @@ export function mount(root, ui) {
   ui.button(controls, { label: 'Reset', onClick: rebuild });
 
   build();
-  render();
+  // Run a default learning run on load so the plots are not empty; the buttons
+  // only re-run, perturb, or reset.
+  runSteps(40);
   ui.onTheme(render);
 
   // --- notes ---
@@ -200,14 +203,14 @@ from conex import (
 )
 
 config = PredictiveCodingConfig(
-    learning_rate=${lr.get()},
-    precision_tau=${precTau.get()},
-    precision_learning_rate=${precLr.get()},
-    min_precision=${minPrec.get()},
-    max_precision=${maxPrec.get()},
+    learning_rate=${fmt(lr.get())},
+    precision_tau=${fmt(precTau.get())},
+    precision_learning_rate=${fmt(precLr.get())},
+    min_precision=${fmt(minPrec.get())},
+    max_precision=${fmt(maxPrec.get())},
     error_nonlinearity="${nonlin.get()}",
     use_sparse_errors=${sparse.get() ? 'True' : 'False'},
-    error_threshold=${errThresh.get()},
+    error_threshold=${fmt(errThresh.get())},
 )
 behaviors = {
     230: TopDownPrediction(config=config),
@@ -240,4 +243,10 @@ function mulberry(seed) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+// At most 4 significant digits for numbers shown in text and code snippets.
+function fmt(v) {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return String(v);
+  return Number(v.toPrecision(4)).toString();
 }

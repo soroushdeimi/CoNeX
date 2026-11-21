@@ -256,3 +256,24 @@ test('Irregular: NOT reproduced (fires nearly regularly, low CV)', () => {
   const s = rowStats('Irregular');
   assert.ok(s.cv < 0.2, `Irregular CV=${s.cv} is low -> ISIs are not irregular`);
 });
+
+// CoNeX's Euler step multiplies the whole adaptation update by dt/w_tau, so each
+// spike raises omega by beta*dt, not by beta as in Gerstner's AdEx. With the
+// jump restored to beta (beta scaled by 1/dt), the named patterns come back:
+// the ISI CV of Bursting and Irregular rises above 1, while the CoNeX jump
+// keeps them below 0.2.
+function rowCv(name, betaScale) {
+  const g = S.phys_aelif[name];
+  const r = simulate('aelif', { ...g.params, beta: g.params.beta * betaScale }, g.current, g.steps, g.dt, g.params.v_rest);
+  return firingStats(spikeTimes(r.spikes, g.dt)).cv;
+}
+
+test('Bursting: ISI CV > 1 with jump b (beta/dt), < 0.2 with the CoNeX jump', () => {
+  assert.ok(rowCv('Bursting', 1 / 0.1) > 1, `Bursting CV=${rowCv('Bursting', 1 / 0.1)} should be > 1 with jump b`);
+  assert.ok(rowCv('Bursting', 1) < 0.2, `Bursting CV=${rowCv('Bursting', 1)} should be < 0.2 with the CoNeX jump`);
+});
+
+test('Irregular: ISI CV > 1 with jump b (beta/dt), < 0.2 with the CoNeX jump', () => {
+  assert.ok(rowCv('Irregular', 1 / 0.1) > 1, `Irregular CV=${rowCv('Irregular', 1 / 0.1)} should be > 1 with jump b`);
+  assert.ok(rowCv('Irregular', 1) < 0.2, `Irregular CV=${rowCv('Irregular', 1)} should be < 0.2 with the CoNeX jump`);
+});

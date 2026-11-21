@@ -11,6 +11,8 @@ import {
   lifRheobase,
   lifRateAnalytic,
   bucketFlows,
+  bucketLevel,
+  splashActive,
   fiCurve,
   kwta,
   inherentNoise,
@@ -63,6 +65,26 @@ test('bucketFlows: leak is 0 at rest and negative above rest; input scales with 
 
 test('bucketFlows throws on non-positive tau', () => {
   assert.throws(() => bucketFlows({ R: 0.5, I: 65, tau: 0, v_rest: -70 }, -60), /tau must be a positive finite number/);
+});
+
+test('bucketLevel: fraction between v_rest and threshold, clamped (hand-computed)', () => {
+  const p = { v_rest: -70, threshold: -50 };
+  // (-53.1 - (-70)) / (-50 - (-70)) = 16.9 / 20 = 0.845
+  close(bucketLevel(-53.1, p), 0.845, 1e-9, 'mid level');
+  close(bucketLevel(-70, p), 0, 1e-9, 'empty at v_rest');
+  close(bucketLevel(-45, p), 1, 1e-9, 'clamped to rim above threshold');
+  close(bucketLevel(-80, p), 0, 1e-9, 'clamped to floor below v_rest');
+});
+
+test('bucketLevel throws when threshold does not exceed v_rest', () => {
+  assert.throws(() => bucketLevel(-60, { v_rest: -50, threshold: -50 }), /threshold must exceed v_rest/);
+});
+
+test('splashActive: 0.5 ms model-time window after a spike', () => {
+  assert.equal(splashActive(0.4, 0, 0.5), true, '0.4 ms after -> active');
+  assert.equal(splashActive(0.6, 0, 0.5), false, '0.6 ms after -> inactive');
+  assert.equal(splashActive(0.5, 0, 0.5), false, 'at the window edge -> inactive');
+  assert.equal(splashActive(10, null, 0.5), false, 'no spike -> inactive');
 });
 
 test('LIF at rheobase never fires; just above it fires (golden)', () => {

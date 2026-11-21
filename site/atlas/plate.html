@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plate — CoNeX atlas</title>
+  <link rel="stylesheet" href="../assets/css/site.css">
+</head>
+<body>
+  <div class="page">
+    <div class="topbar">
+      <span class="brand"><a href="../index.html">CoNeX</a></span>
+      <nav>
+        <a href="index.html">Atlas</a>
+        <a href="../index.html">Home</a>
+      </nav>
+      <span class="spacer"></span>
+      <button id="theme-toggle" class="ui-button" type="button">Dark</button>
+    </div>
+
+    <header class="plate-header" id="plate-header"></header>
+    <div id="plate-root"></div>
+    <div class="plate-pager" id="plate-pager"></div>
+
+    <footer class="site-footer">
+      CoNeX — a teaching site for the <a href="https://github.com/cnrl/CoNeX">CoNeX</a> library.
+    </footer>
+  </div>
+
+  <script type="module">
+    import ui from '../assets/js/ui.js';
+    import { loadCatalogs } from '../assets/js/catalog.js';
+
+    const params = new URLSearchParams(location.search);
+    const id = params.get('id');
+
+    const header = document.getElementById('plate-header');
+    const root = document.getElementById('plate-root');
+    const pager = document.getElementById('plate-pager');
+
+    // theme toggle
+    const themeBtn = document.getElementById('theme-toggle');
+    function syncThemeBtn() {
+      themeBtn.textContent = ui.getTheme() === 'light' ? 'Dark' : 'Light';
+    }
+    themeBtn.addEventListener('click', () => {
+      ui.setTheme(ui.getTheme() === 'light' ? 'dark' : 'light');
+      syncThemeBtn();
+    });
+    syncThemeBtn();
+
+    function showError(msg) {
+      const box = document.createElement('div');
+      box.className = 'error-box';
+      box.innerHTML = `<h2>Could not load this plate</h2><p>${msg}</p>` +
+        `<p><a href="index.html">Back to the atlas</a></p>`;
+      root.appendChild(box);
+    }
+
+    async function load() {
+      if (!id) {
+        showError('No plate id given. Use <code>plate.html?id=&lt;id&gt;</code>.');
+        return;
+      }
+
+      // _example is a special case: not in any catalog.
+      let plate;
+      if (id === '_example') {
+        plate = await import('../assets/plates/_example.js');
+      } else {
+        const catalogs = await loadCatalogs();
+        const entry = catalogs
+          .flatMap((c) => c.plates.map((p) => ({ ...p, area: c.area, areaTitle: c.title })))
+          .find((p) => p.id === id);
+        if (!entry) {
+          showError(`No plate with id <code>${id}</code> was found in the catalogs.`);
+          return;
+        }
+        let mod;
+        try {
+          mod = await import(`../assets/plates/${id}.js`);
+        } catch (e) {
+          showError(`Plate <code>${id}</code> is listed but its module failed to load: ${e.message}`);
+          return;
+        }
+        plate = mod;
+        renderPager(entry, catalogs);
+      }
+
+      const meta = plate.meta || {};
+      header.innerHTML = `
+        <h1>${meta.title || id}</h1>
+        ${meta.conex && meta.conex.length ? `<div class="conex-classes">${meta.conex.join(' · ')}</div>` : ''}
+        ${meta.source ? `<p><a href="https://github.com/cnrl/CoNeX/blob/main/${meta.source}">Source on GitHub</a></p>` : ''}
+        <div class="plate-actions">
+          <button id="btn-reset" class="ui-button" type="button">Reset to CoNeX defaults</button>
+          <button id="btn-copy" class="ui-button" type="button">Copy link to this setup</button>
+          <button id="btn-download" class="ui-button" type="button">Download parameters (JSON)</button>
+        </div>`;
+
+      document.getElementById('btn-reset').addEventListener('click', () => {
+        history.replaceState(null, '', location.pathname + '?id=' + encodeURIComponent(id));
+        location.reload();
+      });
+      document.getElementById('btn-copy').addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(location.href);
+          const b = document.getElementById('btn-copy');
+          b.textContent = 'Copied';
+          setTimeout(() => { b.textContent = 'Copy link to this setup'; }, 1200);
+        } catch {
+          window.prompt('Copy this link:', location.href);
+        }
+      });
+      document.getElementById('btn-download').addEventListener('click', () => {
+        const data = JSON.stringify(ui.keyedParams(), null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${id}-parameters.json`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+
+      plate.mount(root, ui);
+    }
+
+    function renderPager(entry, catalogs) {
+      const ordered = catalogs
+        .slice()
+        .sort((a, b) => (a.order || 0) - (b.order || 0))
+        .flatMap((c) => c.plates);
+      const i = ordered.findIndex((p) => p.id === entry.id);
+      const prev = i > 0 ? ordered[i - 1] : null;
+      const next = i >= 0 && i < ordered.length - 1 ? ordered[i + 1] : null;
+      pager.innerHTML = '';
+      if (prev) {
+        const a = document.createElement('a');
+        a.href = `plate.html?id=${encodeURIComponent(prev.id)}`;
+        a.textContent = `← ${prev.title}`;
+        pager.appendChild(a);
+      }
+      if (next) {
+        const a = document.createElement('a');
+        a.href = `plate.html?id=${encodeURIComponent(next.id)}`;
+        a.textContent = `${next.title} →`;
+        pager.appendChild(a);
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

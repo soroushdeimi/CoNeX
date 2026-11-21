@@ -84,7 +84,7 @@ export function mount(root, ui) {
   // The neuron diagram + a compact STDP window curve with the lit point.
   function drawHero() {
     const ctx = hero.ctx, W = hero.width, H = hero.height;
-    const c1 = ui.color('c1'), c2 = ui.color('c2'), c4 = ui.color('c4');
+    const c1 = ui.color('c1'), c2 = ui.color('c2'), c3 = ui.color('c3');
     const ink = ui.color('ink'), muted = ui.color('muted');
     ctx.clearRect(0, 0, W, H);
     const last = ring.length ? ring[ring.length - 1] : { preT: 0, postT: 0, w, preS: 0, postS: 0, dw: 0 };
@@ -97,7 +97,7 @@ export function mount(root, ui) {
     ctx.beginPath(); ctx.moveTo(preX + r, cy); ctx.lineTo(postX - r, cy); ctx.stroke();
     // synapse: thickness = weight
     const sw = A.stdpSynapsePx(last.w, state.w_min, state.w_max);
-    ctx.fillStyle = c4;
+    ctx.fillStyle = c3; // weight = ochre (AMENDMENT 5: one colour per quantity)
     ctx.fillRect(synX - sw / 2, cy - 22, sw, 44);
     // neurons with a halo whose brightness is the trace
     const neuron = (x, color, halo) => {
@@ -109,10 +109,18 @@ export function mount(root, ui) {
     };
     neuron(preX, c1, A.stdpHalo(last.preT));
     neuron(postX, c2, A.stdpHalo(last.postT));
-    // a spike dot on the neuron that just fired
-    const dot = (x, color) => { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, cy, 5, 0, Math.PI * 2); ctx.fill(); };
-    if (last.preS) dot(preX, c1);
-    if (last.postS) dot(postX, c2);
+    // spike pulses travelling along the axon (pre -> synapse, post -> synapse)
+    const TRAVEL = 15; // model ms a pulse takes to reach the synapse (~150 ms real at 1x)
+    const pulse = (fromX, t0, color) => {
+      const p = A.stdpSpikePulse(t - 1, t0, TRAVEL);
+      if (p === null) return;
+      const x = A.lerp(fromX, synX, p);
+      ctx.save(); ctx.shadowColor = color; ctx.shadowBlur = 12;
+      ctx.fillStyle = color; ctx.globalAlpha = 1 - p * 0.4;
+      ctx.beginPath(); ctx.arc(x, cy, 5, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    };
+    pulse(preX, lastPre, c1);
+    pulse(postX, lastPost, c2);
     // +dw / -dw burst near the synapse
     if (Math.abs(last.dw) > 1e-9) {
       ctx.fillStyle = last.dw > 0 ? c1 : c2;
@@ -168,7 +176,7 @@ export function mount(root, ui) {
     tracePlot.draw([
       { x: xs, y: ring.map((r) => r.preT), label: 'pre_trace', color: 'c1' },
       { x: xs, y: ring.map((r) => r.postT), label: 'post_trace', color: 'c2' },
-      { x: xs, y: ring.map((r) => r.w), label: 'weight', color: 'c4' },
+      { x: xs, y: ring.map((r) => r.w), label: 'weight', color: 'c3' },
     ], { xRange: [t - state.window, t], yRange: [yMin, yMax * 1.05], hlines: [{ y: state.w_min, label: 'w_min' }, { y: state.w_max, label: 'w_max' }] });
     const b = (M.BOUNDS[state.bound] || M.noBound)(w, state.w_min, state.w_max);
     windowPlot.draw([{ x: windowBase.map((p) => p[0]), y: windowBase.map((p) => p[1] * b), label: 'STDP window', color: 'c1' }], { xRange: [-60, 60], hlines: [{ y: 0, label: '0' }] });

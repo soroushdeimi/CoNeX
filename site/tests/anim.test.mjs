@@ -36,6 +36,23 @@ test('stdpHighlightDelta picks the causal side for each spike', () => {
   assert.equal(A.stdpHighlightDelta(1, -1, -1, 0, 1), null);
 });
 
+test('stdpSpikePulse is in flight only between the spike and the synapse', () => {
+  // before the spike: not in flight
+  assert.equal(A.stdpSpikePulse(4, 10, 15), null);
+  // at the spike: just leaving the neuron
+  assert.equal(A.stdpSpikePulse(10, 10, 15), 0);
+  // halfway: 0.5
+  assert.equal(A.stdpSpikePulse(17.5, 10, 15), 0.5);
+  // just before arrival: close to 1
+  assert.ok(A.stdpSpikePulse(24.9, 10, 15) > 0.99 && A.stdpSpikePulse(24.9, 10, 15) < 1);
+  // at/after arrival: gone
+  assert.equal(A.stdpSpikePulse(25, 10, 15), null);
+  // no spike yet (t0 < 0): never in flight
+  assert.equal(A.stdpSpikePulse(5, -1, 15), null);
+  // non-positive travel: never in flight
+  assert.equal(A.stdpSpikePulse(5, 0, 0), null);
+});
+
 test('stdpNarration names the pairing and the sign of dw', () => {
   assert.equal(A.stdpNarration({ preSpike: 1, postSpike: 1, dw: 0 }), 'pre and post fire together: potentiation and depression both apply');
   assert.equal(A.stdpNarration({ preSpike: 1, postSpike: 0, dw: 0 }), 'pre spike: pre_trace rises; it will potentiate if the post fires next');

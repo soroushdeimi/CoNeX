@@ -28,6 +28,17 @@ export function stdpHighlightDelta(t, lastPre, lastPost, preSpike, postSpike) {
   return null;
 }
 
+// Progress (0..1) of a spike pulse travelling from its neuron to the synapse.
+// A spike at model time t0 takes `travel` model ms to reach the synapse; the
+// pulse is visible for 0 <= (t - t0) < travel. Returns null when the pulse is
+// not in flight (before the spike, or after it has arrived).
+export function stdpSpikePulse(t, t0, travel) {
+  if (t0 < 0 || travel <= 0) return null;
+  const age = t - t0;
+  if (age < 0 || age >= travel) return null;
+  return age / travel;
+}
+
 // One-line narration driven by the current pairing and the resulting dw.
 export function stdpNarration({ preSpike, postSpike, dw }) {
   if (preSpike && postSpike) return 'pre and post fire together: potentiation and depression both apply';

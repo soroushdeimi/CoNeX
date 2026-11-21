@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   encodeHash, decodeHash, rng, computeTicks, niceNum, dataRange, fmtTick,
+  listenerList,
 } from '../assets/js/core.js';
 
 // --- URL-hash encode/decode ------------------------------------------------
@@ -164,4 +165,42 @@ test('fmtTick handles very small and very large values', () => {
 
 test('fmtTick prints zero as "0"', () => {
   assert.equal(fmtTick(0, 1), '0');
+});
+
+// --- listenerList (backing ui.slider/number/select/toggle .onInput) --------
+
+test('listenerList.emit calls each listener in order with the value', () => {
+  const ll = listenerList();
+  const seen = [];
+  ll.add((v) => seen.push(['a', v]));
+  ll.add((v) => seen.push(['b', v]));
+  ll.emit(5);
+  assert.deepEqual(seen, [['a', 5], ['b', 5]]);
+});
+
+test('listenerList.add returns an unsubscribe that stops that listener', () => {
+  const ll = listenerList();
+  const seen = [];
+  const off = ll.add((v) => seen.push(['a', v]));
+  ll.add((v) => seen.push(['b', v]));
+  off();
+  ll.emit(1);
+  assert.deepEqual(seen, [['b', 1]]);
+});
+
+test('listenerList.size tracks the number of listeners', () => {
+  const ll = listenerList();
+  assert.equal(ll.size(), 0);
+  const off = ll.add(() => {});
+  assert.equal(ll.size(), 1);
+  off();
+  assert.equal(ll.size(), 0);
+});
+
+test('listenerList.emit is safe with no listeners and after unsubscribe', () => {
+  const ll = listenerList();
+  ll.emit(3); // no listeners: no throw
+  const off = ll.add(() => {});
+  off();
+  ll.emit(4); // all unsubscribed: no throw
 });

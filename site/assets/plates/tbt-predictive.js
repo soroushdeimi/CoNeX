@@ -165,6 +165,14 @@ export function mount(root, ui) {
     CoNeX: with the error near zero the log-normaliser term dominates and precision
     keeps climbing, so the free energy keeps falling &mdash; there is no prior over
     the precision to give it a resting point.</p>
+    <p>A note on scope: this plate runs CoNeX's single-level predictive-coding
+    chain &mdash; the wiring of
+    <code>Example/numenta/predictive_coding.py</code>. CoNeX also has
+    <code>HierarchicalPredictiveCoding</code>, but in the current code its top-down
+    pass reads <code>level_predictions[i + 1]</code> for every level
+    (<code>conex/behaviors/neurons/numenta/predictive_coding.py</code>, around line
+    753), so the top level never receives the propagated input and its predictions
+    stay zero. For that reason the multi-level class is not animated here.</p>
   `);
   ui.equation(notes, `
     <p>prediction = W<sub>top</sub><sup>T</sup> &middot; top_down_input</p>

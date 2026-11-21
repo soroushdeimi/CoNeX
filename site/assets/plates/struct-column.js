@@ -29,6 +29,7 @@ export function mount(root, ui) {
   const colSize = ui.number(sec, { key: 'columnSize', label: 'column_size', unit: 'neurons', value: 100 });
 
   const svgHost = ui.note(figures, '');
+  ui.note(figures, '<em>Connections read from <code>PredictiveCorticalColumn._create_connections</code> in <code>conex/nn/structure/numenta/predictive_hierarchy.py</code>.</em>');
   const detail = ui.note(figures, '<em>click a layer to see its neuron groups and behaviors</em>');
 
   let structure = corticalColumnStructure(colSize.get());

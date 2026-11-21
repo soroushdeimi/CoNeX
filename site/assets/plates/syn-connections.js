@@ -72,29 +72,98 @@ function computeCurrent(type, state, weights, spikes) {
   return [];
 }
 
+// Per-post-neuron contribution of each pre neuron, so a spike can be shown
+// flowing along its real connection and adding to the post current. The current
+// is linear in the spikes, so a one-hot source gives that source's share.
+function contributions(type, state, weights, spikes) {
+  const nDst = computeCurrent(type, state, weights, new Array(N).fill(0)).length;
+  const out = new Array(nDst).fill(0).map(() => new Array(N).fill(0));
+  for (let s = 0; s < N; s++) {
+    if (!spikes[s]) continue;
+    const one = new Array(N).fill(0);
+    one[s] = 1;
+    const I = computeCurrent(type, state, weights, one);
+    for (let d = 0; d < nDst; d++) out[d][s] = I[d];
+  }
+  return out;
+}
+
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
   const state = { type: 'dense', density: 0.5, kh: 3, kw: 3, stride: 1, pattern: 'checker', inhibitory: false, seed: 7 };
 
   const inputHeat = ui.heatmap(figures, { rows: H, cols: W, label: 'input pattern (pre spikes)' });
   const connHeat = ui.heatmap(figures, { rows: 16, cols: 16, label: 'connection pattern' });
+  const flow = ui.canvas(figures, { height: 200 });
   const currentPlot = ui.plot(figures, { height: 180, xLabel: 'post neuron', xUnit: 'index', yLabel: 'current I', yUnit: 'a.u.' });
 
-  function draw() {
+  let data = null; // { spikes, conn, contrib, current, nDst, yMax }
+  let curT = 0;
+  let player = null;
+
+  function compute() {
     const rand = M.mulberry32(state.seed);
     const spikes = inputPattern(state.pattern);
     const weights = buildWeights(state.type, state, rand);
     const conn = connectionPattern(state.type, state, weights);
-    const current = computeCurrent(state.type, state, weights, spikes);
+    const contrib = contributions(state.type, state, weights, spikes);
+    const nDst = contrib.length;
+    const current = contrib.map((row) => row.reduce((a, b) => a + b, 0));
+    data = { spikes, conn, contrib, current, nDst, yMax: Math.max(0.1, ...current.map(Math.abs)) };
+  }
 
-    inputHeat.draw(spikes, { min: 0, max: 1 });
-    connHeat.draw(conn.values, { min: 0, max: 1 });
-    const xs = current.map((_, i) => i);
-    const yMax = Math.max(0.1, ...current);
+  // Spikes flow from each active pre neuron along its real connections to the
+  // post neurons; the current bars fill as the spikes arrive (schematic timing).
+  function drawFlow(t) {
+    const ctx = flow.ctx, W = flow.width, Hh = flow.height;
+    const c1 = ui.color('c1'), c2 = ui.color('c2'), ink = ui.color('ink'), muted = ui.color('muted');
+    ctx.clearRect(0, 0, W, Hh);
+    const nDst = data.nDst;
+    const leftX = W * 0.18, rightX = W * 0.82;
+    const py = (d) => (Hh * (d + 0.5)) / nDst;
+    const iy = (i) => (Hh * (Math.floor(i / W) + 0.5)) / H;
+    const ix = (i) => leftX - (i % W) * 6;
+    // connections
+    ctx.strokeStyle = muted; ctx.lineWidth = 0.5;
+    for (let d = 0; d < nDst; d++) for (let s = 0; s < N; s++) {
+      if (!data.contrib[d][s]) continue;
+      ctx.globalAlpha = 0.25;
+      ctx.beginPath(); ctx.moveTo(ix(s), iy(s)); ctx.lineTo(leftX, py(d)); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    // travelling spike dots
+    for (let d = 0; d < nDst; d++) for (let s = 0; s < N; s++) {
+      if (!data.contrib[d][s]) continue;
+      const x = ix(s) + (leftX - ix(s)) * t;
+      ctx.fillStyle = c2; ctx.beginPath(); ctx.arc(x, iy(s) + (py(d) - iy(s)) * t, 2, 0, Math.PI * 2); ctx.fill();
+    }
+    // post neurons + current bars
+    for (let d = 0; d < nDst; d++) {
+      const val = data.current[d] * t;
+      const bw = Math.max(2, (val / data.yMax) * (W * 0.3));
+      ctx.fillStyle = c1;
+      ctx.fillRect(rightX, py(d) - 4, Math.max(0, bw), 8);
+      ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(rightX - 6, py(d), 4, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  function renderAt(t) {
+    if (!data) return;
+    curT = t;
+    inputHeat.draw(data.spikes, { min: 0, max: 1 });
+    connHeat.draw(data.conn.values, { min: 0, max: 1 });
+    const xs = data.current.map((_, i) => i);
     currentPlot.draw(
-      [{ x: xs, y: current, label: 'current', color: 'c1', style: 'bars' }],
-      { xRange: [0, Math.max(1, current.length)], yRange: [0, yMax] }
+      [{ x: xs, y: data.current.map((v) => v * t), label: 'current', color: 'c1', style: 'bars' }],
+      { xRange: [0, Math.max(1, data.nDst)], yRange: [0, data.yMax] }
     );
+    drawFlow(t);
+  }
+
+  function recompute() {
+    compute();
+    if (player) { player.setDuration(1); renderAt(Math.min(curT, 1)); }
+    else renderAt(1); // no player (checker): show the full current
   }
 
   const sec = ui.section(controls, 'Connection');
@@ -109,7 +178,7 @@ export function mount(root, ui) {
       { value: 'lateral', label: 'lateral' },
       { value: 'avgpool', label: 'average pool' },
     ],
-    onInput: (v) => { state.type = v; draw(); },
+    onInput: (v) => { state.type = v; recompute(); },
   });
   ui.select(sec, {
     key: 'pattern', label: 'input pattern', value: state.pattern,
@@ -119,25 +188,32 @@ export function mount(root, ui) {
       { value: 'left', label: 'left half' },
       { value: 'all', label: 'all on' },
     ],
-    onInput: (v) => { state.pattern = v; draw(); },
+    onInput: (v) => { state.pattern = v; recompute(); },
   });
-  ui.slider(sec, { key: 'density', label: 'density (sparse)', unit: 'a.u.', min: 0.05, max: 1, step: 0.05, value: state.density, onInput: (v) => { state.density = v; draw(); } });
-  ui.slider(sec, { key: 'kh', label: 'kernel height', unit: 'px', min: 1, max: 3, step: 2, value: state.kh, onInput: (v) => { state.kh = v; draw(); } });
-  ui.slider(sec, { key: 'kw', label: 'kernel width', unit: 'px', min: 1, max: 3, step: 2, value: state.kw, onInput: (v) => { state.kw = v; draw(); } });
-  ui.slider(sec, { key: 'stride', label: 'stride', unit: 'px', min: 1, max: 2, step: 1, value: state.stride, onInput: (v) => { state.stride = v; draw(); } });
-  ui.toggle(sec, { key: 'inhibitory', label: 'inhibitory source', value: state.inhibitory, onInput: (v) => { state.inhibitory = v; draw(); } });
-  ui.number(sec, { key: 'seed', label: 'weight seed', unit: '', value: state.seed, onInput: (v) => { state.seed = v; draw(); } });
+  ui.slider(sec, { key: 'density', label: 'density (sparse)', unit: 'a.u.', min: 0.05, max: 1, step: 0.05, value: state.density, onInput: (v) => { state.density = v; recompute(); } });
+  ui.slider(sec, { key: 'kh', label: 'kernel height', unit: 'px', min: 1, max: 3, step: 2, value: state.kh, onInput: (v) => { state.kh = v; recompute(); } });
+  ui.slider(sec, { key: 'kw', label: 'kernel width', unit: 'px', min: 1, max: 3, step: 2, value: state.kw, onInput: (v) => { state.kw = v; recompute(); } });
+  ui.slider(sec, { key: 'stride', label: 'stride', unit: 'px', min: 1, max: 2, step: 1, value: state.stride, onInput: (v) => { state.stride = v; recompute(); } });
+  ui.toggle(sec, { key: 'inhibitory', label: 'inhibitory source', value: state.inhibitory, onInput: (v) => { state.inhibitory = v; recompute(); } });
+  ui.number(sec, { key: 'seed', label: 'weight seed', unit: '', value: state.seed, onInput: (v) => { state.seed = v; recompute(); } });
 
-  ui.onTheme(draw);
-  draw();
+  recompute();
+  // the cross-area checker's mock ui has no player; fall back to the full view
+  player = (typeof ui.player === 'function') ? ui.player(controls, {
+    duration: 1, unit: 'a.u.', playSeconds: 3, loop: true,
+    onFrame: (t) => renderAt(t),
+  }) : null;
+  if (player) player.seek(0); // start empty; the player then fills the currents
+  if (typeof flow.onResize === 'function') flow.onResize(() => drawFlow(curT));
+  ui.onTheme(() => renderAt(curT));
 
   ui.note(notes, `These are the ways CoNeX turns pre-synaptic spikes into a post-synaptic current <var>I</var>. <b>Dense</b> connects every pre to every post; <b>sparse</b> keeps only a fraction (density); <b>one-to-one</b> pairs each pre with one post; <b>conv2d</b> and <b>lateral</b> share a small kernel across space; <b>local2d</b> gives each post its own kernel over its local patch; <b>average pool</b> downsamples by averaging. The sign of the current flips for an inhibitory source.`);
   ui.equation(notes, `<var>I</var> = current_coef · current_type · calculate_input, &nbsp; current_type = −1 if inhibitory else 1`);
-  ui.note(notes, `The current is dimensionless (a.u.); the grid is 4x4 pixels. ML analogy: these are exactly the weight layouts of a dense layer, a sparse mask, an identity map, a convolution, a local (unshared) convolution, and a pooling layer. The analogy breaks because here the "input" is a spike (0/1), not a continuous activation, and the current feeds a spiking neuron rather than a linear unit.`);
+  ui.note(notes, `The current is dimensionless (a.u.); the grid is 4x4 pixels. The animation shows each active pre neuron's spike flowing along its real connection to the post neurons, and the current bars filling as the spikes arrive (schematic timing). ML analogy: these are exactly the weight layouts of a dense layer, a sparse mask, an identity map, a convolution, a local (unshared) convolution, and a pooling layer. The analogy breaks because here the "input" is a spike (0/1), not a continuous activation, and the current feeds a spiking neuron rather than a linear unit.`);
   ui.code(notes, () => {
     const cls = { dense: 'SimpleDendriticInput', sparse: 'SparseDendriticInput', one2one: 'One2OneDendriticInput', conv2d: 'Conv2dDendriticInput', local2d: 'Local2dDendriticInput', lateral: 'LateralDendriticInput', avgpool: 'AveragePool2D' }[state.type];
     const extra = state.type === 'conv2d' || state.type === 'local2d' ? `, stride=${state.stride}, padding=0` : '';
     return `from conex import ${cls}\n${cls}(current_coef=1${extra})`;
   });
-  return { destroy() {} };
+  return { destroy() { if (player) player.pause(); } };
 }

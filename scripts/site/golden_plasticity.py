@@ -210,7 +210,7 @@ def scenario_rstdp(reward):
     steps = 10
     pre_sp = [[1, 0], [1, 0], [1, 0], [1, 0], [0, 0], [0, 0], [0, 1], [0, 0], [0, 0], [0, 0]]
     post_sp = [[0, 0], [0, 0], [0, 0], [0, 0], [0, 1], [0, 1], [0, 0], [0, 0], [0, 1], [0, 0]]
-    rec = {"w": [], "c": [], "dopamine": []}
+    rec = {"w": [], "c": [], "dopamine": [], "pre_trace": [], "post_trace": []}
     syn = net.SynapseGroups[0]
     for t in range(steps):
         net.payoff = reward[t]
@@ -220,15 +220,21 @@ def scenario_rstdp(reward):
         rec["w"].append(v(syn.weights))
         rec["c"].append(v(syn.c))
         rec["dopamine"].append(float(net.dopamine_concentration))
+        rec["pre_trace"].append(v(syn.pre_trace))
+        rec["post_trace"].append(v(syn.post_trace))
     return {
         "params": {
             "a_plus": 0.01, "a_minus": 0.002, "tau_c": 10.0, "tau_s": 10.0,
             "dt": 1.0, "w0": 0.5, "tau_dopamine": 10.0,
         },
         "payoff": reward,
+        "pre_spikes": pre_sp,
+        "post_spikes_in": post_sp,
         "weights": rec["w"],
         "eligibility": rec["c"],
         "dopamine": rec["dopamine"],
+        "pre_trace": rec["pre_trace"],
+        "post_trace": rec["post_trace"],
     }
 
 

@@ -122,7 +122,7 @@ export function mount(root, ui) {
     ui.note(
       dynNotes,
       `<p>The scalar encoder maps a value to a contiguous block of <b>${o.n_active}</b> active bits whose center tracks the ` +
-        `normalized value, wrapping around at the end. The animation sweeps the input value across ` +
+        `normalized value, linearly across the range. The animation sweeps the input value across ` +
         `[<b>${o.min_val}</b>, <b>${o.max_val}</b>] a.u.; the top row is the reference block at <b>${ref.toFixed(2)}</b>, the bottom row ` +
         `the sweeping block. Reference and reference+Δ (Δ = ${delta.toFixed(2)} a.u.) share <b>${overlap}</b> bits.</p>` +
         `<p>Overlap falls as the two values drift apart: nearby values keep most of their bits, distant values share none. ` +
@@ -155,7 +155,8 @@ export function mount(root, ui) {
       `<p><b>Background.</b> Real sensory input is continuous; the encoder turns it into an SDR the Spatial Pooler can use. ` +
         `A sliding-window (bucket) encoder keeps nearby values similar. ` +
         `<b>ML analogy:</b> a quantizer / one-hot with a soft neighborhood. ` +
-        `The analogy breaks because the wrap-around makes the space circular, so the two ends of the range are neighbors.</p>`
+        `The analogy breaks because the encoding is linear, not circular: the center is ` +
+        `⌊norm(v)·(n−w)⌋, so the min and max values have zero overlap and the two ends of the range are not neighbors.</p>`
     );
     dynNotes = document.createElement('div');
     notes.appendChild(dynNotes);

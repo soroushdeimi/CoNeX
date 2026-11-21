@@ -34,6 +34,18 @@ export function sdrHeroState(run, t) {
   return { idx, next, f, a, sample, overlapMask, overlapBar, narration };
 }
 
+// Draw a row of bits: active bits filled, inactive hollow.
+function drawBits(ctx, bits, x0, y, w, h, color, muted) {
+  const n = bits.length;
+  const gap = 2;
+  const bw = (w - gap * (n - 1)) / n;
+  for (let i = 0; i < n; i++) {
+    const x = x0 + i * (bw + gap);
+    ctx.fillStyle = bits[i] ? color : muted;
+    ctx.fillRect(x, y, bw, h);
+  }
+}
+
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 

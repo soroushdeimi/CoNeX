@@ -22,42 +22,76 @@ function drawBits(ctx, bits, x0, y, w, h, color, muted) {
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
-  const sizeCtl = ui.number(controls, { key: 'size', label: 'SDR size n', unit: 'bits', value: 64, onInput: () => redraw() });
-  const wCtl = ui.number(controls, { key: 'w', label: 'active bits w', unit: 'bits', value: 8, onInput: () => redraw() });
-  const thetaCtl = ui.number(controls, { key: 'theta', label: 'match threshold θ', unit: 'bits', value: 4, onInput: () => redraw() });
-  const seedCtl = ui.number(controls, { key: 'seed', label: 'random seed', unit: '', value: 1234, onInput: () => redraw() });
-  const samplesCtl = ui.number(controls, { key: 'samples', label: 'Monte-Carlo samples', unit: '', value: 20000, onInput: () => redraw() });
+  const sizeCtl = ui.number(controls, { key: 'size', label: 'SDR size n', unit: 'bits', value: 64, onInput: () => recompute() });
+  const wCtl = ui.number(controls, { key: 'w', label: 'active bits w', unit: 'bits', value: 8, onInput: () => recompute() });
+  const thetaCtl = ui.number(controls, { key: 'theta', label: 'match threshold θ', unit: 'bits', value: 4, onInput: () => recompute() });
+  const seedCtl = ui.number(controls, { key: 'seed', label: 'random seed', unit: '', value: 1234, onInput: () => recompute() });
+  const samplesCtl = ui.number(controls, { key: 'samples', label: 'Monte-Carlo samples', unit: '', value: 20000, onInput: () => recompute() });
 
   const bitsCanvas = ui.canvas(figures, { height: 120 });
-  const probPlot = ui.plot(figures, { height: 220, xLabel: 'overlap b', yLabel: 'P(B = b)', xUnit: 'bits', yUnit: 'a.u.' });
+  const histPlot = ui.plot(figures, { height: 220, xLabel: 'overlap b', yLabel: 'P(B = b)', xUnit: 'bits', yUnit: 'a.u.' });
+  const readout = document.createElement('div');
+  readout.className = 'ui-note';
+  figures.appendChild(readout);
 
-  let last = {};
+  let run = null; // precomputed sampling run
+  let lastT = 0; // current player time, in samples
 
-  // The canvas backing store is reset on layout/resize, so register the draw
-  // via onResize (called after layout and on every resize) rather than once.
-  function drawBitsFig() {
-    if (!last.a) return;
+  // The player reveals the precomputed run sample by sample.
+  const player = typeof ui.player === 'function'
+    ? ui.player(figures, { duration: 1, unit: 'samples', playSeconds: 5, loop: true, onFrame: frame })
+    : null;
+
+  function frame(t) {
+    if (!run) return;
+    lastT = t;
+    const m = run.m;
+    const idx = Math.max(0, Math.min(m - 1, Math.floor(t)));
+    drawBitsFig(idx);
+
+    // Histogram of the overlaps so far, normalized to a probability,
+    // against the exact hypergeometric PMF.
+    const counts = run.cum[idx];
+    const hist = counts.map((c, b) => ({ x: b, y: c / (idx + 1) }));
+    histPlot.draw(
+      [
+        { x: hist.map((p) => p.x), y: hist.map((p) => p.y), label: 'Monte-Carlo', color: 'c2', style: 'bars' },
+        { x: run.pmf.map((p) => p.x), y: run.pmf.map((p) => p.y), label: 'P(B=b) exact', color: 'c1', style: 'line' },
+      ],
+      {
+        xRange: [0, run.w],
+        yRange: [0, run.maxPmf * 1.1],
+        hlines: [{ y: run.pMatch, label: `P(B≥θ)=${run.pMatch.toExponential(2)}` }],
+        vlines: [{ x: run.theta, label: `θ=${run.theta}` }],
+      }
+    );
+    readout.textContent =
+      `sample ${idx + 1}/${m}: overlap ${run.ov[idx]} bits, ` +
+      `P̂(B≥θ) = ${(run.hits[idx] / (idx + 1)).toExponential(3)}`;
+  }
+
+  // Rows: fixed code a, the current random sample, their intersection.
+  function drawBitsFig(idx) {
     const { ctx, width, height } = bitsCanvas;
     const rowH = 18;
     const pad = 8;
     ctx.clearRect(0, 0, width, height);
-    const c1 = ui.color('c1');
-    const c2 = ui.color('c2');
-    const c3 = ui.color('c3');
-    const muted = ui.color('muted');
-    drawBits(ctx, last.a.toDense(), pad, pad, width - 2 * pad, rowH, c1, muted);
-    drawBits(ctx, last.b.toDense(), pad, pad + rowH + 6, width - 2 * pad, rowH, c2, muted);
-    drawBits(ctx, last.union.toDense(), pad, pad + 2 * (rowH + 6), width - 2 * pad, rowH, c3, muted);
-    drawBits(ctx, last.inter.toDense(), pad, pad + 3 * (rowH + 6), width - 2 * pad, rowH, ui.color('ink'), muted);
+    const a = run.a.toDense();
+    const s = run.bits[idx];
+    const inter = a.map((v, i) => (v && s[i] ? 1 : 0));
+    drawBits(ctx, a, pad, pad, width - 2 * pad, rowH, ui.color('c1'), ui.color('muted'));
+    drawBits(ctx, s, pad, pad + rowH + 6, width - 2 * pad, rowH, ui.color('c2'), ui.color('muted'));
+    drawBits(ctx, inter, pad, pad + 2 * (rowH + 6), width - 2 * pad, rowH, ui.color('ink'), ui.color('muted'));
   }
-  // Register the redraw on resize when the ui supports it (the real ui.js does);
-  // the direct drawBitsFig() call in redraw() covers the no-onResize case.
-  if (typeof bitsCanvas.onResize === 'function') bitsCanvas.onResize(drawBitsFig);
+  // The canvas backing store is reset on layout/resize, so register the draw
+  // via onResize (called after layout and on every resize) rather than once.
+  if (typeof bitsCanvas.onResize === 'function') bitsCanvas.onResize(() => drawBitsFig(Math.max(0, Math.min(run ? run.m - 1 : 0, Math.floor(lastT)))));
 
-  function redraw() {
+  function recompute() {
     const n = sizeCtl.get();
     const w = Math.min(wCtl.get(), n);
     const theta = thetaCtl.get();
+    const m = Math.max(1, samplesCtl.get());
     const rng = ui.rng(seedCtl.get());
     const pick = () => {
       const idx = new Set();
@@ -65,50 +99,51 @@ export function mount(root, ui) {
       return new SDR(n, [...idx]);
     };
     const a = pick();
-    const b = pick();
-    const union = a.union(b);
-    const inter = a.intersection(b);
-    const overlap = a.overlap(b);
-
-    // Hypergeometric PMF P(B=b) and the false-match tail P(B>=theta).
-    const pmf = [];
-    for (let b = 0; b <= w; b++) {
-      // P(B=b) = C(w,b) C(n-w, w-b) / C(n,w); compute in log-space.
-      const t = logCombLocal(w, b) + logCombLocal(n - w, w - b) - logCombLocal(n, w);
-      pmf.push({ x: b, y: Math.exp(t) });
-    }
-    const pMatch = falseMatchProbability(n, w, w, theta);
-    const pExp = expectedOverlap(n, w);
-
-    // Monte-Carlo estimate of P(B>=theta).
-    const m = samplesCtl.get();
-    let hits = 0;
     const aDense = a.toDense();
+    // Draw all m random codes up front; the player only indexes into this.
     const rng2 = ui.rng(seedCtl.get() + 7919);
+    const bits = new Array(m);
+    const ov = new Array(m);
+    const hits = new Array(m);
+    const cum = new Array(m);
+    const counts = new Array(w + 1).fill(0);
+    let h = 0;
     for (let s = 0; s < m; s++) {
       const idx = new Set();
       while (idx.size < w) idx.add(Math.floor(rng2.next() * n));
-      let ov = 0;
-      for (const i of idx) if (aDense[i]) ov++;
-      if (ov >= theta) hits++;
-    }
-    const pMC = hits / m;
-
-    const maxPmf = Math.max(...pmf.map((p) => p.y), 1e-12);
-    probPlot.draw(
-      [
-        { x: pmf.map((p) => p.x), y: pmf.map((p) => p.y), label: 'P(B=b)', color: 'c1', style: 'bars' },
-      ],
-      {
-        xRange: [0, w],
-        yRange: [0, maxPmf * 1.1],
-        hlines: [{ y: pMatch, label: `P(B≥θ)=${pMatch.toExponential(2)}` }],
-        vlines: [{ x: theta, label: `θ=${theta}` }],
+      const d = new Array(n).fill(0);
+      let o = 0;
+      for (const i of idx) {
+        d[i] = 1;
+        if (aDense[i]) o++;
       }
-    );
-
-    last = { a, b, union, inter, n, w, theta, overlap, unionN: union.n_active, interN: inter.n_active, pMatch, pMC, pExp };
-    drawBitsFig();
+      bits[s] = d;
+      ov[s] = o;
+      counts[o]++;
+      if (o >= theta) h++;
+      hits[s] = h;
+      cum[s] = counts.slice();
+    }
+    // Hypergeometric PMF P(B=b), computed in log-space.
+    const pmf = [];
+    for (let b = 0; b <= w; b++) {
+      const t = logCombLocal(w, b) + logCombLocal(n - w, w - b) - logCombLocal(n, w);
+      pmf.push({ x: b, y: Math.exp(t) });
+    }
+    const maxPmf = Math.max(...pmf.map((p) => p.y), 1e-12);
+    run = {
+      n, w, theta, m, a, bits, ov, hits, cum, pmf, maxPmf,
+      b0: new SDR(n, bits[0].map((v, i) => (v ? i : -1)).filter((i) => i >= 0)),
+      pMatch: falseMatchProbability(n, w, w, theta),
+      pExp: expectedOverlap(n, w),
+    };
+    if (player) {
+      player.setDuration(m);
+      // Keep the current position (clamped) so a parameter change does not restart the run.
+      player.seek(Math.min(lastT, m));
+    } else {
+      frame(m); // no player available: show the finished run
+    }
     updateNotes();
   }
 
@@ -119,27 +154,28 @@ export function mount(root, ui) {
   function updateNotes() {
     if (!dynNotes) return;
     dynNotes.innerHTML = '';
-    const { n, w, theta, overlap, unionN, interN, pMatch, pMC, pExp } = last;
+    const { n, w, theta, m, a, b0, ov, hits, pMatch, pExp } = run;
+    const pMC = hits[m - 1] / m;
     ui.note(
       dynNotes,
       `<p>An SDR is a set of <b>${w}</b> active bits out of <b>${n}</b> (sparsity ${(100 * w / n).toFixed(1)}%). ` +
-        `Two random SDRs share <b>${overlap}</b> bits here; the expected overlap of two independent codes is ` +
-        `<b>w²/n = ${pExp.toFixed(3)} bits</b>. The union has <b>${unionN}</b> bits, the intersection <b>${interN}</b>.</p>` +
+        `The fixed code <b>a</b> (top row) is compared against <b>${m}</b> random ${w}-bit codes drawn one at a time ` +
+        `(middle row); the bottom row is their intersection. The expected overlap of two independent codes is ` +
+        `<b>w²/n = ${pExp.toFixed(3)} bits</b>.</p>` +
         `<p>The false-match probability is the chance a random ${w}-bit code overlaps a fixed one in at least ` +
         `<b>θ = ${theta}</b> bits: the hypergeometric tail ` +
         `<b>P(B≥θ) = ${pMatch.toExponential(3)}</b> (exact). ` +
-        `A seeded Monte-Carlo estimate over ${samplesCtl.get()} samples gives <b>${pMC.toExponential(3)}</b> ` +
-        `(${pMatch === 0 ? 'both below the sampling floor' : 'compare the two'}). ` +
+        `The Monte-Carlo estimate after all ${m} samples is <b>${pMC.toExponential(3)}</b>. ` +
         `All quantities are dimensionless counts (a.u.).</p>`
     );
     ui.code(dynNotes, () =>
       `import torch\n` +
       `from conex import SDR\n` +
-      `a = SDR(size=${n}, indices=torch.tensor([0, 1, 2, 3, 4, 5, 6, 7]))\n` +
-      `b = SDR(size=${n}, indices=torch.tensor([4, 5, 6, 7, 8, 9, 10, 11]))\n` +
-      `a.overlap(b)                    # ${overlap} bits\n` +
-      `a.union(b).n_active             # ${unionN} bits\n` +
-      `a.intersection(b).n_active      # ${interN} bits\n` +
+      `a = SDR(size=${n}, indices=torch.tensor([${a.indices.join(', ')}]))\n` +
+      `b = SDR(size=${n}, indices=torch.tensor([${b0.indices.join(', ')}]))\n` +
+      `a.overlap(b)                    # ${ov[0]} bits\n` +
+      `a.union(b).n_active             # ${a.union(b0).n_active} bits\n` +
+      `a.intersection(b).n_active      # ${ov[0]} bits\n` +
       `a.match_threshold(b, theta=${theta})`
     );
   }
@@ -166,9 +202,9 @@ export function mount(root, ui) {
   }
 
   staticNotes();
-  redraw();
-  ui.onTheme(redraw);
-  return { destroy() {} };
+  recompute();
+  ui.onTheme(() => frame(lastT));
+  return { destroy() { if (player) player.pause(); } };
 }
 
 // Local log-comb for the PMF bars (same Lanczos lgamma as the model).

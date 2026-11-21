@@ -5,7 +5,10 @@ Builds small CoNeX networks with the real classes (LIF, ELIF, AELIF,
 InherentNoise, Fire, KWTA, homeostasis, TimeResolution), runs them,
 and writes site/tests/golden/neurons.json.
 
-All quantities are in CoNeX dimensionless units (a.u.).
+Two unit systems are kept:
+- The original dimensionless (a.u.) cases (LIF_PARAMS etc.).
+- Physiological cases from Gerstner et al. "Neuronal Dynamics" (2014),
+  Table 6.1: v in mV, t in ms, I in pA, R in GOhm, a in nS, b in pA.
 """
 
 import json
@@ -30,9 +33,42 @@ LIF_PARAMS = dict(R=10.0, threshold=20.0, tau=10.0, v_reset=0.0, v_rest=0.0)
 ELIF_PARAMS = dict(LIF_PARAMS, delta=2.0, theta_rh=15.0)
 AELIF_PARAMS = dict(ELIF_PARAMS, alpha=0.08, beta=0.5, w_tau=100.0)
 
+# Physiological (Gerstner et al. Table 6.1). R in GOhm, v in mV, I in pA,
+# a in nS, b in pA, tau/tau_w in ms. threshold=0 mV is a simulation choice
+# (the book gives no AdEx spike-detection threshold).
+PHYS_SHARED = dict(R=0.5, threshold=0.0, v_rest=-70.0, delta=2.0, theta_rh=-50.0)
+PHYS_LIF = dict(R=0.5, threshold=-50.0, tau=20.0, v_reset=-55.0, v_rest=-70.0)
+PHYS_DT = 0.1
+# Table 6.1 rows: CoNeX names alpha=a, beta=b, w_tau=tau_w, v_reset=u_r.
+TABLE61 = {
+    "Tonic":         dict(tau=20.0, alpha=0.0,  w_tau=30.0,  beta=60.0, v_reset=-55.0, I=65.0),
+    "Adapting":      dict(tau=20.0, alpha=0.0,  w_tau=100.0, beta=5.0,  v_reset=-55.0, I=65.0),
+    "Initial burst": dict(tau=5.0,  alpha=0.5,  w_tau=100.0, beta=7.0,  v_reset=-51.0, I=65.0),
+    "Bursting":      dict(tau=5.0,  alpha=-0.5, w_tau=100.0, beta=7.0,  v_reset=-46.0, I=65.0),
+    "Irregular":     dict(tau=9.9,  alpha=-0.5, w_tau=100.0, beta=7.0,  v_reset=-46.0, I=65.0),
+    "Transient":     dict(tau=10.0, alpha=1.0,  w_tau=100.0, beta=10.0, v_reset=-60.0, I=65.0),
+    "Delayed":       dict(tau=5.0,  alpha=-1.0, w_tau=100.0, beta=10.0, v_reset=-60.0, I=25.0),
+}
+
 
 def make_net(dt=1.0):
     return Network(behavior=[TimeResolution(dt=dt)])
+
+
+def run_phys(behavior_cls, params, current, steps, dt=PHYS_DT):
+    """Run one physiological neuron starting at v_rest; return v and spike traces."""
+    net = make_net(dt)
+    pop = NeuronGroup(net=net, size=1, behavior=[
+        behavior_cls(**params, init_v=torch.tensor([params["v_rest"]])), Fire()])
+    net.initialize()
+    pop.I = pop.vector(mode=current)
+    v = []
+    spikes = []
+    for _ in range(steps):
+        net.simulate_iteration()
+        v.append(round(pop.v.item(), 6))
+        spikes.append(bool(pop.spikes.item()))
+    return {"v": v, "spikes": spikes}
 
 
 def run_single(behavior_cls, params, current, steps, dt=1.0, extra=None):
@@ -225,6 +261,29 @@ def main():
         "size": 8, "current": 3.0, "steps": 10, "dt": 1.0,
         "v": v_trace, "spikes": spike_trace,
     }
+
+    # 10. Physiological LIF (Gerstner Table 6.1 units), constant current 65 pA.
+    golden["scenarios"]["phys_lif"] = {
+        "params": PHYS_LIF, "current": 65.0, "steps": 500, "dt": PHYS_DT,
+        **run_phys(LIF, PHYS_LIF, 65.0, 500),
+    }
+
+    # 11. Physiological ELIF, constant current 65 pA.
+    golden["scenarios"]["phys_elif"] = {
+        "params": dict(PHYS_SHARED, tau=20.0, v_reset=-55.0),
+        "current": 65.0, "steps": 500, "dt": PHYS_DT,
+        **run_phys(ELIF, dict(PHYS_SHARED, tau=20.0, v_reset=-55.0), 65.0, 500),
+    }
+
+    # 12. Physiological AELIF, one Table 6.1 row each, constant current, 5000 steps.
+    aelif_rows = {}
+    for name, row in TABLE61.items():
+        params = {k: v for k, v in dict(PHYS_SHARED, **row).items() if k != "I"}
+        aelif_rows[name] = {
+            "params": params, "current": row["I"], "steps": 5000, "dt": PHYS_DT,
+            **run_phys(AELIF, params, row["I"], 5000),
+        }
+    golden["scenarios"]["phys_aelif"] = aelif_rows
 
     with open(OUT, "w") as f:
         json.dump(golden, f, indent=2)

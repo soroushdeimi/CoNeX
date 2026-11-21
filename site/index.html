@@ -36,7 +36,7 @@
       <p class="install-line">pip install cnrl-conex</p>
 
       <figure class="ui-figure hero-figure">
-        <canvas id="hero-canvas" style="width:100%;height:200px;display:block;background:var(--card);border:1px solid var(--rule);border-radius:4px"></canvas>
+        <canvas id="hero-canvas" style="width:100%;height:220px;display:block;background:var(--card);border:1px solid var(--rule);border-radius:4px"></canvas>
         <figcaption>
           A single leaky integrate-and-fire neuron: membrane voltage (teal) and
           its spikes (coral), driven by a constant 65 pA input. Same parameters
@@ -233,14 +233,18 @@ symbol  anomaly  bursting columns
       const TAU = 20, R = 0.5, I = 65, V_REST = -70, THR = -50, V_RESET = -55;
       const DT = 1; // ms
       const RI = R * I; // 32.5 mV
-      const WINDOW = 1000; // ms of trace shown
+      const V_TOP = -48, V_BOT = -72; // y-axis range (mV)
+      const H = 220;
       let v = V_REST, t = 0;
       const trace = []; // [t, v]
       const spikes = []; // [t]
       let acc = 0;
 
-      function step(ms) {
-        acc += ms;
+      // fixed window: 200 ms on wide screens, 100 ms on phones
+      const windowFor = (w) => (w >= 700 ? 200 : 100);
+
+      function step(modelMs) {
+        acc += modelMs;
         while (acc >= DT) {
           acc -= DT;
           t += DT;
@@ -251,66 +255,86 @@ symbol  anomaly  bursting columns
           }
           trace.push([t, v]);
         }
-        while (trace.length && trace[0][0] < t - WINDOW) trace.shift();
-        while (spikes.length && spikes[0] < t - WINDOW) spikes.shift();
+        // keep a little more than the widest window so resizes never gap
+        while (trace.length && trace[0][0] < t - 200) trace.shift();
+        while (spikes.length && spikes[0] < t - 200) spikes.shift();
       }
 
       function draw() {
         const dpr = window.devicePixelRatio || 1;
-        const w = hero.clientWidth || 600, h = 200;
+        const w = hero.clientWidth || 600;
         hero.width = Math.round(w * dpr);
-        hero.height = Math.round(h * dpr);
+        hero.height = Math.round(H * dpr);
         const ctx = hero.getContext('2d');
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, w, h);
-        const pal = { ink: ui.color('ink'), c1: ui.color('c1'), c2: ui.color('c2'), muted: ui.color('muted') };
-        const t0 = t - WINDOW;
-        const sx = (tt) => ((tt - t0) / WINDOW) * w;
-        const vTop = -30, vBot = -75;
-        const sy = (vv) => ((vTop - vv) / (vTop - vBot)) * (h - 30);
-        // threshold line
+        ctx.clearRect(0, 0, w, H);
+        const pal = { c1: ui.color('c1'), c2: ui.color('c2'), muted: ui.color('muted') };
+        const win = windowFor(w);
+        const t0 = t - win;
+        const sx = (tt) => ((tt - t0) / win) * w;
+        // trace in the upper 70%, raster in the lower 30%
+        const traceTop = 8, traceBot = H * 0.7;
+        const sy = (vv) => traceTop + ((V_TOP - vv) / (V_TOP - V_BOT)) * (traceBot - traceTop);
+        const rasterTop = H * 0.74, rasterBot = H - 6;
+
+        // threshold (dashed) and reset (dotted) reference lines
         ctx.strokeStyle = pal.muted;
-        ctx.setLineDash([4, 3]);
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 4]);
         ctx.beginPath();
         ctx.moveTo(0, sy(THR));
         ctx.lineTo(w, sy(THR));
         ctx.stroke();
-        ctx.setLineDash([]);
-        // voltage trace
-        ctx.strokeStyle = pal.c1;
-        ctx.lineWidth = 1.5;
+        ctx.setLineDash([1.5, 3]);
         ctx.beginPath();
-        for (let i = 0; i < trace.length; i++) {
-          const px = sx(trace[i][0]), py = sy(trace[i][1]);
-          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-        }
+        ctx.moveTo(0, sy(V_RESET));
+        ctx.lineTo(w, sy(V_RESET));
         ctx.stroke();
-        // raster of spikes
-        for (const st of spikes) {
-          ctx.fillStyle = pal.c2;
-          ctx.fillRect(sx(st) - 0.75, h - 22, 1.5, 14);
-        }
+        ctx.setLineDash([]);
         ctx.fillStyle = pal.muted;
         ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'bottom';
-        ctx.fillText('v (mV)', 4, sy(THR) - 3);
+        ctx.fillText('threshold -50 mV', 4, sy(THR) - 2);
+        ctx.textBaseline = 'top';
+        ctx.fillText('reset -55 mV', 4, sy(V_RESET) + 2);
+
+        // voltage trace
+        ctx.strokeStyle = pal.c1;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        let started = false;
+        for (const [tt, vv] of trace) {
+          if (tt < t0) continue;
+          const px = sx(tt), py = sy(vv);
+          if (!started) { ctx.moveTo(px, py); started = true; }
+          else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+
+        // raster of spikes
+        ctx.fillStyle = pal.c2;
+        for (const st of spikes) {
+          if (st < t0) continue;
+          ctx.fillRect(sx(st) - 0.75, rasterTop, 1.5, rasterBot - rasterTop);
+        }
       }
 
+      // pre-simulate the whole window so the first frame is already full
+      step(windowFor(hero.clientWidth || 600));
+      draw();
+
       const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (reduced) {
-        step(WINDOW);
-        draw();
-        window.addEventListener('resize', draw);
-      } else {
+      if (!reduced) {
+        // scroll at ~50 ms of model time per real second
         const anim = ui.animate((dtMs) => {
-          step(Math.min(dtMs, 50));
+          step(Math.min(dtMs, 50) * 0.05);
           draw();
         });
         anim.start();
-        window.addEventListener('resize', draw);
-        ui.onTheme(draw);
       }
+      window.addEventListener('resize', draw);
+      ui.onTheme(draw);
     }
   </script>
 </body>

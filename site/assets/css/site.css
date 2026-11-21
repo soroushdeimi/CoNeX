@@ -168,11 +168,6 @@ pre {
   max-width: 100%;
 }
 
-.plate-controls {
-  position: sticky;
-  top: 1rem;
-}
-
 .plate-notes {
   grid-column: 1 / -1;
 }
@@ -183,7 +178,7 @@ pre {
   }
   /* phone order: figures, controls, notes (notes holds the code box) */
   .plate-figures { order: 1; }
-  .plate-controls { order: 2; position: static; }
+  .plate-controls { order: 2; }
   .plate-notes { order: 3; }
 }
 

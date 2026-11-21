@@ -34,7 +34,8 @@ export function sdrHeroState(run, t) {
   return { idx, next, f, a, sample, overlapMask, overlapBar, narration };
 }
 
-// Draw a row of bits: active bits filled, inactive hollow.
+// Draw a row of bits: active bits filled, inactive faint (dimmed so they do
+// not stand out in dark mode).
 function drawBits(ctx, bits, x0, y, w, h, color, muted) {
   const n = bits.length;
   const gap = 2;
@@ -42,7 +43,9 @@ function drawBits(ctx, bits, x0, y, w, h, color, muted) {
   for (let i = 0; i < n; i++) {
     const x = x0 + i * (bw + gap);
     ctx.fillStyle = bits[i] ? color : muted;
+    ctx.globalAlpha = bits[i] ? 1 : 0.35;
     ctx.fillRect(x, y, bw, h);
+    ctx.globalAlpha = 1;
   }
 }
 
@@ -91,15 +94,15 @@ export function mount(root, ui) {
       {
         xRange: [0, run.w],
         yRange: [0, run.maxPmf * 1.1],
-        // The hline label would sit on the bars at the low pMatch level, so the
-        // value is shown in the top vline label instead; the hline stays as a guide.
+        // The θ and P(B≥θ) values live in the caption below (they collide with
+        // the legend at the top on mobile); the lines stay as guides.
         hlines: [{ y: run.pMatch, label: '' }],
-        vlines: [{ x: run.theta, label: `θ=${run.theta} · P(B≥θ)=${run.pMatch.toExponential(2)}` }],
+        vlines: [{ x: run.theta, label: '' }],
       }
     );
     readout.textContent =
-      `sample ${idx + 1}/${m}: overlap ${run.ov[idx]} bits, ` +
-      `P̂(B≥θ) = ${(run.hits[idx] / (idx + 1)).toExponential(3)}`;
+      `sample ${idx + 1}/${m}: overlap ${run.ov[idx]} bits · θ=${run.theta} bits · ` +
+      `P(B≥θ)=${run.pMatch.toExponential(2)} · P̂(B≥θ)=${(run.hits[idx] / (idx + 1)).toExponential(3)}`;
   }
 
   // Hero: fixed code a, the cross-fading random sample, their intersection,
@@ -109,12 +112,23 @@ export function mount(root, ui) {
     const { ctx, width, height } = hero;
     const rowH = 18;
     const pad = 8;
+    const labelW = 34;
     const barW = 26;
-    const bitsW = width - 2 * pad - barW - 12;
+    const bitsX = pad + labelW;
+    const bitsW = width - bitsX - pad - barW - 12;
     ctx.clearRect(0, 0, width, height);
-    drawBits(ctx, st.a, pad, pad, bitsW, rowH, ui.color('c1'), ui.color('muted'));
-    drawBits(ctx, st.sample, pad, pad + rowH + 6, bitsW, rowH, ui.color('c2'), ui.color('muted'));
-    drawBits(ctx, st.overlapMask, pad, pad + 2 * (rowH + 6), bitsW, rowH, ui.color('ink'), ui.color('muted'));
+    // Row labels (A, B, A∩B) outside the bit rows.
+    ctx.fillStyle = ui.color('muted');
+    ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    const labels = ['a', 'b', 'a∩b'];
+    for (let r = 0; r < 3; r++) {
+      ctx.fillText(labels[r], bitsX - 6, pad + r * (rowH + 6) + rowH / 2);
+    }
+    drawBits(ctx, st.a, bitsX, pad, bitsW, rowH, ui.color('c1'), ui.color('muted'));
+    drawBits(ctx, st.sample, bitsX, pad + rowH + 6, bitsW, rowH, ui.color('c2'), ui.color('muted'));
+    drawBits(ctx, st.overlapMask, bitsX, pad + 2 * (rowH + 6), bitsW, rowH, ui.color('ink'), ui.color('muted'));
     // Overlap bar: height eased between the two samples' overlap counts.
     const barX = width - pad - barW;
     const barH = height - 2 * pad;

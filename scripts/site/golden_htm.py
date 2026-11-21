@@ -221,8 +221,10 @@ def sp_golden():
         for i in range(input_size):
             perm_b[c, i] = 0.1 if i < (8 + c) else 0.05
     pooler_b.sp_permanences = perm_b
-    for _ in range(3):
-        spb.compute(pooler_b, y, learn=True)
+    # One step: boost factors are exp(boost_strength * (target_duty - active_duty)).
+    # Columns 6,7 win (active_duty 1.0) -> boost < 1; the rest (active_duty 0)
+    # -> boost > 1. A single step keeps the golden free of a feedback loop.
+    spb.compute(pooler_b, y, learn=True)
     boost = pooler_b.sp_boost_factors.tolist()
 
     return {
@@ -245,7 +247,7 @@ def sp_golden():
         "active_step3": active3.nonzero(as_tuple=True)[0].tolist(),
         "perm_col6_after_step3": perm_after_3,
         "active_empty": active_empty.nonzero(as_tuple=True)[0].tolist(),
-        "boost_factors_after_3": boost,
+        "boost_factors_after_1": boost,
     }
 
 

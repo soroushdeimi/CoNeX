@@ -1,0 +1,496 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+import {
+  GridCellModule,
+  DisplacementCellModule,
+  LocationEncoder,
+  DendriticSegment,
+  ActiveDendriteComputation,
+  makeDendriteState,
+  ContextualPrediction,
+  ColumnVoting,
+  ConsensusNetwork,
+  SDROverlap,
+  PredictiveCodingLevel,
+  HierarchicalPredictiveCoding,
+  corticalColumnStructure,
+} from '../assets/js/models/tbt.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const golden = JSON.parse(readFileSync(join(here, 'golden', 'tbt.json'), 'utf8'));
+
+// Tolerances: JS uses float64, CoNeX uses float32, so allow a small relative gap.
+const REL = 1e-4;
+const ABS = 1e-5;
+
+function close(a, b, { rel = REL, abs = ABS } = {}) {
+  assert.ok(
+    Math.abs(a - b) <= abs + rel * Math.abs(b),
+    `expected ${a} to be within ${rel} of ${b}`,
+  );
+}
+
+function closeVec(a, b, opts) {
+  assert.equal(a.length, b.length, 'vector length mismatch');
+  for (let i = 0; i < a.length; i++) close(a[i], b[i], opts);
+}
+
+// ---------------------------------------------------------------------------
+// GridCellModule
+// ---------------------------------------------------------------------------
+
+test('grid: scales match CoNeX logspace', () => {
+  const g = golden.grid;
+  const m = new GridCellModule({
+    nModules: g.n_modules,
+    cellsPerModule: g.cells_per_module,
+    scaleRange: g.scale_range,
+    orientationRange: g.orientation_range,
+    phases: g.phases.flat(),
+  });
+  closeVec(Array.from(m.scales), g.scales);
+});
+
+test('grid: orientations match CoNeX linspace', () => {
+  const g = golden.grid;
+  const m = new GridCellModule({
+    nModules: g.n_modules,
+    cellsPerModule: g.cells_per_module,
+    scaleRange: g.scale_range,
+    orientationRange: g.orientation_range,
+    phases: g.phases.flat(),
+  });
+  closeVec(Array.from(m.orientations), g.orientations);
+});
+
+test('grid: wave vectors match CoNeX', () => {
+  const g = golden.grid;
+  const m = new GridCellModule({
+    nModules: g.n_modules,
+    cellsPerModule: g.cells_per_module,
+    scaleRange: g.scale_range,
+    orientationRange: g.orientation_range,
+    phases: g.phases.flat(),
+  });
+  closeVec(Array.from(m.waveVectors), g.wave_vectors.flat());
+});
+
+test('grid: activation at each position matches CoNeX', () => {
+  const g = golden.grid;
+  const m = new GridCellModule({
+    nModules: g.n_modules,
+    cellsPerModule: g.cells_per_module,
+    scaleRange: g.scale_range,
+    orientationRange: g.orientation_range,
+    phases: g.phases.flat(),
+  });
+  for (let p = 0; p < g.positions.length; p++) {
+    const act = m.computeActivation(g.positions[p]);
+    closeVec(Array.from(act), g.activations[p]);
+  }
+});
+
+test('grid: path integration accumulates velocity', () => {
+  const g = golden.grid;
+  const m = new GridCellModule({
+    nModules: g.n_modules,
+    cellsPerModule: g.cells_per_module,
+    scaleRange: g.scale_range,
+    orientationRange: g.orientation_range,
+    phases: g.phases.flat(),
+  });
+  for (const v of g.velocity_steps) m.pathIntegrate(v, g.dt);
+  close(m.gridPosition[0], g.position_after_integration[0]);
+  close(m.gridPosition[1], g.position_after_integration[1]);
+});
+
+test('grid: hexagonal lattice periodicity', () => {
+  const g = golden.grid;
+  const m = new GridCellModule({
+    nModules: g.n_modules,
+    cellsPerModule: g.cells_per_module,
+    scaleRange: g.scale_range,
+    orientationRange: g.orientation_range,
+    phases: g.phases.flat(),
+  });
+  const origin = m.computeActivation([0, 0]).slice(0, g.cells_per_module);
+  const shifted = m.computeActivation(g.periodicity.step).slice(0, g.cells_per_module);
+  closeVec(Array.from(origin), g.periodicity.origin, { abs: 1e-4 });
+  closeVec(Array.from(shifted), g.periodicity.shifted, { abs: 1e-4 });
+});
+
+test('grid: missing phases throws', () => {
+  assert.throws(
+    () => new GridCellModule({ nModules: 2, cellsPerModule: 5 }),
+    /phases/,
+  );
+});
+
+test('grid: wrong phases length throws', () => {
+  assert.throws(
+    () => new GridCellModule({ nModules: 2, cellsPerModule: 5, phases: [0, 1] }),
+    /phases length/,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// DisplacementCellModule
+// ---------------------------------------------------------------------------
+
+test('displacement: preferred displacements match CoNeX', () => {
+  const g = golden.displacement;
+  const m = new DisplacementCellModule({
+    nCells: g.n_cells,
+    maxDisplacement: g.max_displacement,
+    sigma: g.sigma,
+  });
+  closeVec(Array.from(m.preferredDx), g.preferred_dx);
+  closeVec(Array.from(m.preferredDy), g.preferred_dy);
+});
+
+test('displacement: encode + decode round trip matches CoNeX', () => {
+  const g = golden.displacement;
+  const m = new DisplacementCellModule({
+    nCells: g.n_cells,
+    maxDisplacement: g.max_displacement,
+    sigma: g.sigma,
+  });
+  for (const key of ['pair1', 'pair2']) {
+    const act = m.computeDisplacement(g[key].from, g[key].to);
+    closeVec(Array.from(act), g[key].activation);
+    const decoded = m.decodeDisplacement(act);
+    close(decoded[0], g[key].decoded[0]);
+    close(decoded[1], g[key].decoded[1]);
+  }
+});
+
+test('displacement: decode of empty activation is zero', () => {
+  const m = new DisplacementCellModule({ nCells: 100 });
+  const decoded = m.decodeDisplacement(new Float64Array(100));
+  assert.deepEqual(decoded, [0, 0]);
+});
+
+// ---------------------------------------------------------------------------
+// LocationEncoder
+// ---------------------------------------------------------------------------
+
+test('location: winner-take-all picks the top-n grid cells', () => {
+  const m = new LocationEncoder({ locationSize: 16, gridWeight: 0.5, sparsity: 0.2 });
+  const grid = new Float64Array(16);
+  grid[3] = 0.9;
+  grid[7] = 0.8;
+  grid[11] = 0.7;
+  const sparse = m.encodeLocation(grid, null);
+  assert.equal(sparse[3], 1);
+  assert.equal(sparse[7], 1);
+  assert.equal(sparse[11], 1);
+  assert.equal(sparse.reduce((a, b) => a + b, 0), 3);
+  assert.deepEqual(Array.from(m.activeLocations), [3, 7, 11]);
+});
+
+test('location: zero input returns the combined (all zero) vector', () => {
+  const m = new LocationEncoder({ locationSize: 8, gridWeight: 0.5, sparsity: 0.25 });
+  const out = m.encodeLocation(null, null);
+  assert.equal(out.length, 8);
+  assert.equal(out.reduce((a, b) => a + b, 0), 0);
+});
+
+// ---------------------------------------------------------------------------
+// DendriticSegment
+// ---------------------------------------------------------------------------
+
+test('dendrites: segment activation and depolarization match CoNeX', () => {
+  const g = golden.dendrites.segment;
+  const m = new DendriticSegment({
+    nSegments: g.n_segments,
+    nCells: g.n_cells,
+    nSynapsesPerSegment: g.n_synapses,
+    activationThreshold: g.activation_threshold,
+    learningThreshold: g.learning_threshold,
+    connectedPermanence: g.connected_permanence,
+  });
+  for (let slot = 0; slot < g.targets.length; slot++) {
+    m.segmentTargets[slot] = g.targets[slot];
+    m.segmentPermanences[slot] = g.permanence;
+  }
+  const activeAll = new Array(g.n_cells).fill(false);
+  for (const t of g.targets) activeAll[t] = true;
+  m.computeSegmentActivation(activeAll);
+  m.computeDepolarization();
+  closeVec(Array.from(m.segmentActivation), g.all_active.segment_activation);
+  assert.deepEqual(Array.from(m.segmentActive, Boolean), g.all_active.segment_active);
+  closeVec(Array.from(m.depolarization), g.all_active.depolarization);
+
+  const activeOne = new Array(g.n_cells).fill(false);
+  activeOne[2] = true;
+  m.computeSegmentActivation(activeOne);
+  m.computeDepolarization();
+  closeVec(Array.from(m.segmentActivation), g.one_active.segment_activation);
+  assert.deepEqual(Array.from(m.matchingSegments, Boolean), g.one_active.matching);
+  closeVec(Array.from(m.depolarization), g.one_active.depolarization);
+});
+
+test('dendrites: unconnected synapses do not count', () => {
+  const m = new DendriticSegment({
+    nSegments: 1,
+    nCells: 4,
+    nSynapsesPerSegment: 3,
+    activationThreshold: 2,
+    learningThreshold: 1,
+    connectedPermanence: 0.5,
+  });
+  m.segmentTargets[0] = 1;
+  m.segmentPermanences[0] = 0.1; // below connected permanence
+  const active = [false, true, false, false];
+  m.computeSegmentActivation(active);
+  assert.equal(m.segmentActivation[0], 0);
+});
+
+// ---------------------------------------------------------------------------
+// ActiveDendriteComputation
+// ---------------------------------------------------------------------------
+
+test('dendrites: NMDA nonlinearity matches CoNeX', () => {
+  const g = golden.dendrites;
+  const m = new ActiveDendriteComputation({ nmdaThreshold: 0.5, nmdaGain: 2.0 });
+  close(m.nmdaNonlinearity(0.1), g.nmda.low[0]);
+  close(m.nmdaNonlinearity(1.0), g.nmda.high[0]);
+});
+
+test('dendrites: integration over 20 steps matches CoNeX', () => {
+  const g = golden.dendrites.integration;
+  const m = new ActiveDendriteComputation({ nmdaThreshold: 0.5, nmdaGain: 2.0 });
+  const state = makeDendriteState();
+  let current = 0;
+  for (let i = 0; i < g.steps; i++) {
+    current = m.computeDendriticIntegration(state, 1.0, g.proximal_input, g.distal_input);
+  }
+  close(state.proximal, g.proximal_potential[0]);
+  close(state.distal, g.distal_potential[0]);
+  close(state.calcium, g.dendritic_calcium[0]);
+  close(current, g.total_current[0]);
+  assert.equal(state.dendriticSpike, g.dendritic_spike[0] ? 1 : 0);
+});
+
+test('dendrites: backprop raises calcium', () => {
+  const m = new ActiveDendriteComputation({ backpropStrength: 0.3 });
+  const state = makeDendriteState();
+  const before = state.calcium;
+  m.applyBackprop(state, 1);
+  assert.ok(state.calcium > before);
+});
+
+// ---------------------------------------------------------------------------
+// ContextualPrediction
+// ---------------------------------------------------------------------------
+
+test('dendrites: context makes cells predictive and unpredicted cells burst', () => {
+  const g = golden.dendrites.context;
+  const m = new ContextualPrediction({
+    nCells: 8,
+    depolarizationThreshold: g.depolarization_threshold,
+    predictionWindow: g.prediction_window,
+    burstThreshold: g.burst_threshold,
+  });
+  m.updatePredictions(g.drive);
+  assert.deepEqual(Array.from(m.predictive, Boolean), g.predictive);
+  const { activation, bursting } = m.processActivation(new Array(8).fill(1));
+  closeVec(Array.from(activation), g.activation);
+  assert.deepEqual(Array.from(bursting, Boolean), g.bursting);
+});
+
+test('dendrites: predictions expire after the window', () => {
+  const m = new ContextualPrediction({
+    nCells: 4,
+    depolarizationThreshold: 0.5,
+    predictionWindow: 3,
+    burstThreshold: 0.3,
+  });
+  const drive = [0.9, 0, 0, 0];
+  m.updatePredictions(drive);
+  assert.equal(m.predictive[0], 1);
+  for (let i = 0; i < 4; i++) m.updatePredictions([0, 0, 0, 0]);
+  assert.equal(m.predictive[0], 0);
+});
+
+// ---------------------------------------------------------------------------
+// ColumnVoting / ConsensusNetwork / SDROverlap
+// ---------------------------------------------------------------------------
+
+test('voting: full consensus run matches CoNeX', () => {
+  const g = golden.voting;
+  const memories = g.memories.map((row) => Float64Array.from(row));
+  const columns = [];
+  for (let c = 0; c < 3; c++) {
+    columns.push(
+      new ColumnVoting({
+        nObjects: g.n_objects,
+        representationSize: g.representation_size,
+        sparsity: g.sparsity,
+        votingThreshold: g.voting_threshold,
+        decayRate: g.decay_rate,
+        minVotesForConsensus: g.min_votes_for_consensus,
+      }),
+    );
+  }
+  const consensus = new ConsensusNetwork({
+    convergenceThreshold: g.convergence_threshold,
+  });
+
+  for (let step = 0; step < g.steps.length; step++) {
+    for (let c = 0; c < 3; c++) {
+      const votes = columns[c].castVote(g.local_reps[c], memories);
+      columns[c].receiveVotes(votes);
+    }
+    consensus.broadcastVotes(columns);
+    for (const col of columns) col.forward();
+    const reached = columns.map((col) => col.checkConsensus(3));
+    const netConsensus = consensus.checkNetworkConsensus(columns);
+    consensus.forward();
+
+    const ref = g.steps[step];
+    for (let c = 0; c < 3; c++) {
+      closeVec(Array.from(columns[c].voteAccumulator), ref.accumulators[c]);
+    }
+    assert.deepEqual(reached, ref.consensus);
+    assert.deepEqual(
+      columns.map((col) => col.consensusObject),
+      ref.consensus_objects,
+    );
+    assert.equal(netConsensus, ref.network_consensus);
+  }
+});
+
+test('voting: cast_vote with no active bits returns all zeros', () => {
+  const m = new ColumnVoting({ nObjects: 4, representationSize: 8, sparsity: 0.25 });
+  const votes = m.castVote(new Float64Array(8), [Float64Array.from([1, 0, 1, 0, 0, 0, 0, 0])]);
+  assert.deepEqual(Array.from(votes), [0, 0, 0, 0]);
+});
+
+test('voting: votes below threshold are zeroed', () => {
+  const m = new ColumnVoting({
+    nObjects: 2,
+    representationSize: 8,
+    sparsity: 0.25,
+    votingThreshold: 0.5,
+  });
+  // local rep overlaps object 0 on 1 of 2 active bits -> 0.5 (kept), object 1 on 0 -> 0
+  const local = Float64Array.from([1, 1, 0, 0, 0, 0, 0, 0]);
+  const memories = [
+    Float64Array.from([1, 0, 0, 0, 0, 0, 0, 0]),
+    Float64Array.from([0, 0, 0, 0, 0, 0, 0, 0]),
+  ];
+  const votes = m.castVote(local, memories);
+  close(votes[0], 0.5);
+  assert.equal(votes[1], 0);
+});
+
+test('sdr: overlap, ratio and jaccard match CoNeX', () => {
+  const g = golden.voting.sdr_metrics;
+  const a = Float64Array.from(golden.voting.memories[0]);
+  const b = Float64Array.from(golden.voting.memories[1]);
+  assert.equal(SDROverlap.computeOverlap(a, b), g.overlap);
+  close(SDROverlap.computeOverlapRatio(a, b), g.ratio);
+  close(SDROverlap.computeJaccard(a, b), g.jaccard);
+});
+
+test('sdr: overlap ratio of empty SDR is zero', () => {
+  assert.equal(SDROverlap.computeOverlapRatio(new Float64Array(4), Float64Array.from([1, 0, 0, 0])), 0);
+});
+
+// ---------------------------------------------------------------------------
+// PredictiveCodingLevel
+// ---------------------------------------------------------------------------
+
+test('predictive: 40-step learning trace matches CoNeX', () => {
+  const g = golden.predictive;
+  const m = new PredictiveCodingLevel(g.size, {
+    predictionTau: g.config.prediction_tau,
+    errorTau: g.config.error_tau,
+    precisionTau: g.config.precision_tau,
+    learningRate: g.config.learning_rate,
+    precisionLearningRate: g.config.precision_learning_rate,
+    minPrecision: g.config.min_precision,
+    maxPrecision: g.config.max_precision,
+    errorNonlinearity: g.config.error_nonlinearity,
+    useSparseErrors: g.config.use_sparse_errors,
+    errorThreshold: g.config.error_threshold,
+    temporalSmoothing: g.config.temporal_smoothing,
+  });
+  m.activity = Float64Array.from(g.sensory);
+  m.topDownInput = Float64Array.from(g.higher_level);
+
+  for (let i = 0; i < g.trace.length; i++) {
+    m.forward();
+    const ref = g.trace[i];
+    const meanAbs = m.errorMagnitude.reduce((a, b) => a + b, 0) / m.size;
+    const meanPrec = m.precision.reduce((a, b) => a + b, 0) / m.size;
+    close(meanAbs, ref.mean_abs_error, { rel: 1e-3 });
+    close(meanPrec, ref.mean_precision, { rel: 1e-3 });
+    close(m.freeEnergy, ref.free_energy, { rel: 1e-3, abs: 1e-3 });
+  }
+});
+
+test('predictive: perturbation raises the error again', () => {
+  const g = golden.predictive;
+  const m = new PredictiveCodingLevel(g.size, {
+    errorNonlinearity: g.config.error_nonlinearity,
+    useSparseErrors: g.config.use_sparse_errors,
+    learningRate: g.config.learning_rate,
+    precisionTau: g.config.precision_tau,
+    precisionLearningRate: g.config.precision_learning_rate,
+  });
+  m.activity = Float64Array.from(g.sensory);
+  m.topDownInput = Float64Array.from(g.higher_level);
+  for (let i = 0; i < g.steps; i++) m.forward();
+  const settled = m.errorMagnitude.reduce((a, b) => a + b, 0) / m.size;
+  assert.ok(settled < 1e-3, 'error should have settled before perturbation');
+});
+
+test('predictive: relu nonlinearity clips negative error', () => {
+  const m = new PredictiveCodingLevel(2, { errorNonlinearity: 'relu', useSparseErrors: false });
+  m.activity = Float64Array.from([0.0, 1.0]);
+  m.topDownInput = Float64Array.from([0.0, 1.0]);
+  m.topDown();
+  m.error();
+  // prediction = 0.5 * top_down = [0, 0.5]; signed error = [0, 0.5]; relu keeps both
+  assert.equal(m.predictionError[0], 0);
+  close(m.predictionError[1], 0.5);
+});
+
+// ---------------------------------------------------------------------------
+// HierarchicalPredictiveCoding
+// ---------------------------------------------------------------------------
+
+test('hierarchy: one forward pass matches CoNeX (incl. the 2-level quirk)', () => {
+  const g = golden.hierarchy;
+  const m = new HierarchicalPredictiveCoding(
+    g.level_sizes,
+    [Float64Array.from(g.feedforward_weights)],
+    [Float64Array.from(g.feedback_weights)],
+  );
+  m.forward(Float64Array.from(g.sensory));
+  for (let i = 0; i < g.level_sizes.length; i++) {
+    closeVec(Array.from(m.levelPredictions[i]), g.level_predictions[i]);
+    closeVec(Array.from(m.levelErrors[i]), g.level_errors[i]);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Cortical column structure
+// ---------------------------------------------------------------------------
+
+test('structure: layer sizes and connections match CoNeX', () => {
+  const g = golden.structure;
+  const s = corticalColumnStructure(g.column_size);
+  assert.deepEqual(s.layerSizes, g.layer_sizes);
+  assert.deepEqual(
+    s.connections.map((c) => `${c.from}_to_${c.to}`).sort(),
+    g.connections,
+  );
+});
+

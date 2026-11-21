@@ -1,0 +1,321 @@
+// Cross-area plate checker.
+//
+// Mounts every plate in site/assets/plates/*.js (except _example.js) against a
+// mock of the CONTRACT ui.js API (including AMENDMENT 1: controls expose
+// onInput(fn) as a method). No real DOM, no dependencies. For each plate it
+// checks: meta.id matches the file name, mount() does not throw, every created
+// plot/raster/heatmap received at least one draw() with finite numbers, every
+// ui.code function returns a non-empty string, and sweeping each slider to its
+// min and max does not throw and keeps draws finite. It also writes each
+// plate's default code snippet to site/tests/snippets/<id>.py.
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname, join, basename } from 'node:path';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const PLATES_DIR = join(here, '..', 'assets', 'plates');
+const SNIPPETS_DIR = join(here, 'snippets');
+
+// ---------------------------------------------------------------------------
+// Minimal fake DOM
+// ---------------------------------------------------------------------------
+
+function makeEl(tag = 'div') {
+  const e = {
+    tagName: tag,
+    children: [],
+    style: {},
+    attributes: {},
+    textContent: '',
+    _innerHTML: '',
+    classList: {
+      add() {},
+      remove() {},
+      toggle() {},
+      contains() { return false; },
+    },
+    appendChild(c) { e.children.push(c); return c; },
+    removeChild(c) { e.children = e.children.filter((x) => x !== c); return c; },
+    addEventListener() {},
+    removeEventListener() {},
+    setAttribute(k, v) { e.attributes[k] = v; },
+    getAttribute(k) { return e.attributes[k]; },
+    getBoundingClientRect() {
+      return { left: 0, top: 0, right: 400, bottom: 300, width: 400, height: 300 };
+    },
+    querySelector() { return makeEl(); },
+    querySelectorAll() { return []; },
+  };
+  Object.defineProperty(e, 'innerHTML', {
+    get() { return e._innerHTML; },
+    set(v) { e._innerHTML = String(v); e.children = []; },
+  });
+  return e;
+}
+
+function makeCtx() {
+  const state = {};
+  return new Proxy(state, {
+    get(t, prop) {
+      if (prop in t) return t[prop];
+      return () => {};
+    },
+    set(t, prop, v) { t[prop] = v; return true; },
+  });
+}
+
+// document / window only need what the plates actually use.
+globalThis.document = globalThis.document || {
+  createElement(tag) { return makeEl(tag); },
+  createElementNS(_ns, tag) { return makeEl(tag); },
+};
+globalThis.window = globalThis.window || {
+  addEventListener() {},
+  removeEventListener() {},
+};
+
+// ---------------------------------------------------------------------------
+// Mock ui (CONTRACT API + AMENDMENT 1)
+// ---------------------------------------------------------------------------
+
+function mulberry32(seed) {
+  let s = seed >>> 0;
+  return function next() {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function makeUi() {
+  const ui = {
+    _figures: [], // { kind, draws: [argsArray, ...] }
+    _code: [],    // code() functions
+    _sliders: [], // { control, min, max }
+    _buttons: [],
+  };
+
+  ui.layout = (root) => {
+    const controls = makeEl('div');
+    const figures = makeEl('div');
+    const notes = makeEl('div');
+    root.appendChild(controls);
+    root.appendChild(figures);
+    root.appendChild(notes);
+    return { controls, figures, notes };
+  };
+
+  ui.section = (parent, title) => {
+    const s = makeEl('section');
+    s.textContent = title;
+    parent.appendChild(s);
+    return s;
+  };
+
+  const makeControl = (parent, opts, kind) => {
+    let v = opts.value;
+    const el = makeEl('input');
+    parent.appendChild(el);
+    const c = {
+      _listeners: [],
+      get() { return v; },
+      set(x) { v = x; },
+      onInput(fn) { c._listeners.push(fn); },
+      _opts: opts,
+      _kind: kind,
+    };
+    if (opts.onInput) c.onInput(opts.onInput);
+    if (kind === 'slider') ui._sliders.push({ control: c, min: opts.min, max: opts.max });
+    return c;
+  };
+  ui.slider = (parent, opts) => makeControl(parent, opts, 'slider');
+  ui.number = (parent, opts) => makeControl(parent, opts, 'number');
+  ui.select = (parent, opts) => makeControl(parent, opts, 'select');
+  ui.toggle = (parent, opts) => makeControl(parent, opts, 'toggle');
+
+  ui.button = (parent, opts) => {
+    const b = makeEl('button');
+    b.textContent = opts.label;
+    b.onclick = opts.onClick;
+    b.click = () => opts.onClick && opts.onClick();
+    parent.appendChild(b);
+    ui._buttons.push(b);
+    return b;
+  };
+
+  const makeFigure = (parent, kind) => {
+    const fig = { kind, draws: [] };
+    ui._figures.push(fig);
+    const el = makeEl('figure');
+    parent.appendChild(el);
+    return { draw(...args) { fig.draws.push(args); } };
+  };
+  ui.plot = (parent) => makeFigure(parent, 'plot');
+  ui.raster = (parent) => makeFigure(parent, 'raster');
+  ui.heatmap = (parent) => makeFigure(parent, 'heatmap');
+
+  ui.canvas = (parent, opts) => {
+    const canvas = makeEl('canvas');
+    const ctx = makeCtx();
+    canvas.getContext = () => ctx;
+    parent.appendChild(canvas);
+    return { canvas, ctx, width: 400, height: opts.height };
+  };
+
+  ui.note = (parent, html) => {
+    const e = makeEl('p');
+    e.innerHTML = html;
+    parent.appendChild(e);
+    return e;
+  };
+  ui.equation = (parent, html) => {
+    const e = makeEl('div');
+    e.innerHTML = html;
+    parent.appendChild(e);
+    return e;
+  };
+  ui.code = (parent, fn) => {
+    ui._code.push(fn);
+    const e = makeEl('pre');
+    parent.appendChild(e);
+    return e;
+  };
+
+  ui.rng = (seed) => {
+    const next = mulberry32(seed);
+    let spare = null;
+    return {
+      next,
+      normal() {
+        if (spare !== null) { const s = spare; spare = null; return s; }
+        let u = 0;
+        while (u === 0) u = next();
+        const v = next();
+        const mag = Math.sqrt(-2 * Math.log(u));
+        spare = mag * Math.sin(2 * Math.PI * v);
+        return mag * Math.cos(2 * Math.PI * v);
+      },
+    };
+  };
+
+  ui.color = () => '#000000';
+  ui.onTheme = () => {};
+  ui.animate = () => {
+    let running = false;
+    return {
+      start() { running = true; },
+      stop() { running = false; },
+      running() { return running; },
+    };
+  };
+
+  return ui;
+}
+
+// ---------------------------------------------------------------------------
+// Check helpers
+// ---------------------------------------------------------------------------
+
+// Collect every number a figure's draw() was called with, across all calls.
+function figureNumbers(fig) {
+  const nums = [];
+  for (const args of fig.draws) {
+    const walk = (v) => {
+      if (typeof v === 'number') nums.push(v);
+      else if (Array.isArray(v)) for (const x of v) walk(x);
+      else if (v && typeof v === 'object') for (const x of Object.values(v)) walk(x);
+    };
+    for (const a of args) walk(a);
+  }
+  return nums;
+}
+
+function assertFiniteFigure(fig, label) {
+  const nums = figureNumbers(fig);
+  for (const n of nums) {
+    assert.ok(Number.isFinite(n), `${label}: non-finite number ${n} in a ${fig.kind} draw`);
+  }
+}
+
+// Set a slider to a value and fire its onInput listeners (as the real ui does).
+function fireSlider(c, v) {
+  c.set(v);
+  for (const fn of c._listeners) fn(v);
+}
+
+// ---------------------------------------------------------------------------
+// Per-plate check
+// ---------------------------------------------------------------------------
+
+async function checkPlate(platePath) {
+  const id = basename(platePath, '.js');
+  const mod = await import(pathToFileURL(platePath).href);
+
+  assert.ok(mod.meta, `${id}: no meta export`);
+  assert.equal(mod.meta.id, id, `${id}: meta.id (${mod.meta.id}) does not match file name`);
+  assert.equal(typeof mod.mount, 'function', `${id}: no mount export`);
+
+  const ui = makeUi();
+  const root = makeEl('div');
+  const handle = mod.mount(root, ui);
+  assert.equal(typeof handle.destroy, 'function', `${id}: mount did not return {destroy()}`);
+
+  // Every created plot/raster/heatmap got at least one draw, all finite.
+  // (A plate may legitimately use only ui.canvas, in which case there are none.)
+  for (const fig of ui._figures) {
+    assert.ok(fig.draws.length > 0, `${id}: a ${fig.kind} figure never received a draw() call`);
+    assertFiniteFigure(fig, id);
+  }
+
+  // Every ui.code function returns a non-empty string.
+  assert.ok(ui._code.length > 0, `${id}: no ui.code snippet`);
+  let snippet = '';
+  for (const fn of ui._code) {
+    const s = fn();
+    assert.equal(typeof s, 'string', `${id}: ui.code function did not return a string`);
+    assert.ok(s.trim().length > 0, `${id}: ui.code snippet is empty`);
+    snippet = s; // keep the last (the CoNeX code box)
+  }
+  writeSnippet(id, snippet);
+
+  // Sweep every slider to max then min; nothing may throw and draws stay finite.
+  for (const { control, min, max } of ui._sliders) {
+    for (const v of [max, min]) {
+      assert.doesNotThrow(() => fireSlider(control, v), `${id}: slider threw at value ${v}`);
+    }
+  }
+  for (const fig of ui._figures) {
+    assertFiniteFigure(fig, `${id} (after slider sweep)`);
+  }
+
+  handle.destroy();
+  return id;
+}
+
+function writeSnippet(id, snippet) {
+  mkdirSync(SNIPPETS_DIR, { recursive: true });
+  writeFileSync(join(SNIPPETS_DIR, `${id}.py`), snippet + '\n');
+}
+
+// ---------------------------------------------------------------------------
+// Discover and run
+// ---------------------------------------------------------------------------
+
+const plateFiles = readdirSync(PLATES_DIR)
+  .filter((f) => f.endsWith('.js') && f !== '_example.js')
+  .sort();
+
+test('plates: discovered', () => {
+  assert.ok(plateFiles.length > 0, 'no plates found');
+  console.log('checking plates:', plateFiles.join(', '));
+});
+
+for (const f of plateFiles) {
+  test(`plate ${f} mounts, draws finite, snippet valid, slider sweep clean`, async () => {
+    await checkPlate(join(PLATES_DIR, f));
+  });
+}

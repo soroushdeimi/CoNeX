@@ -110,8 +110,8 @@ def fi(behavior, currents, steps=${STEPS}, dt=${b.dt}):
 
 currents = ${JSON.stringify(CURRENTS)}   # pA
 lif   = fi(LIF(R=${b.R}, threshold=${cThLif.get()}, tau=${b.tau}, v_reset=${b.v_reset}, v_rest=${b.v_rest}), currents)
-elif  = fi(ELIF(R=${b.R}, threshold=${cThExp.get()}, tau=${b.tau}, v_reset=${b.v_reset}, v_rest=${b.v_rest},
-                delta=${b.delta}, theta_rh=${b.theta_rh}), currents)
+elif_ = fi(ELIF(R=${b.R}, threshold=${cThExp.get()}, tau=${b.tau}, v_reset=${b.v_reset}, v_rest=${b.v_rest},
+                 delta=${b.delta}, theta_rh=${b.theta_rh}), currents)
 aelif = fi(AELIF(R=${b.R}, threshold=${cThExp.get()}, tau=${b.tau}, v_reset=${b.v_reset}, v_rest=${b.v_rest},
                  delta=${b.delta}, theta_rh=${b.theta_rh}, alpha=${b.alpha}, beta=${b.beta}, w_tau=${b.w_tau}), currents)`;
   }

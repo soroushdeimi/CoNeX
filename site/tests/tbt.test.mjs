@@ -629,6 +629,7 @@ import {
   segmentState,
   isPredictive,
   dendriteNarration,
+  cellLabel,
 } from '../assets/plates/tbt-dendrites.js';
 
 test('dendrites hero: gauge fill is activation over threshold, clamped', () => {
@@ -653,6 +654,17 @@ test('dendrites hero: a cell is predictive at and above the threshold', () => {
   assert.equal(isPredictive(0.5, 0.5), true);
   assert.equal(isPredictive(0.9, 0.5), true);
   assert.equal(isPredictive(0.4, 0.5), false);
+});
+
+test('dendrites hero: the printed cell label is a rounded integer', () => {
+  // a mid-ease value must print as an integer, not the raw float
+  assert.equal(cellLabel(2.49985000019803), '2');
+  assert.equal(cellLabel(1.49985000019803), '1');
+  assert.equal(cellLabel(0), '0');
+  assert.equal(cellLabel(3), '3');
+  // rounds to nearest
+  assert.equal(cellLabel(2.5), '3');
+  assert.equal(cellLabel(1.4), '1');
 });
 
 test('dendrites hero: narration reports bits arrived and predictive count', () => {

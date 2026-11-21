@@ -28,6 +28,12 @@ export function isPredictive(depol, depolThresh) {
   return depol >= depolThresh;
 }
 
+// The count printed in a segment cell. The eased value only drives the fill;
+// the label is the rounded integer so it never overflows the cell.
+export function cellLabel(eased) {
+  return String(Math.round(eased));
+}
+
 // One-line narration driven by the model state. k is the fractional player
 // time, so the count of arrived bits is floored to an integer.
 export function dendriteNarration({ k, nActive, nPredictive }) {
@@ -199,7 +205,7 @@ export function mount(root, ui) {
         ctx.strokeRect(x, y, w, h);
         ctx.fillStyle = ink;
         ctx.font = '11px ui-monospace, monospace';
-        ctx.fillText(String(act), x + w / 2 - 4, y + h / 2 + 4);
+        ctx.fillText(cellLabel(act), x + w / 2 - 4, y + h / 2 + 4);
       }
       // cell index, with a predictive glow when depolarization crosses the threshold
       ctx.fillStyle = muted;

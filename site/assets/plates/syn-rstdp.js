@@ -18,7 +18,8 @@ export function mount(root, ui) {
   };
 
   const weightPlot = ui.plot(figures, { height: 200, xLabel: 'time', xUnit: 'ms', yLabel: 'weight', yUnit: 'a.u.' });
-  const modPlot = ui.plot(figures, { height: 200, xLabel: 'time', xUnit: 'ms', yLabel: 'dopamine / eligibility', yUnit: 'a.u.' });
+  const dopPlot = ui.plot(figures, { height: 180, xLabel: 'time', xUnit: 'ms', yLabel: 'dopamine', yUnit: 'a.u.' });
+  const eligPlot = ui.plot(figures, { height: 180, xLabel: 'time', xUnit: 'ms', yLabel: 'eligibility c', yUnit: 'a.u.' });
 
   function run(rewardOn) {
     const T = state.steps;
@@ -50,10 +51,8 @@ export function mount(root, ui) {
       { x: withR.xs, y: withR.ws, label: 'weight (reward in window)', color: 'c1' },
       { x: noR.xs, y: noR.ws, label: 'weight (no reward)', color: 'c2' },
     ]);
-    modPlot.draw([
-      { x: withR.xs, y: withR.dops, label: 'dopamine', color: 'c4' },
-      { x: withR.xs, y: withR.cs, label: 'eligibility c', color: 'c3' },
-    ]);
+    dopPlot.draw([{ x: withR.xs, y: withR.dops, label: 'dopamine', color: 'c4' }], { yRange: [0, Math.max(0.1, ...withR.dops)] });
+    eligPlot.draw([{ x: withR.xs, y: withR.cs, label: 'eligibility c', color: 'c3' }], { yRange: [0, Math.max(0.01, ...withR.cs)] });
   }
 
   const sec = ui.section(controls, 'RSTDP rule');

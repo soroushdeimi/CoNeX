@@ -33,14 +33,19 @@ function assertPositive(name, value) {
 // Each returns {v, spike} (AELIF also returns omega). The spike is decided on the
 // post-update voltage, exactly as CoNeX's Fire does (v >= threshold, then reset).
 
-export function lifStep(state, p, I, dt) {
+// LIF.forward only: the voltage update, without the Fire step. Used when another
+// behavior (e.g. KWTA) must run between the update and the spike decision.
+export function lifUpdate(state, p, I, dt) {
   assertPositive('tau', p.tau);
   const Fu = p.v_rest - state.v;
   const RIu = p.R * I;
-  let v = state.v + (Fu + RIu) * dt / p.tau;
+  return state.v + (Fu + RIu) * dt / p.tau;
+}
+
+export function lifStep(state, p, I, dt) {
+  const v = lifUpdate(state, p, I, dt);
   const spike = v >= p.threshold;
-  if (spike) v = p.v_reset;
-  return { v, spike };
+  return { v: spike ? p.v_reset : v, spike };
 }
 
 export function elifStep(state, p, I, dt) {

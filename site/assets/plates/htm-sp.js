@@ -143,37 +143,51 @@ export function mount(root, ui) {
     const inSide = Math.floor(Math.sqrt(nIn));
     const colSide = Math.floor(Math.sqrt(nCols));
     const gap = 2;
-    const gridH = height - 2 * pad;
-    const inCell = (gridH - gap * (inSide - 1)) / inSide;
-    const colCell = (gridH - gap * (colSide - 1)) / colSide;
-    const inX = pad;
-    const colX = width - pad - colSide * (colCell + gap) + gap;
     const c1 = ui.color('c1');
     const c2 = ui.color('c2');
     const c5 = ui.color('c5');
     const muted = ui.color('muted');
     const paper = ui.color('paper');
 
-    // Input grid (left): active bits filled green, inactive faint.
+    // Side by side when wide; stacked (input on top, columns below) when narrow
+    // so the two grids never overlap.
+    const stacked = width < 600;
+    let inX, inY, inCell, colX, colY, colCell;
+    if (stacked) {
+      const midGap = 24;
+      const gridSide = Math.min(width - 2 * pad, (height - 2 * pad - midGap) / 2);
+      inCell = (gridSide - gap * (inSide - 1)) / inSide;
+      colCell = (gridSide - gap * (colSide - 1)) / colSide;
+      inX = (width - gridSide) / 2; inY = pad;
+      colX = (width - gridSide) / 2; colY = pad + gridSide + midGap;
+    } else {
+      const gridH = height - 2 * pad;
+      inCell = (gridH - gap * (inSide - 1)) / inSide;
+      colCell = (gridH - gap * (colSide - 1)) / colSide;
+      inX = pad; inY = pad;
+      colX = width - pad - colSide * (colCell + gap) + gap; colY = pad;
+    }
+
+    // Input grid: active bits filled green, inactive faint.
     for (let i = 0; i < nIn; i++) {
       const r = Math.floor(i / inSide);
       const c = i % inSide;
       const x = inX + c * (inCell + gap);
-      const y = pad + r * (inCell + gap);
+      const y = inY + r * (inCell + gap);
       ctx.fillStyle = run.input[i] ? c5 : muted;
       ctx.globalAlpha = run.input[i] ? 1 : 0.25;
       ctx.fillRect(x, y, inCell, inCell);
       ctx.globalAlpha = 1;
     }
 
-    // Column grid (right): fill = eased overlap / max overlap (teal ramp);
+    // Column grid: fill = eased overlap / max overlap (teal ramp);
     // winners get a coral ring.
     const maxOv = Math.max(1, st.maxOverlap);
     for (const col of st.cols) {
       const r = Math.floor(col.c / colSide);
       const c = col.c % colSide;
       const x = colX + c * (colCell + gap);
-      const y = pad + r * (colCell + gap);
+      const y = colY + r * (colCell + gap);
       const frac = Math.max(0, Math.min(1, col.overlap / maxOv));
       ctx.fillStyle = mixColor(paper, c1, frac);
       ctx.fillRect(x, y, colCell, colCell);
@@ -193,16 +207,32 @@ export function mount(root, ui) {
       const ic = ln.inputIdx % inSide;
       const cr = Math.floor(ln.colIdx / colSide);
       const cc = ln.colIdx % colSide;
-      const x0 = inX + ic * (inCell + gap) + inCell;
-      const y0 = pad + ir * (inCell + gap) + inCell / 2;
-      const x1 = colX + cc * (colCell + gap);
-      const y1 = pad + cr * (colCell + gap) + colCell / 2;
-      const mx = (x0 + x1) / 2;
-      ctx.beginPath();
-      ctx.moveTo(x0, y0);
-      ctx.quadraticCurveTo(mx, y0, mx, (y0 + y1) / 2);
-      ctx.quadraticCurveTo(mx, y1, x1, y1);
-      ctx.stroke();
+      let x0, y0, x1, y1;
+      if (stacked) {
+        // from the bottom of the input cell to the top of the column cell
+        x0 = inX + ic * (inCell + gap) + inCell / 2;
+        y0 = inY + ir * (inCell + gap) + inCell;
+        x1 = colX + cc * (colCell + gap) + colCell / 2;
+        y1 = colY + cr * (colCell + gap);
+        const my = (y0 + y1) / 2;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.quadraticCurveTo(x0, my, (x0 + x1) / 2, my);
+        ctx.quadraticCurveTo(x1, my, x1, y1);
+        ctx.stroke();
+      } else {
+        // from the right of the input cell to the left of the column cell
+        x0 = inX + ic * (inCell + gap) + inCell;
+        y0 = inY + ir * (inCell + gap) + inCell / 2;
+        x1 = colX + cc * (colCell + gap);
+        y1 = colY + cr * (colCell + gap) + colCell / 2;
+        const mx = (x0 + x1) / 2;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.quadraticCurveTo(mx, y0, mx, (y0 + y1) / 2);
+        ctx.quadraticCurveTo(mx, y1, x1, y1);
+        ctx.stroke();
+      }
     }
     ctx.globalAlpha = 1;
     heroCap.set(st.narration);

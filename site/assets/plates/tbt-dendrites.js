@@ -97,7 +97,19 @@ export function mount(root, ui) {
   }
 
   // --- figures: hero on top, depolarization plot below ---
+  ui.note(figures, '<em>Try this: raise <code>context sparsity</code> and watch more segments match and more cells become predictive.</em>');
   const hero = ui.hero(figures, { height: 300 });
+  // Wrapping HTML legend below the matrix (12 px swatches, 14 px labels).
+  const legend = ui.note(figures, '');
+  function updateLegend() {
+    legend.innerHTML = `
+      <span style="display:inline-flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:14px;">
+        <span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:12px;height:12px;background:var(--c1);display:inline-block;"></span>active (&ge; ${actThresh.get()} syn)</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:12px;height:12px;background:var(--c3);display:inline-block;"></span>matching (&ge; ${learnThresh.get()} syn)</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:12px;height:12px;background:var(--muted);display:inline-block;"></span>below</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:12px;height:12px;border-radius:50%;background:var(--c1);display:inline-block;"></span>dot = predictive</span>
+      </span>`;
+  }
   const depolPlot = ui.plot(figures, {
     height: 200, xLabel: 'cell', xUnit: 'index', yLabel: 'depolarization', yUnit: 'a.u.',
   });
@@ -225,29 +237,13 @@ export function mount(root, ui) {
       ctx.globalAlpha = 1;
     }
 
-    // legend
-    ctx.font = '11px system-ui, sans-serif';
-    let lx = 4;
-    const legend = [
-      [c1, 'active (>= ' + actThresh.get() + ')'],
-      [c3, 'matching (>= ' + learnThresh.get() + ')'],
-      [muted, 'below'],
-      [c1, 'dot = predictive'],
-    ];
-    for (const [col, label] of legend) {
-      ctx.fillStyle = col;
-      ctx.fillRect(lx, height - 14, 10, 10);
-      ctx.fillStyle = ink;
-      ctx.fillText(label, lx + 14, height - 5);
-      lx += 14 + label.length * 6.5 + 16;
-    }
-
     const nPred = predArr ? Array.from(predArr).reduce((a, b) => a + b, 0) : 0;
     hero.narration(dendriteNarration({ k: currentK, nActive: order.length, nPredictive: nPred }));
   }
 
   function render() {
     drawHero();
+    updateLegend();
     const { nc } = model;
     const f = currentFrame;
     depolPlot.draw(

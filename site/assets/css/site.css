@@ -275,6 +275,20 @@ pre {
   margin-top: 0.3rem;
 }
 
+/* inline SVGs scale to the column width instead of their intrinsic size */
+.ui-figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* on phones, shrink code so a line fits the viewport instead of scrolling */
+@media (max-width: 480px) {
+  pre {
+    font-size: 0.72rem;
+  }
+}
+
 /* Notes */
 .ui-note {
   max-width: 70ch;
@@ -324,7 +338,7 @@ pre {
 
 .gallery-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
   gap: 0.8rem;
 }
 
@@ -407,15 +421,16 @@ pre {
   display: inline-block;
 }
 
+/* min(100%, 220px) keeps a single column from overflowing a narrow viewport */
 .concept-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
   gap: 0.8rem;
 }
 
 .area-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
   gap: 0.8rem;
 }
 

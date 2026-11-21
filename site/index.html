@@ -49,17 +49,25 @@
         (<code>X</code>) spikes it back up.
       </p>
       <pre><code>import torch
-from pymonntorch import Network, NeuronGroup
+from pymonntorch import Network
 from conex import (
-    SDR, SpatialPooler, SpatialPoolerConfig,
-    TemporalMemory, TemporalMemoryConfig, TimeResolution,
+    SDR, SpatialPooler,
+    SpatialPoolerConfig,
+    TemporalMemory,
+    TemporalMemoryConfig,
+    TimeResolution,
 )
 
-net = Network(behavior={1: TimeResolution(dt=1.0)},
-              dtype=torch.float32, device="cpu")
-# ... build a SpatialPooler and TemporalMemory, then:
+dt = TimeResolution(dt=1.0)
+net = Network(
+    behavior={1: dt},
+    dtype=torch.float32,
+    device="cpu",
+)
+# build a pooler + temporal memory,
+# then run 12 epochs of A B C D:
 net.initialize()
-net.simulate_iterations(12 * 4)   # 12 epochs of the A B C D sequence</code></pre>
+net.simulate_iterations(12 * 4)</code></pre>
       <p>
         Run it with <code>python Example/numenta/htm_sequence_learning.py</code>.
         The output we got (CoNeX 0.1.5, Python 3.15):

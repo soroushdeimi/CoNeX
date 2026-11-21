@@ -92,6 +92,24 @@ test('bound trajectories match golden potentiation and depression simulation', (
   }
 });
 
+// soft_bound is the quadratic (w - w_min)(w_max - w), so it has NO interior
+// fixed point: one-sided pulses drive the weight to the boundary, and a
+// symmetric potentiation/depression cycle returns it to ~w0. This is the
+// behaviour the learn-bounds hero shows (the bead is not "stuck" mid-rail).
+test('soft_bound has no interior fixed point (converges to the boundary)', () => {
+  const base = { w0: 0.5, dw_plus: 0.05, dw_minus: 0.05, w_min: 0, w_max: 1 };
+  // pure potentiation -> w_max
+  const pot = M.simulateBoundTrajectory({ ...base, bound: 'soft_bound', n_plus: 500, n_minus: 0 });
+  assert.ok(Math.abs(pot[pot.length - 1] - 1) < 1e-3, `soft potentiation should reach w_max, got ${pot[pot.length - 1]}`);
+  // pure depression -> w_min
+  const dep = M.simulateBoundTrajectory({ ...base, bound: 'soft_bound', n_plus: 0, n_minus: 500 });
+  assert.ok(Math.abs(dep[dep.length - 1] - 0) < 1e-3, `soft depression should reach w_min, got ${dep[dep.length - 1]}`);
+  // symmetric cycle (the plate default) -> returns to ~w0, not an interior w*
+  const cyc = M.simulateBoundTrajectory({ ...base, bound: 'soft_bound', n_plus: 20, n_minus: 20 });
+  const end = cyc[cyc.length - 1];
+  assert.ok(Math.abs(end - 0.5) < 0.05, `soft symmetric cycle should return near w0=0.5, got ${end}`);
+});
+
 // ---------------------------------------------------------------------------
 // 3. Edge and failure cases
 // ---------------------------------------------------------------------------

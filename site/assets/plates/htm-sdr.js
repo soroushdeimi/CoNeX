@@ -110,10 +110,16 @@ export function mount(root, ui) {
     updateNotes();
   }
 
+  // Dynamic notes (readout + code) live in their own box, cleared each update
+  // so they do not accumulate as the student changes controls.
+  let dynNotes = null;
+
   function updateNotes() {
+    if (!dynNotes) return;
+    dynNotes.innerHTML = '';
     const { n, w, theta, overlap, unionN, interN, pMatch, pMC, pExp } = last;
     ui.note(
-      notes,
+      dynNotes,
       `<p>An SDR is a set of <b>${w}</b> active bits out of <b>${n}</b> (sparsity ${(100 * w / n).toFixed(1)}%). ` +
         `Two random SDRs share <b>${overlap}</b> bits here; the expected overlap of two independent codes is ` +
         `<b>w²/n = ${pExp.toFixed(3)} bits</b>. The union has <b>${unionN}</b> bits, the intersection <b>${interN}</b>.</p>` +
@@ -124,6 +130,18 @@ export function mount(root, ui) {
         `(${pMatch === 0 ? 'both below the sampling floor' : 'compare the two'}). ` +
         `All quantities are dimensionless counts (a.u.).</p>`
     );
+    ui.code(dynNotes, () =>
+      `from conex import SDR\n` +
+      `a = SDR(size=${n}, indices=...)   # ${w} active bits\n` +
+      `b = SDR(size=${n}, indices=...)\n` +
+      `a.overlap(b)          # ${overlap} bits\n` +
+      `a.union(b).n_active   # ${unionN} bits\n` +
+      `a.intersection(b).n_active  # ${interN} bits\n` +
+      `a.match_threshold(b, theta=${theta})`
+    );
+  }
+
+  function staticNotes() {
     ui.equation(
       notes,
       `<div>P(B ≥ θ) = <var>Σ</var><sub>b=θ</sub><sup>w</sup> C(<var>w</var>, b)·C(<var>n</var>−<var>w</var>, <var>w</var>−b) / C(<var>n</var>, <var>w</var>)</div>`
@@ -140,17 +158,11 @@ export function mount(root, ui) {
         `<code>SDR</code> class — CoNeX's <code>SDR</code> provides overlap/union/intersection but not this probability; it is shown here ` +
         `as the standard HTM literature result.</p>`
     );
-    ui.code(notes, () =>
-      `from conex import SDR\n` +
-      `a = SDR(size=${n}, indices=...)   # ${w} active bits\n` +
-      `b = SDR(size=${n}, indices=...)\n` +
-      `a.overlap(b)          # ${overlap} bits\n` +
-      `a.union(b).n_active   # ${unionN} bits\n` +
-      `a.intersection(b).n_active  # ${interN} bits\n` +
-      `a.match_threshold(b, theta=${theta})`
-    );
+    dynNotes = document.createElement('div');
+    notes.appendChild(dynNotes);
   }
 
+  staticNotes();
   redraw();
   ui.onTheme(redraw);
   return { destroy() {} };

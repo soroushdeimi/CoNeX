@@ -90,12 +90,12 @@ export function mount(root, ui) {
     stepCount = 0;
     trace.length = 0;
   }
-  const rebuild = () => { build(); render(); };
+  const rebuild = () => { build(); runToConvergence(); };
   [nObjects, repSize, sparsity, voteThresh, decay, minVotes, nColumns, trueObj, noise, convThresh, seed].forEach((c) => c.onInput(rebuild));
 
   // --- figures ---
   const votePlot = ui.plot(figures, {
-    height: 240, xLabel: 'voting step', xUnit: '', yLabel: 'vote accumulator', yUnit: 'a.u.',
+    height: 240, xLabel: 'voting step', xUnit: 'index', yLabel: 'vote accumulator', yUnit: 'a.u.',
   });
   const status = ui.note(figures, '<em>press Step or Run</em>');
 
@@ -136,12 +136,23 @@ export function mount(root, ui) {
     }
   }
 
+  function runToConvergence(maxSteps = 60) {
+    for (let i = 0; i < maxSteps; i++) {
+      stepOnce();
+      const last = trace[trace.length - 1];
+      if (last && last.net) break;
+    }
+    render();
+  }
+
   ui.button(controls, { label: 'Step', onClick: () => { stepOnce(); render(); } });
   ui.button(controls, { label: 'Run 20 steps', onClick: () => { for (let i = 0; i < 20; i++) stepOnce(); render(); } });
   ui.button(controls, { label: 'Reset', onClick: () => { build(); render(); } });
 
   build();
-  render();
+  // Run the voting to convergence on load so the plot is not empty; the buttons
+  // only step, re-run, or reset.
+  runToConvergence();
   ui.onTheme(render);
 
   // --- notes ---
@@ -179,12 +190,12 @@ from conex import ColumnVoting, ConsensusNetwork, TimeResolution
 voting = ColumnVoting(
     n_objects=${nObjects.get()},
     representation_size=${repSize.get()},
-    sparsity=${sparsity.get()},
-    voting_threshold=${voteThresh.get()},
-    decay_rate=${decay.get()},
+    sparsity=${fmt(sparsity.get())},
+    voting_threshold=${fmt(voteThresh.get())},
+    decay_rate=${fmt(decay.get())},
     min_votes_for_consensus=${minVotes.get()},
 )
-consensus = ConsensusNetwork(convergence_threshold=${convThresh.get()})
+consensus = ConsensusNetwork(convergence_threshold=${fmt(convThresh.get())})
 
 net = Network(behavior={1: TimeResolution(dt=1.0)}, dtype=torch.float32, device="cpu")
 columns = [
@@ -196,7 +207,7 @@ consensus.initialize(net)
 
 # object memories: fixed random SDRs; local rep = object 0 with a few bits flipped
 torch.manual_seed(${seed.get()})
-n_active = max(1, int(${repSize.get()} * ${sparsity.get()}))
+n_active = max(1, int(${repSize.get()} * ${fmt(sparsity.get())}))
 object_memories = torch.zeros(${nObjects.get()}, ${repSize.get()})
 for o in range(${nObjects.get()}):
     object_memories[o, torch.randperm(${repSize.get()})[:n_active]] = 1.0
@@ -230,4 +241,10 @@ function pickDistinct(rng, n, k) {
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
   return pool.slice(0, Math.min(k, n));
+}
+
+// At most 4 significant digits for numbers shown in text and code snippets.
+function fmt(v) {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return String(v);
+  return Number(v.toPrecision(4)).toString();
 }

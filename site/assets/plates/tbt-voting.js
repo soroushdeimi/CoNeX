@@ -159,6 +159,7 @@ export function mount(root, ui) {
   [nObjects, repSize, sparsity, voteThresh, decay, minVotes, nColumns, trueObj, noise, convThresh, seed, nSteps].forEach((c) => c.onInput(rebuild));
 
   // --- figures: hero on top, plot below ---
+  ui.note(figures, '<em>Try this: raise <code>noise</code> and watch the columns still converge &mdash; SDR voting tolerates a few flipped bits.</em>');
   const hero = ui.hero(figures, { height: 240 });
   const votePlot = ui.plot(figures, {
     height: 240, xLabel: 'voting step', xUnit: 'index', yLabel: 'vote accumulator', yUnit: 'a.u.',

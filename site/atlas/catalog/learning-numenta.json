@@ -11,13 +11,14 @@
       "conex": [
         "ActiveDendriteComputation",
         "DendriticSegment",
+        "SegmentStorage",
         "TemporalMemory"
       ],
       "learning_rules": [
         "DendriticSegment.learn_on_segments",
-        "TemporalMemory.adapt_segment",
-        "TemporalMemory.punish_segments",
-        "TemporalMemory.grow_synapses"
+        "SegmentStorage.adapt_segment",
+        "SegmentStorage.punish_segments",
+        "SegmentStorage.grow_synapses"
       ]
     },
     {

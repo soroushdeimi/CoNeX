@@ -23,39 +23,39 @@ function mulberry(seed) {
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
-  // --- Parameters section (CoNeX defaults) ---
+  // --- Parameters section (CoNeX PredictiveCodingConfig & PredictiveCodingLearning defaults) ---
   const sec = ui.section(controls, 'Learning & precision parameters');
   const lr = ui.slider(sec, {
     key: 'learningRate', label: 'learning_rate', unit: 'a.u.',
-    min: 0.005, max: 0.1, step: 0.005, value: 0.05,
+    min: 0.001, max: 0.1, step: 0.001, value: 0.01,
   });
   const precLr = ui.slider(sec, {
     key: 'precisionLearningRate', label: 'precision_learning_rate', unit: 'a.u.',
-    min: 0.001, max: 0.05, step: 0.001, value: 0.01,
+    min: 0.0005, max: 0.05, step: 0.0005, value: 0.001,
   });
   const precTau = ui.slider(sec, {
     key: 'precisionTau', label: 'precision_tau', unit: 'ms',
-    min: 5, max: 100, step: 5, value: 20,
+    min: 5, max: 200, step: 5, value: 100,
   });
   const minPrec = ui.slider(sec, {
     key: 'minPrecision', label: 'min_precision', unit: 'a.u.',
-    min: 0.01, max: 1.0, step: 0.01, value: 0.01,
+    min: 0.005, max: 1.0, step: 0.005, value: 0.01,
   });
   const maxPrec = ui.slider(sec, {
     key: 'maxPrecision', label: 'max_precision', unit: 'a.u.',
-    min: 1, max: 100, step: 5, value: 100,
+    min: 1, max: 200, step: 5, value: 100,
   });
   const nonlin = ui.select(sec, {
     key: 'errorNonlinearity', label: 'error_nonlinearity',
     options: [
-      { value: 'linear', label: 'linear' },
       { value: 'relu', label: 'relu' },
+      { value: 'linear', label: 'linear' },
       { value: 'tanh', label: 'tanh' },
     ],
-    value: 'linear',
+    value: 'relu',
   });
   const useHebbian = ui.toggle(sec, {
-    key: 'useHebbian', label: 'use_hebbian', value: false,
+    key: 'useHebbian', label: 'use_hebbian', value: true,
   });
   const lType = ui.select(sec, {
     key: 'learningType', label: 'synapse learning_type',
@@ -72,8 +72,9 @@ export function mount(root, ui) {
   const heatmapFig = ui.heatmap(figures, {
     rows: SIZE,
     cols: SIZE,
-    label: 'Top-down prediction weights matrix (W)',
+    label: 'Rows: Level 1 (source i) → Cols: Level 0 (target j)',
   });
+  const colorBarNote = ui.note(figures, '');
   const statusNote = ui.note(figures, '');
   const errPlot = ui.plot(figures, {
     height: 200,
@@ -106,7 +107,6 @@ export function mount(root, ui) {
       useSparseErrors: false,
     });
 
-    // Also run synapse model in parallel to verify eligibility traces
     const synModel = new PredictiveSynapseModel({
       srcSize: SIZE,
       dstSize: SIZE,
@@ -166,13 +166,24 @@ export function mount(root, ui) {
     }
     heatmapFig.draw(s.weights, { min: minW, max: maxW });
 
+    // Colour scale and axis mapping note
+    colorBarNote.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;max-width:340px;margin:2px auto;font-family:ui-monospace,monospace;font-size:0.75rem;">
+        <span>min: <strong>${minW.toFixed(3)}</strong></span>
+        <div style="flex:1;height:12px;margin:0 10px;border:1px solid var(--rule,#dcdccd);background:linear-gradient(to right, var(--paper,#fbfaf5), var(--c1,#0f7b7f));border-radius:2px;"></div>
+        <span>max: <strong>${maxW.toFixed(3)}</strong></span>
+      </div>
+      <div style="text-align:center;font-size:0.75rem;color:var(--muted,#5f6b6d);margin-top:2px;margin-bottom:6px;">
+        Weight matrix <strong>W</strong>: maps Level 1 (top-down source, rows 0&ndash;${SIZE - 1}) &rarr; Level 0 (sensory prediction, cols 0&ndash;${SIZE - 1}). Prediction: <em>pred = W<sup>T</sup> &middot; x<sub>top_down</sub></em>.
+      </div>
+    `;
+
     // 2. Status readout
     statusNote.innerHTML = `
       <div style="font-family:ui-monospace,monospace;font-size:0.85rem;line-height:1.4;">
         <strong>Step ${clampedStep}</strong>: Mean |error| = <span style="color:var(--c2,#d95b43);font-weight:bold;">${s.meanAbsError.toFixed(4)}</span>
-        &bull; Mean precision = <span style="color:var(--c1,#0f7b7f);font-weight:bold;">${s.meanPrecision.toFixed(2)}</span>
+        &bull; Mean precision = <span style="color:var(--c1,#0f7b7f);font-weight:bold;">${s.meanPrecision.toFixed(3)}</span>
         &bull; Free energy = ${s.freeEnergy.toFixed(4)}
-        &bull; Weight range = [${minW.toFixed(3)}, ${maxW.toFixed(3)}]
       </div>
     `;
 
@@ -218,19 +229,17 @@ export function mount(root, ui) {
     );
   }
 
-  // --- Animation / Player ---
-  let player = null;
-  if (typeof ui.player === 'function') {
-    player = ui.player(figures, {
-      duration: STEPS - 1,
-      unit: 'step',
-      playSeconds: 6,
-      loop: true,
-      onFrame: (t) => {
-        renderAt(Math.round(t));
-      },
-    });
-  }
+  // --- Animation / Player (direct integration per AMENDMENT 2, no fallback guards) ---
+  const player = ui.player(figures, {
+    duration: STEPS - 1,
+    unit: 'step',
+    playSeconds: 6,
+    loop: true,
+    integer: true,
+    onFrame: (t) => {
+      renderAt(Math.round(t));
+    },
+  });
 
   function rebuild() {
     runSimulation();
@@ -260,8 +269,8 @@ export function mount(root, ui) {
     <p><em>Note on CoNeX hierarchy:</em> In <code>conex/behaviors/neurons/numenta/predictive_coding.py</code> (around line 753),
     the multi-level <code>HierarchicalPredictiveCoding</code> class indexes top-down predictions using <code>level_predictions[i + 1]</code>
     for every level without binding the top level to the propagated feedforward input, leaving top-level predictions at zero.
-    This plate uses the robust single-level predictive learning behaviors (<code>TopDownPrediction</code>, <code>ErrorUnit</code>,
-    <code>PrecisionWeighting</code>, and <code>PredictiveCodingLearning</code>) that accurately minimize variational free energy.</p>
+    This plate uses the single-level and synapse learning chain (<code>TopDownPrediction</code>, <code>ErrorUnit</code>,
+    <code>PrecisionWeighting</code>, and <code>PredictiveCodingLearning</code>) which accurately executes online gradient descent.</p>
   `);
 
   ui.equation(notes, `
@@ -275,7 +284,7 @@ export function mount(root, ui) {
   ui.note(notes, `
     <p><strong>Constants &amp; Sources:</strong> Rao &amp; Ballard (1999) <em>Nature Neuroscience</em>;
     Friston (2005) <em>Philosophical Transactions of the Royal Society B</em>;
-    defaults from <code>PredictiveCodingConfig</code> in CoNeX.</p>
+    defaults from <code>PredictiveCodingConfig</code> (<code>predictive_coding.py:45</code>) and <code>PredictiveCodingLearning</code> (<code>predictive_coding.py:490</code>) in CoNeX.</p>
     <p><strong>ML analogy:</strong> An autoencoder bottleneck performing online gradient descent on reconstruction error,
     where precision acts as a learnable per-feature loss weight.</p>
     <p><strong>Where the analogy breaks:</strong> Deep learning autoencoders require end-to-end backpropagation through a global scalar loss.

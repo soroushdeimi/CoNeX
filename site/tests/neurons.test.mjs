@@ -16,6 +16,8 @@ import {
   lifNarration,
   dropletCount,
   elifExpTerm,
+  elifPhaseLine,
+  elifFixedPoints,
   elifNarration,
   aelifNarration,
   fiCurve,
@@ -176,6 +178,30 @@ test('elifExpTerm: delta*exp((v-theta_rh)/delta) (hand-computed)', () => {
 
 test('elifExpTerm throws on non-positive delta', () => {
   assert.throws(() => elifExpTerm(0, { delta: 0, theta_rh: -50 }), /delta must be a positive finite number/);
+});
+
+test('elifPhaseLine: f(v) = (-(v-v_rest) + delta*exp((v-theta_rh)/delta) + R*I)/tau (hand-computed)', () => {
+  const p = { R: 0.5, tau: 20, v_rest: -70, delta: 2, theta_rh: -50 };
+  // v = v_rest: leak term 0, exp term = 2*exp(-10) = 9.08e-5, R*I = 0.5*20 = 10
+  // f = (0 + 9.08e-5 + 10)/20 = 0.5000045 mV/ms
+  close(elifPhaseLine(-70, p, 20), (0 + 2 * Math.exp(-10) + 10) / 20, 1e-9, 'at v_rest');
+  // v = theta_rh: exp term = delta = 2; leak = -(-50+70) = -20; R*I = 10
+  // f = (-20 + 2 + 10)/20 = -0.4 mV/ms
+  close(elifPhaseLine(-50, p, 20), (-20 + 2 + 10) / 20, 1e-9, 'at theta_rh');
+});
+
+test('elifFixedPoints: fixed points by hand for the defaults (stable/unstable)', () => {
+  const p = { R: 0.5, tau: 20, v_rest: -70, delta: 2, theta_rh: -50 };
+  const vMin = p.v_rest - 5, vMax = 0;
+  // I = 20: two fixed points, the lower one stable, the upper one unstable.
+  const fp20 = elifFixedPoints(p, 20, vMin, vMax);
+  assert.equal(fp20.length, 2, 'I=20 has two fixed points');
+  close(fp20[0].v, -59.9864, 1e-3, 'lower fixed point');
+  assert.equal(fp20[0].stable, true, 'lower fixed point is stable');
+  close(fp20[1].v, -46.1263, 1e-3, 'upper fixed point');
+  assert.equal(fp20[1].stable, false, 'upper fixed point is unstable');
+  // I = 65: no fixed point below threshold (the neuron fires).
+  assert.equal(elifFixedPoints(p, 65, vMin, vMax).length, 0, 'I=65 has no fixed point');
 });
 
 test('elifNarration: take-off vs balance, driven by the real terms (hand-computed)', () => {

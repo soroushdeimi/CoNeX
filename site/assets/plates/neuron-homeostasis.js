@@ -67,6 +67,10 @@ export function mount(root, ui) {
   let vs, thresholds, hos, rng, t, iteration;
   const spikeRing = []; // {t, j} for the last WINDOW ms (for the rate meter + raster)
   let rateRing = [];    // {t, rate} rolling group rate (Hz)
+  // Range of the control variable (threshold for activity, v for voltage) across
+  // all neurons and time, so the per-neuron ticks are spread over the real range
+  // instead of all sitting at the same height.
+  let ctrlMin = 0, ctrlMax = 1;
 
   function buildState() {
     const p = params();
@@ -86,6 +90,9 @@ export function mount(root, ui) {
     iteration = 0;
     spikeRing.length = 0;
     rateRing.length = 0;
+    const init = type === 'activity' ? p.threshold : p.v_rest;
+    ctrlMin = init;
+    ctrlMax = init;
   }
 
   function step() {
@@ -105,6 +112,9 @@ export function mount(root, ui) {
       } else {
         vs[j] = hos[j].step(vs[j]);
       }
+      const cv = type === 'activity' ? thresholds[j] : vs[j];
+      if (cv < ctrlMin) ctrlMin = cv;
+      if (cv > ctrlMax) ctrlMax = cv;
     }
     // rolling group rate over the last WINDOW ms
     while (spikeRing.length && spikeRing[0].t < t - WINDOW) spikeRing.shift();
@@ -168,6 +178,8 @@ tryThis.style.fontStyle = 'italic';
     const rad = Math.min(cellW, cellH) * 0.30;
     // v range for the fill: v_rest .. threshold (init)
     const vLo = p.v_rest, vHi = Math.max(p.threshold, p.v_reset) + 5;
+    // control-variable range across the run (so the ticks spread out)
+    const cLo = ctrlMin, cHi = ctrlMax + (ctrlMax - ctrlMin < 1e-6 ? 1 : 0);
     for (let j = 0; j < SIZE; j++) {
       const cx = gx0 + (j % cols) * cellW + cellW / 2;
       const cy = gy0 + Math.floor(j / cols) * cellH + cellH / 2;
@@ -178,15 +190,29 @@ tryThis.style.fontStyle = 'italic';
       ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2);
       ctx.fillStyle = pal.water; ctx.globalAlpha = 0.25 + 0.55 * frac; ctx.fill();
       ctx.globalAlpha = 1;
+      // coral glow that decays over ~100 ms of real time after a spike
+      if (flashed) {
+        ctx.strokeStyle = pal.coral; ctx.lineWidth = 3;
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath(); ctx.arc(cx, cy, rad + 4, 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
       ctx.strokeStyle = flashed ? pal.coral : pal.ink;
       ctx.lineWidth = flashed ? 3 : 1.5;
       ctx.stroke();
-      // threshold marker: a small tick on the circle at the neuron's threshold
+      // control-variable marker: a tick on the circle at the neuron's threshold
+      // (activity) or voltage (voltage), mapped over the real run range
       const th = type === 'activity' ? thresholds[j] : vs[j];
-      const thFrac = Math.max(0, Math.min(1, (th - vLo) / (vHi - vLo)));
+      const thFrac = Math.max(0, Math.min(1, (th - cLo) / (cHi - cLo)));
       const ty = cy + rad - thFrac * 2 * rad;
       ctx.strokeStyle = pal.ochre; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(cx - rad - 4, ty); ctx.lineTo(cx + rad + 4, ty); ctx.stroke();
+      // print the value for one neuron (j=0) so the scale is readable
+      if (j === 0) {
+        ctx.fillStyle = pal.ochre; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(`${th.toFixed(1)} mV`, cx + rad + 6, ty);
+      }
       ctx.fillStyle = pal.muted; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
       ctx.fillText(String(j), cx, cy + rad + 4);
@@ -206,6 +232,13 @@ tryThis.style.fontStyle = 'italic';
     // frame
     ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
     ctx.strokeRect(mx0, my0, mx1 - mx0, my1 - my0);
+    // y tick labels (Hz)
+    ctx.fillStyle = pal.muted; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    const rateStep = maxRate > 100 ? 50 : 10;
+    for (let r = 0; r <= maxRate; r += rateStep) {
+      ctx.fillText(String(r), mx0 - 4, yOf(r));
+    }
     // target line
     if (type === 'activity') {
       ctx.strokeStyle = pal.muted; ctx.setLineDash([4, 3]);

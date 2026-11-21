@@ -141,8 +141,19 @@ tryThis.style.fontStyle = 'italic';
     const splashing = vNow <= p.v_reset + 1e-9;
 
     // ---- main bucket (v) on the left ----
-    const bw = Math.min(180, Math.max(110, W * 0.30));
-    const bx = W * 0.10;
+    // Reserve a left margin wide enough for the level labels (measured), so they
+    // are never clipped at 390 px. Fall back to a fixed width if measureText is
+    // unavailable (e.g. in the test mock).
+    ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    const tw_ = (s) => { const m = ctx.measureText(s); return (m && typeof m.width === 'number') ? m.width : 0; };
+    const labelW = Math.max(
+      tw_(`threshold ${p.threshold} mV`),
+      tw_(`v_reset ${p.v_reset} mV`),
+      tw_(`v_rest ${p.v_rest} mV`),
+      88, // fallback so the margin is never zero
+    );
+    const bx = labelW + 12;
+    const bw = Math.min(180, Math.max(110, (W * 0.62 - bx) * 0.55));
     const cx = bx + bw / 2;
     const yRim = 90, yBot = 280;
     const yOf = (val) => yBot - ((val - p.v_rest) / (p.threshold - p.v_rest)) * (yBot - yRim);
@@ -196,7 +207,7 @@ tryThis.style.fontStyle = 'italic';
     // w can be negative (e.g. Delayed); map a symmetric range around 0.
     const wMax = Math.max(10, Math.abs(wNow) * 1.2);
     const tw = Math.min(120, Math.max(72, W * 0.20));
-    const tx = W * 0.62;
+    const tx = Math.min(W - tw - 8, bx + bw + 24);
     const tcx = tx + tw / 2;
     const tTop = 110, tBot = 280;
     const tMid = (tTop + tBot) / 2;
@@ -219,7 +230,7 @@ tryThis.style.fontStyle = 'italic';
     ctx.setLineDash([]);
     ctx.fillStyle = pal.muted; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText('w = 0', tx + tw + 4, tMid);
+    ctx.fillText('w = 0 pA', tx + tw + 4, tMid);
     ctx.fillStyle = pal.adapt; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.fillText(`w = ${wNow.toFixed(2)} pA`, tcx, tTop - 6);
     ctx.fillStyle = pal.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'top';

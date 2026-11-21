@@ -210,6 +210,35 @@ export function elifExpTerm(v, p) {
   return p.delta * Math.exp((v - p.theta_rh) / p.delta);
 }
 
+// The ELIF phase line f(v) = (-(v - v_rest) + delta*exp((v - theta_rh)/delta) + R*I)/tau
+// (mV/ms). This is the real dv/dt at a given v and constant current I.
+export function elifPhaseLine(v, p, I) {
+  assertPositive('tau', p.tau);
+  assertPositive('delta', p.delta);
+  return (-(v - p.v_rest) + p.delta * Math.exp((v - p.theta_rh) / p.delta) + p.R * I) / p.tau;
+}
+
+// Fixed points of the ELIF phase line on [vMin, vMax]: the v where f(v) = 0,
+// with stability from the slope f'(v) = (-(1) + exp((v - theta_rh)/delta))/tau
+// (stable when the slope is negative). Returns [{v, stable}] in ascending v.
+export function elifFixedPoints(p, I, vMin, vMax, n = 4000) {
+  const f = (v) => elifPhaseLine(v, p, I);
+  const out = [];
+  let pv = vMin, pf = f(vMin);
+  for (let k = 1; k <= n; k++) {
+    const v = vMin + (vMax - vMin) * k / n;
+    const fv = f(v);
+    if ((pf <= 0) !== (fv <= 0)) {
+      const t = pf / (pf - fv);
+      const root = pv + t * (v - pv);
+      const slope = (-1 + Math.exp((root - p.theta_rh) / p.delta)) / p.tau;
+      out.push({ v: root, stable: slope < 0 });
+    }
+    pv = v; pf = fv;
+  }
+  return out;
+}
+
 // ELIF hero narration, driven by the real quantities. While splashing it reports
 // the reset; otherwise it compares the exponential inflow (delta*exp(...)/tau,
 // mV/ms) to the input flow (R*I/tau, mV/ms) — the take-off begins when the

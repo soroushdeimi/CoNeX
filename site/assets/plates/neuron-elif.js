@@ -1,4 +1,4 @@
-import { DEFAULTS, elifStep, elifExpTerm, elifNarration, dropletCount } from '../js/models/neurons.js';
+import { DEFAULTS, elifStep, elifExpTerm, elifPhaseLine, elifFixedPoints, elifNarration, dropletCount } from '../js/models/neurons.js';
 
 export const meta = {
   id: 'neuron-elif',
@@ -11,12 +11,6 @@ const P = { ...DEFAULTS };
 const DT = 0.1;      // ms, fixed integration step
 const WINDOW = 100;  // ms of model time kept on screen
 const MODEL_PER_SECOND = 100;
-
-// dv/dt for the ELIF at a given v and constant current I (mV per ms).
-function dvdt(v, p, I) {
-  const Fu = p.v_rest - v + p.delta * Math.exp((v - p.theta_rh) / p.delta);
-  return (Fu + p.R * I) / p.tau;
-}
 
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
@@ -70,34 +64,24 @@ export function mount(root, ui) {
     drops.length = 0;
   }
 
-  // Phase line curve (dv/dt vs v) for the current params and I. Recomputed only
-  // when a parameter changes; the ball just moves along it each frame.
+  // Phase line curve f(v) = dv/dt for the current params and I. Recomputed only
+  // when a parameter changes; the ball just moves along it each frame. The x
+  // range is v_rest-5 .. threshold and the y range is clipped to -2..+4 mV/ms so
+  // the linear leak part is visible (the exponential take-off leaves the top).
   let phase = null;
   function computePhase() {
     const p = params();
     const I = cI.get();
-    const vMin = Math.min(p.v_rest, p.v_reset) - 5;
-    const vMax = p.threshold + 5;
+    const vMin = p.v_rest - 5;
+    const vMax = p.threshold;
     const N = 200;
     const xs = [], ys = [];
-    let prev = null;
-    const fixed = [];
     for (let k = 0; k <= N; k++) {
       const v = vMin + (vMax - vMin) * k / N;
-      const d = dvdt(v, p, I);
-      xs.push(v); ys.push(d);
-      if (prev !== null && (prev.d <= 0) !== (d <= 0)) {
-        const f = prev.d / (prev.d - d);
-        fixed.push(prev.v + f * (v - prev.v));
-      }
-      prev = { v, d };
+      xs.push(v); ys.push(elifPhaseLine(v, p, I));
     }
-    // Clip the y window so the exponential take-off is visible but does not
-    // blow up the scale: use the 95th percentile of the positive values.
-    const pos = ys.filter((y) => y > 0).sort((a, b) => a - b);
-    const yHi = Math.max(2, pos.length ? pos[Math.floor(0.95 * pos.length)] : 2);
-    const yLo = Math.min(0, Math.min(...ys));
-    phase = { xs, ys, fixed, vMin, vMax, yLo, yHi };
+    const fixed = elifFixedPoints(p, I, vMin, vMax);
+    phase = { xs, ys, fixed, vMin, vMax, yLo: -2, yHi: 4 };
   }
 
   // --- figures ---
@@ -176,10 +160,10 @@ tryThis.style.fontStyle = 'italic';
 
     // ---- left: phase line ----
     const split = W * 0.56;
-    const M = { left: 34, right: 8, top: 16, bottom: 26 };
+    const M = { left: 40, right: 8, top: 16, bottom: 30 };
     const sx = (x) => M.left + ((x - phase.vMin) / (phase.vMax - phase.vMin)) * (split - M.left - M.right);
     const sy = (y) => (H - M.bottom) - ((y - phase.yLo) / (phase.yHi - phase.yLo)) * (H - M.bottom - M.top);
-    // take-off band: theta_rh .. theta_rh + 3*delta
+    // take-off band: theta_rh .. theta_rh + 3*delta, on the SAME x scale as the curve
     const bandL = Math.max(phase.vMin, p.theta_rh);
     const bandR = Math.min(phase.vMax, p.theta_rh + 3 * p.delta);
     if (bandR > bandL) {
@@ -188,32 +172,53 @@ tryThis.style.fontStyle = 'italic';
       ctx.fillRect(sx(bandL), M.top, sx(bandR) - sx(bandL), H - M.bottom - M.top);
       ctx.globalAlpha = 1;
     }
-    // frame + zero line
+    // frame
     ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
     ctx.strokeRect(M.left, M.top, split - M.left - M.right, H - M.bottom - M.top);
+    // x tick labels (v, mV)
+    ctx.fillStyle = pal.muted; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    for (let xv = Math.ceil(phase.vMin / 10) * 10; xv <= phase.vMax; xv += 10) {
+      ctx.fillText(String(xv), sx(xv), H - M.bottom + 3);
+    }
+    // y tick labels (dv/dt, mV/ms)
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (let yv = Math.ceil(phase.yLo / 2) * 2; yv <= phase.yHi; yv += 2) {
+      ctx.fillText(String(yv), M.left - 4, sy(yv));
+    }
+    // zero line
     ctx.strokeStyle = pal.muted; ctx.setLineDash([4, 3]);
     ctx.beginPath(); ctx.moveTo(M.left, sy(0)); ctx.lineTo(split - M.right, sy(0)); ctx.stroke();
-    // theta_rh and fixed points
-    for (const [xv, lab] of [[p.theta_rh, 'theta_rh'], ...phase.fixed.map((f) => [f, 'fixed'])]) {
-      if (xv < phase.vMin || xv > phase.vMax) continue;
-      ctx.beginPath(); ctx.moveTo(sx(xv), M.top); ctx.lineTo(sx(xv), H - M.bottom); ctx.stroke();
+    // theta_rh marker
+    if (p.theta_rh >= phase.vMin && p.theta_rh <= phase.vMax) {
+      ctx.beginPath(); ctx.moveTo(sx(p.theta_rh), M.top); ctx.lineTo(sx(p.theta_rh), H - M.bottom); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = pal.muted; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
-      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText(lab, sx(xv) + 2, M.top + 2);
+      ctx.fillStyle = pal.muted; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText('theta_rh', sx(p.theta_rh) + 2, M.top + 2);
       ctx.setLineDash([4, 3]);
     }
     ctx.setLineDash([]);
-    // the curve
+    // the curve f(v)
     ctx.strokeStyle = pal.water; ctx.lineWidth = 1.5;
     ctx.beginPath();
+    let started = false;
     for (let k = 0; k < phase.xs.length; k++) {
-      const px = sx(phase.xs[k]), py = sy(Math.max(phase.yLo, Math.min(phase.yHi, phase.ys[k])));
-      if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      const yv = phase.ys[k];
+      if (yv < phase.yLo - 0.5 || yv > phase.yHi + 0.5) { started = false; continue; }
+      const px = sx(phase.xs[k]), py = sy(Math.max(phase.yLo, Math.min(phase.yHi, yv)));
+      if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
     }
     ctx.stroke();
-    // the ball at the live v, rolling along the curve
-    const dNow = dvdt(vNow, p, I);
+    // fixed points: stable = filled dot, unstable = open dot, on the zero line
+    for (const fp of phase.fixed) {
+      if (fp.v < phase.vMin || fp.v > phase.vMax) continue;
+      const fx = sx(fp.v), fy = sy(0);
+      ctx.beginPath(); ctx.arc(fx, fy, 4, 0, Math.PI * 2);
+      if (fp.stable) { ctx.fillStyle = pal.water; ctx.fill(); }
+      else { ctx.fillStyle = ui.color('paper'); ctx.fill(); ctx.strokeStyle = pal.water; ctx.lineWidth = 1.5; ctx.stroke(); }
+    }
+    // the ball at the live v, on the curve (clipped to the window)
+    const dNow = elifPhaseLine(vNow, p, I);
     const bx = sx(vNow), by = sy(Math.max(phase.yLo, Math.min(phase.yHi, dNow)));
     ctx.beginPath(); ctx.arc(bx, by, 5, 0, Math.PI * 2);
     ctx.fillStyle = splashing ? pal.coral : pal.ink; ctx.fill();
@@ -269,7 +274,7 @@ tryThis.style.fontStyle = 'italic';
     ctx.lineWidth = tapW;
     ctx.beginPath(); ctx.moveTo(cx, 44); ctx.lineTo(cx, yWater - 2); ctx.stroke();
     ctx.fillStyle = pal.tap; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`input ${input.toFixed(2)}`, cx, 34);
+    ctx.fillText(`input ${input.toFixed(2)} mV/ms`, cx, 34);
     // hole (leak) on the right wall
     const holeY = yBot - 20;
     const leakW = Math.max(1.5, Math.min(24, 1.5 + leak * 4));
@@ -280,7 +285,7 @@ tryThis.style.fontStyle = 'italic';
     ctx.quadraticCurveTo(bx0 + bw + jetLen * 0.5, holeY + 4, bx0 + bw + jetLen, holeY + jetLen * 0.5);
     ctx.stroke();
     ctx.fillStyle = pal.leak; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillText(`leak ${leak.toFixed(2)}`, cx, yBot + 12);
+    ctx.fillText(`leak ${leak.toFixed(2)} mV/ms`, cx, yBot + 12);
     // pump (exponential term) on the left wall, feeding in
     const pumpW = Math.max(1.5, Math.min(24, 1.5 + pump * 4));
     const pumpLen = Math.max(8, Math.min(48, 8 + pump * 30));
@@ -290,11 +295,12 @@ tryThis.style.fontStyle = 'italic';
     ctx.quadraticCurveTo(bx0 - pumpLen * 0.5, yWater + 30 - 4, bx0 - pumpLen, yWater + 30 - pumpLen * 0.5);
     ctx.stroke();
     ctx.fillStyle = pal.pump; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillText(`pump ${pump.toFixed(2)}`, cx, yBot + 28);
-    // v readout
+    ctx.fillText(`pump ${pump.toFixed(2)} mV/ms`, cx, yBot + 28);
+    // v readout: inside the water (top-left of the fill) so it never overlaps the
+    // v_reset / threshold reference lines on the left wall.
     ctx.fillStyle = pal.ink; ctx.font = mono;
-    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, bx0 + 6, yWater - 4);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, bx0 + 6, yWater + 4);
     // spike rim flash
     if (splashing) {
       ctx.strokeStyle = pal.coral; ctx.lineWidth = 3;

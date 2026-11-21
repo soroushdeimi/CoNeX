@@ -1,4 +1,4 @@
-import { DEFAULTS, simulate, lifRateAnalytic } from '../js/models/neurons.js';
+import { DEFAULTS, simulate, lifStep, lifRateAnalytic } from '../js/models/neurons.js';
 
 export const meta = {
   id: 'neuron-fi',
@@ -110,7 +110,8 @@ tryThis.style.fontStyle = 'italic';
   curves are the real CoNeX dynamics, not a formula. The dots are the analytic LIF rate
   <var>f</var> = 1 / (<var>tau</var>·ln((<var>v</var><sub>ss</sub>−<var>v</var><sub>reset</sub>)/(<var>v</var><sub>ss</sub>−<var>threshold</var>))), <var>v</var><sub>ss</sub> = <var>v</var><sub>rest</sub> + <var>R</var>·<var>I</var>.
   Units: v in mV, t in ms, I in pA, R in GOhm. The hero sweeps the current with a dial; the small bucket
-  fires at the measured rate <var>f</var>(<var>I</var>), and each point lands on the f-I curve as the sweep passes.`);
+  is a real LIF stepped at the current <var>I</var> (slowed for visibility), so it fills and resets at the
+  true rate <var>f</var>(<var>I</var>), and each point lands on the f-I curve as the sweep passes.`);
   ui.note(notes, `For the default parameters the measured rheobases (smallest current that fires) are
   LIF ≈ 40 pA, ELIF ≈ 36 pA and AELIF ≈ 36 pA. So ELIF and AELIF start firing at a lower current than
   LIF: the exponential term pushes them over threshold sooner. AELIF's adaptation current <var>w</var> does
@@ -122,10 +123,34 @@ tryThis.style.fontStyle = 'italic';
   analogy breaks because it is a dynamical, history-dependent rate, not a static function of the input.`);
   ui.code(notes, () => codeSnippet());
 
-  // --- hero: current dial + small bucket firing at rate f(I) ---
-  let firePhase = 0; // fractional spike accumulator for the bucket
+  // --- hero: current dial + a real LIF bucket at the sweep current I ---
+  // The bucket is a real LIF stepped at the current I (slowed for visibility), so
+  // it fills and resets at the true f(I). The fill is the LIF's own v.
+  const HERO_DT = 0.1;      // ms, LIF integration step for the hero
+  const HERO_SLOWDOWN = 40; // model ms advanced per real ms (slowed so spikes are visible)
+  let heroV = P.v_rest;
   let lastReal = 0;
   let flash = 0; // 0..1, decays after a spike
+
+  function lifParams() {
+    const b = base();
+    return { R: b.R, tau: b.tau, threshold: cThLif.get(), v_reset: b.v_reset, v_rest: b.v_rest, dt: HERO_DT };
+  }
+
+  // Advance the hero LIF by the real frame time (slowed), at the current I.
+  function tickBucket(I, dtReal) {
+    const p = lifParams();
+    let modelMs = dtReal * HERO_SLOWDOWN;
+    let guard = 0;
+    while (modelMs >= HERO_DT && guard < 2000) {
+      const r = lifStep({ v: heroV }, p, I, HERO_DT);
+      heroV = r.v;
+      if (r.spike) flash = 1;
+      modelMs -= HERO_DT;
+      guard++;
+    }
+    flash = Math.max(0, flash - dtReal * 4);
+  }
 
   function drawHero(I) {
     const ctx = hero.ctx;
@@ -159,13 +184,13 @@ tryThis.style.fontStyle = 'italic';
     ctx.fillStyle = pal.muted; ctx.textBaseline = 'bottom';
     ctx.fillText('sweep current', dcx, dcy - dr - 8);
 
-    // ---- right: small bucket firing at rate f(I) ----
+    // ---- right: a real LIF bucket at the sweep current I ----
     const bw = Math.min(120, Math.max(72, W * 0.22));
     const bx = W * 0.62, cx = bx + bw / 2;
     const yRim = H * 0.30, yBot = H * 0.82;
-    // fill level oscillates: rises, then a spike drops it (schematic of firing at rate f)
-    // level = (firePhase) mapped to the bucket, so it visibly fills and resets per spike
-    const level = firePhase;
+    // fill = the LIF's own v, mapped v_rest..threshold; it fills and resets at f(I)
+    const p = lifParams();
+    const level = Math.max(0, Math.min(1, (heroV - p.v_rest) / (p.threshold - p.v_rest)));
     const yWater = yBot - level * (yBot - yRim);
     ctx.fillStyle = flash > 0 ? pal.coral : pal.water;
     ctx.globalAlpha = 0.82;
@@ -183,19 +208,11 @@ tryThis.style.fontStyle = 'italic';
     ctx.fillStyle = pal.ink; ctx.font = mono;
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.fillText(`f(I) = ${f.toFixed(0)} Hz`, cx, yRim - 8);
-    ctx.fillStyle = pal.muted; ctx.textBaseline = 'top';
-    ctx.fillText('bucket fires at f(I)', cx, yBot + 8);
-  }
-
-  // Advance the bucket's firing at the real measured rate f(I) (scaled to a few
-  // flashes per second at the maximum rate so it is visible).
-  function tickBucket(I, dtReal) {
-    const f = rateAt(I);
-    const maxF = runData.maxRate || 1;
-    const realRate = (f / maxF) * 3; // spikes per real second, max 3/s
-    firePhase += realRate * dtReal;
-    if (firePhase >= 1) { firePhase -= 1; flash = 1; }
-    flash = Math.max(0, flash - dtReal * 4);
+    // v readout inside the water
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText(`v = ${heroV.toFixed(1)} mV`, bx + 6, yWater + 4);
+    ctx.fillStyle = pal.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText('a real LIF at this I (slowed)', cx, yBot + 8);
   }
 
   // --- frame: the player sweeps I (0..MAX_I) ---

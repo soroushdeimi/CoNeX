@@ -209,11 +209,12 @@ tryThis.style.fontStyle = 'italic';
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillText(`leak (v − v_rest)/τ = ${leak.toFixed(2)} mV/ms`, cx, yBot + 14);
 
-    // v readout on the water surface.
+    // v readout inside the water (top-left of the fill) so it never overlaps the
+    // threshold / v_reset reference lines on the left wall.
     ctx.fillStyle = pal.ink;
     ctx.font = mono;
-    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, bx + 8, yWater - 4);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, bx + 8, yWater + 4);
 
     // Decorative droplets: falling from the tap (input) and leaving the hole (leak).
     ctx.fillStyle = pal.tap;

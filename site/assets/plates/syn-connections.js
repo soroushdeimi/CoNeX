@@ -109,7 +109,9 @@ export function mount(root, ui) {
     const contrib = contributions(state.type, state, weights, spikes);
     const nDst = contrib.length;
     const current = contrib.map((row) => row.reduce((a, b) => a + b, 0));
-    data = { spikes, conn, contrib, current, nDst, yMax: Math.max(0.1, ...current.map(Math.abs)) };
+    // current can be negative for an inhibitory source, so range spans both signs
+    const yMax = Math.max(0.1, ...current.map(Math.abs));
+    data = { spikes, conn, contrib, current, nDst, yMin: -yMax, yMax };
   }
 
   // Spikes flow from each active pre neuron along its real connections to the
@@ -137,12 +139,12 @@ export function mount(root, ui) {
       const x = ix(s) + (leftX - ix(s)) * t;
       ctx.fillStyle = c2; ctx.beginPath(); ctx.arc(x, iy(s) + (py(d) - iy(s)) * t, 2, 0, Math.PI * 2); ctx.fill();
     }
-    // post neurons + current bars
+    // post neurons + current bars (extend right for positive, left for negative)
     for (let d = 0; d < nDst; d++) {
       const val = data.current[d] * t;
-      const bw = Math.max(2, (val / data.yMax) * (W * 0.3));
+      const bw = (val / data.yMax) * (W * 0.3);
       ctx.fillStyle = c1;
-      ctx.fillRect(rightX, py(d) - 4, Math.max(0, bw), 8);
+      ctx.fillRect(bw >= 0 ? rightX : rightX - Math.abs(bw), py(d) - 4, Math.abs(bw), 8);
       ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(rightX - 6, py(d), 4, 0, Math.PI * 2); ctx.fill();
     }
   }
@@ -155,7 +157,7 @@ export function mount(root, ui) {
     const xs = data.current.map((_, i) => i);
     currentPlot.draw(
       [{ x: xs, y: data.current.map((v) => v * t), label: 'current', color: 'c1', style: 'bars' }],
-      { xRange: [0, Math.max(1, data.nDst)], yRange: [0, data.yMax] }
+      { xRange: [0, Math.max(1, data.nDst)], yRange: [data.yMin, data.yMax] }
     );
     drawFlow(t);
   }

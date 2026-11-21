@@ -51,6 +51,17 @@ export function mount(root, ui) {
   const inCanvas = ui.canvas(figures, { height: 220 });
   const countCanvas = ui.canvas(figures, { height: 220 });
 
+  // captions under each image (the canvas's parent is the <figure>); the
+  // cross-area checker's mock canvas has no parentElement, so guard it
+  const caption = (c, text) => {
+    if (!c.canvas.parentElement) return;
+    const cap = document.createElement('figcaption');
+    cap.textContent = text;
+    c.canvas.parentElement.appendChild(cap);
+  };
+  caption(inCanvas, 'input image (intensity 0-1)');
+  caption(countCanvas, 'spike count up to t');
+
   const state = { time_window: 30, ratio: 5 / 30, seed: 42, encoder: 'simple' };
   let data = null; // { spikes, ticks, T, maxCount, prefix }
   let curT = 0;

@@ -70,6 +70,7 @@ function makeCtx() {
   return new Proxy(state, {
     get(t, prop) {
       if (prop in t) return t[prop];
+      if (prop === 'measureText') return (s) => ({ width: String(s).length * 6 });
       return () => {};
     },
     set(t, prop, v) { t[prop] = v; return true; },

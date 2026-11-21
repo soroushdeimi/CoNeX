@@ -122,7 +122,14 @@ export function mount(root, ui) {
     const leftX = Wd * 0.5, rightX = Wd * 0.82;
     const py = (d) => (Hh * (d + 0.5)) / nDst;
     const iy = (i) => (Hh * (Math.floor(i / W) + 0.5)) / H;
-    const ix = (i) => Wd * 0.18 - (i % W) * 8;
+    // Reserve a left margin for the pre index labels (measured) and space the
+    // columns by that width, so a 2-digit label never runs into the spike dot
+    // of the neighbouring column.
+    ctx.font = '9px ui-monospace, monospace';
+    const labelW = ctx.measureText(String(N - 1)).width;
+    const colGap = labelW + 12; // label + 6px dot + 6px gap
+    const gridRight = 2 + 6 + labelW + (W - 1) * colGap;
+    const ix = (i) => gridRight - (i % W) * colGap;
     const e = A.connProgress(t); // eased progress of the spike travel
 
     // connection lines (real pattern), thickness ~ contribution

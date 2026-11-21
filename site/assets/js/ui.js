@@ -323,6 +323,11 @@ function makeCanvas(parent, height) {
   return state;
 }
 
+// "label (unit)" when a unit is given, just "label" when it is empty.
+function axisTitle(label, unit) {
+  return unit ? `${label} (${unit})` : label;
+}
+
 function drawAxes(ctx, w, h, m, xRange, yRange, xTicks, yTicks, xLabel, yLabel, xUnit, yUnit) {
   const pal = PALETTES[theme];
   const x0 = m.left, x1 = w - m.right, y0 = h - m.bottom, y1 = m.top;
@@ -361,11 +366,11 @@ function drawAxes(ctx, w, h, m, xRange, yRange, xTicks, yTicks, xLabel, yLabel, 
   ctx.fillStyle = pal.ink;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
-  ctx.fillText(`${xLabel} (${xUnit})`, (x0 + x1) / 2, h - 2);
+  ctx.fillText(axisTitle(xLabel, xUnit), (x0 + x1) / 2, h - 2);
   ctx.save();
   ctx.translate(10, (y0 + y1) / 2);
   ctx.rotate(-Math.PI / 2);
-  ctx.fillText(`${yLabel} (${yUnit})`, 0, 0);
+  ctx.fillText(axisTitle(yLabel, yUnit), 0, 0);
   ctx.restore();
   return { sx, sy, x0, x1, y0, y1 };
 }

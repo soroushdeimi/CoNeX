@@ -246,12 +246,13 @@ export function mount(root, ui) {
     ctx.strokeStyle = pal.na; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(cx, y0 + h - 4); ctx.lineTo(bx, by); ctx.stroke();
     ctx.fillStyle = pal.na; ctx.beginPath(); ctx.arc(bx, by, 5, 0, Math.PI * 2); ctx.fill();
-    // labels from the raw model sample (last), matching the current readout
-    ctx.fillStyle = pal.na; ctx.font = mono; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`m=${last.m.toFixed(2)}`, cx - half, y0 - 6);
-    ctx.textBaseline = 'top';
-    ctx.fillText(`h=${last.h.toFixed(2)}`, cx + half, y0 + h + 6);
-    ctx.fillText('Na+', cx, y0 - 20);
+    // labels from the raw model sample (last), matching the current readout.
+    // The gate value sits under the channel name on its own line (both centred
+    // on the pore) so it never runs into the name or the neighbouring pore.
+    ctx.fillStyle = pal.na; ctx.font = mono; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText('Na+', cx, y0 - 28);
+    ctx.fillText(`m=${last.m.toFixed(2)}`, cx, y0 - 14);
+    ctx.fillText(`h=${last.h.toFixed(2)}`, cx, y0 + h + 6);
   }
 
   // A K+ pore: filled protein with 4 n flaps at the outer mouth.

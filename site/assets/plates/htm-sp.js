@@ -148,7 +148,9 @@ export function mount(root, ui) {
       `<p>The Spatial Pooler turns an input pattern into a fixed-size SDR of <b>${nActive}</b> active columns out of <b>${n}</b> ` +
         `(local_area_density = ${densityCtl.get()}). Each column has a pool of potential inputs; a synapse is <i>connected</i> when its ` +
         `permanence ≥ <b>syn_perm_connected = ${connectedCtl.get()}</b>. Overlap counts connected synapses on active inputs; the top-` +
-        `${nActive} columns win (global inhibition). This step: <b>${last ? last.nActive : 0}</b> active columns.</p>` +
+        `${nActive} columns win (global inhibition). This step: <b>${last ? last.nActive : 0}</b> active columns. ` +
+        `Note: in the current CoNeX code the <code>global_inhibition=False</code> branch runs the same top-k as the global branch ` +
+        `(<code>spatial_pooler.py</code> <code>_inhibit</code>), so a "local inhibition" toggle would give the same result.</p>` +
         `<p>Learning raises permanence on active inputs by <b>${incCtl.get()}</b> and lowers it on inactive ones by <b>${decCtl.get()}</b>, ` +
         `clipped to [0,1]. With <b>boost_strength = ${boostCtl.get()}</b>, columns that fire less than the target duty cycle get a boost ` +
         `factor &gt; 1 so every column eventually participates (homeostasis). All permanences and densities are dimensionless (a.u.).</p>`

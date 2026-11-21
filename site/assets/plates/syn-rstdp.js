@@ -100,7 +100,7 @@ export function mount(root, ui) {
   ui.slider(sec, { key: 'offset', label: 'post delay after pre', unit: 'ms', min: 0, max: 10, step: 1, value: state.offset, onInput: (v) => { state.offset = v; recompute(); } });
   ui.slider(sec, { key: 'window', label: 'reward window', unit: 'ms', min: 0, max: 10, step: 1, value: state.window, onInput: (v) => { state.window = v; recompute(); } });
   ui.slider(sec, { key: 'rewardSize', label: 'reward size', unit: 'a.u.', min: 0, max: 3, step: 0.1, value: state.rewardSize, onInput: (v) => { state.rewardSize = v; recompute(); } });
-  ui.slider(sec, { key: 'steps', label: 'steps', unit: 'ms', min: 20, max: 200, step: 10, value: state.steps, onInput: (v) => { state.steps = v; recompute(); } });
+  ui.slider(sec, { key: 'steps', label: 'steps', unit: 'steps', min: 20, max: 200, step: 10, value: state.steps, onInput: (v) => { state.steps = v; recompute(); } });
 
   recompute();
   // the cross-area checker's mock ui has no player; fall back to the full view

@@ -82,16 +82,22 @@ export function mount(root, ui) {
 
   ui.note(notes, `The AELIF adds an adaptation current <var>w</var> (called <var>omega</var> in CoNeX) to the ELIF.
   It has two drivers: a subthreshold term <var>alpha</var>·(<var>v</var>−<var>v</var><sub>rest</sub>) that builds up while the neuron is
-  active, and a spike-triggered kick <var>beta</var>·<var>w</var><sub>tau</sub> on every spike. The current <var>R</var>·<var>w</var> is subtracted
-  from the input, so as <var>w</var> grows the neuron fires more slowly — this is <b>adaptation</b>.`);
+  active, and a spike-triggered kick <var>beta</var>·<var>w</var><sub>tau</sub> on every spike. The term <var>R</var>·<var>w</var> (mV) is
+  subtracted from <var>R</var>·<var>I</var>, so as <var>w</var> grows the neuron fires more slowly — this is <b>adaptation</b>.`);
   ui.equation(notes, `<var>tau</var><sub>w</sub>·d<var>w</var>/d<var>t</var> = <var>alpha</var>·(<var>v</var>−<var>v</var><sub>rest</sub>) − <var>w</var> + <var>beta</var>·<var>tau</var><sub>w</sub>·spikes`);
   ui.note(notes, `The "Firing pattern" select loads the seven rows of Gerstner et al. Table 6.1 (R=0.5 GOhm,
   v<sub>rest</sub>=−70 mV, <var>theta</var><sub>rh</sub>=−50 mV, <var>delta</var>=2 mV, threshold=0 mV, dt=0.1 ms). The spike-detection
   threshold of 0 mV is a simulation choice — the book gives no value for it. With the CoNeX equations
   at dt=0.1 ms, Tonic, Adapting, Initial burst, Transient and Delayed reproduce their named patterns;
   <b>Bursting and Irregular do not</b> (both fire nearly regularly), so they are labelled "not reproduced
-  at this dt". ML analogy: <var>w</var> is a short-term "fatigue" state like a running average of recent
-  activity; the analogy breaks because it is a continuous dynamical variable, not a discrete counter.`);
+  at this dt". Note that CoNeX's Euler step multiplies the whole adaptation update by dt/w_tau, so
+  each spike raises <var>w</var> by <var>beta</var>·dt (0.7 pA here), not by <var>beta</var> as in Gerstner's
+  AdEx. With the jump set to <var>beta</var>, Bursting does burst (groups of 4-8 spikes at ~1-2 ms
+  intervals separated by ~60 ms gaps) and Irregular's inter-spike-interval CV rises from 0.07 to 1.83
+  (whether the pattern is irregular rather than bursting was not checked), so the small spike jump
+  explains why Bursting is not reproduced. ML analogy: <var>w</var> is a short-term
+  "fatigue" state like a running average of recent activity; the analogy breaks because it is a
+  continuous dynamical variable, not a discrete counter.`);
   ui.code(notes, () => codeSnippet());
 
   function applyPattern() {

@@ -280,7 +280,9 @@ export function mount(root, ui) {
   `);
   ui.equation(notes, `
     <p>vote<sub>o</sub> = |local &cap; memory<sub>o</sub>| / |local|, &nbsp; kept only if &ge; voting_threshold</p>
-    <p>accumulator<sub>o</sub> &larr; accumulator<sub>o</sub> &middot; (1 &minus; decay_rate) + incoming<sub>o</sub></p>
+    <p>accumulator<sub>o</sub> &larr; accumulator<sub>o</sub> &middot; (1 &minus; decay_rate) + incoming<sub>o</sub> &nbsp;(in receive_votes)</p>
+    <p>accumulator<sub>o</sub> &larr; accumulator<sub>o</sub> &middot; (1 &minus; decay_rate) &nbsp;(again in forward)</p>
+    <p>so per step the accumulator is multiplied by (1 &minus; decay_rate)<sup>2</sup></p>
     <p>consensus: top &ge; min_votes and top / second &ge; 1.5</p>
   `);
   ui.note(notes, `

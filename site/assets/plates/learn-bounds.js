@@ -3,6 +3,7 @@
 // Mirrors conex/behaviors/synapses/learning.py lines 15-27.
 
 import * as M from '../js/models/learning.js';
+import * as A from '../js/anim.js';
 
 export const meta = {
   id: 'learn-bounds',
@@ -13,6 +14,8 @@ export const meta = {
 
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
+
+  const hero = ui.hero(figures, { height: 300 });
 
   const state = {
     w_min: 0.0,
@@ -66,6 +69,67 @@ export function mount(root, ui) {
       });
     }
     return trajectories;
+  }
+
+  // Hero: three weights as beads on rails between w_min and w_max, pushed by
+  // potentiation (first half) then depression (second half). The bound factor
+  // B(w) is drawn as a spring stiffness; the hard_bound bead sticks at w_max.
+  function drawHero(t) {
+    const ctx = hero.ctx, W = hero.width, H = hero.height;
+    const c1 = ui.color('c1'), c2 = ui.color('c2'), c3 = ui.color('c3');
+    const ink = ui.color('ink'), muted = ui.color('muted');
+    ctx.clearRect(0, 0, W, H);
+    const trajs = cachedTrajectories;
+    const bounds = [
+      { name: 'hard_bound', color: c1 },
+      { name: 'no_bound', color: c2 },
+      { name: 'soft_bound', color: c3 },
+    ];
+    // rail range spans every trajectory (no_bound can leave [w_min, w_max])
+    let lo = Infinity, hi = -Infinity;
+    for (const b of bounds) for (const w of trajs[b.name]) { lo = Math.min(lo, w); hi = Math.max(hi, w); }
+    const pad = 0.05 * (hi - lo || 1);
+    lo -= pad; hi += pad;
+    const railX0 = W * 0.12, railX1 = W * 0.88;
+    const railY = (i) => H * (0.22 + i * 0.28);
+    const sx = (w) => railX0 + A.boundsBeadPos(w, lo, hi) * (railX1 - railX0);
+
+    // w_min / w_max markers
+    ctx.strokeStyle = muted; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+    for (const wm of [state.w_min, state.w_max]) {
+      ctx.beginPath(); ctx.moveTo(sx(wm), H * 0.1); ctx.lineTo(sx(wm), H * 0.9); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.fillStyle = muted; ctx.font = '10px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText('w_min', sx(state.w_min), H * 0.09);
+    ctx.fillText('w_max', sx(state.w_max), H * 0.09);
+
+    bounds.forEach((b, i) => {
+      const w = trajs[b.name][t];
+      const factor = M.BOUNDS[b.name](w, state.w_min, state.w_max);
+      const y = railY(i);
+      // rail
+      ctx.strokeStyle = muted; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(railX0, y); ctx.lineTo(railX1, y); ctx.stroke();
+      // spring from the w_min end to the bead; stiffness = bound factor
+      const bx = sx(w);
+      const stiff = A.boundsSpring(factor);
+      ctx.strokeStyle = b.color; ctx.lineWidth = 1 + 3 * stiff; ctx.globalAlpha = 0.3 + 0.7 * stiff;
+      const coils = 8, span = bx - railX0;
+      ctx.beginPath(); ctx.moveTo(railX0, y);
+      for (let k = 1; k < coils; k++) {
+        const x = railX0 + (span * k) / coils;
+        ctx.lineTo(x, y + (k % 2 ? -6 : 6) * (0.4 + stiff));
+      }
+      ctx.lineTo(bx, y); ctx.stroke();
+      ctx.globalAlpha = 1;
+      // bead
+      ctx.fillStyle = b.color;
+      ctx.beginPath(); ctx.arc(bx, y, 8, 0, Math.PI * 2); ctx.fill();
+      // label + value
+      ctx.fillStyle = ink; ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(`${b.name}  w = ${w.toFixed(3)}`, railX1 + 8, y);
+    });
   }
 
   function renderAt(step) {
@@ -127,6 +191,12 @@ export function mount(root, ui) {
         ],
       }
     );
+
+    // 3. Hero: beads on rails
+    drawHero(t);
+    const phase = t <= state.steps ? 'plus' : 'minus';
+    const hw = cachedTrajectories.hard_bound[t];
+    hero.narration(A.boundsNarration('hard_bound', hw, state.w_min, state.w_max, phase));
   }
 
   function update() {
@@ -213,6 +283,7 @@ export function mount(root, ui) {
     });
   }
 
+  hero.onResize(() => renderAt(currentStep));
   ui.onTheme(update);
   update();
 

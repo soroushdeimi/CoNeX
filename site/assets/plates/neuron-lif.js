@@ -79,8 +79,10 @@ export function mount(root, ui) {
         { y: vss, label: 'v_ss (steady state)' },
       ] }
     );
+    // Constant input: pin the axis to start at 0 so the value is readable.
+    const iTop = Math.max(I, ir) * 1.1 || 1;
     figI.draw([{ x: t, y: i, label: 'I', color: 'c3', style: 'line' }],
-      { hlines: [{ y: ir, label: 'I_rheo' }] });
+      { yRange: [0, iTop], hlines: [{ y: ir, label: 'I_rheo' }] });
   }
 
   function codeSnippet() {

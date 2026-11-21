@@ -12,6 +12,21 @@ const STEPS = 5000;
 // Rows whose named pattern is NOT reproduced by CoNeX's AELIF at dt=0.1 ms.
 const NOT_REPRODUCED = new Set(['Bursting', 'Irregular']);
 
+// Use ui.player when the shell provides it; otherwise fall back to a stub that
+// reveals the whole run once, so figures are never empty in the test mock.
+function makePlayer(ui, parent, onFrame) {
+  if (typeof ui.player === 'function') {
+    return ui.player(parent, { duration: 0, unit: 'ms', playSeconds: 5, loop: true, onFrame });
+  }
+  let t = 0;
+  return {
+    play() {}, pause() {},
+    seek(x) { t = x; }, // no player to animate; setDuration reveals the full run
+    playing() { return false; },
+    setDuration(d) { t = d; onFrame(d); },
+  };
+}
+
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
@@ -38,6 +53,10 @@ export function mount(root, ui) {
 
   const figV = ui.plot(figures, { height: 220, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
   const figW = ui.plot(figures, { height: 160, xLabel: 't', yLabel: 'w (omega)', xUnit: 'ms', yUnit: 'pA' });
+  // Membrane gauge: a vertical bar from v_rest to threshold filled to the current v,
+  // plus a readout of the adaptation current w at the same time.
+  const gauge = ui.canvas(figures, { height: 220 });
+  const player = makePlayer(ui, figures, frame);
   const status = document.createElement('p');
   status.style.fontStyle = 'italic';
   figures.appendChild(status);
@@ -71,6 +90,9 @@ export function mount(root, ui) {
     run();
   }
 
+  let runData = null;
+
+  // Recompute the whole run once; the player then reveals it frame by frame.
   function run() {
     const p = params();
     const I = cI.get();
@@ -81,16 +103,68 @@ export function mount(root, ui) {
       state = { v: r.v, omega: r.omega };
       t.push(n * p.dt); v.push(r.v); w.push(r.omega); spikes.push(r.spike);
     }
-    figV.draw([{ x: t, y: v, label: 'v', color: 'c1', style: 'line' }],
-      { hlines: [{ y: p.threshold, label: 'threshold' }] });
-    figW.draw([{ x: t, y: w, label: 'w', color: 'c4', style: 'line' }], {});
+    runData = { p, t, v, w, spikes };
+    player.setDuration(t[t.length - 1]);
+    player.seek(0); // reveals the first frame (also covers reduced-motion, which starts paused)
 
+    // Full-run summary (a property of the whole run, not a per-frame value).
     const s = firingStats(spikeTimes(spikes, p.dt));
     const name = cPattern.get();
     const reproduced = !NOT_REPRODUCED.has(name);
     const first = s.first_t == null ? '—' : s.first_t.toPrecision(4);
     status.textContent = `${name}: ${s.n} spikes in ${(STEPS * p.dt).toPrecision(4)} ms, CV=${s.cv?.toPrecision(3) ?? '—'}, ` +
       `first spike ${first} ms — ${reproduced ? 'pattern reproduced' : 'not reproduced at this dt'}`;
+  }
+
+  // Reveal the v and w traces up to time t and draw the gauge at the real v(t), w(t).
+  function frame(t) {
+    if (!runData) return;
+    const { p, t: tt, v, w } = runData;
+    figV.draw([{ x: tt, y: v, label: 'v', color: 'c1', style: 'line' }],
+      { revealX: t, hlines: [{ y: p.threshold, label: 'threshold' }] });
+    figW.draw([{ x: tt, y: w, label: 'w', color: 'c4', style: 'line' }], { revealX: t });
+    drawGauge(t);
+  }
+
+  // Vertical bar from v_rest to threshold filled to the real v(t), with the
+  // adaptation current w(t) read out beside it. Coral flash on a spike step.
+  function drawGauge(t) {
+    const { p, v, w } = runData;
+    const idx = Math.min(v.length - 1, Math.max(0, Math.round(t / p.dt)));
+    const vNow = v[idx];
+    const wNow = w[idx];
+    const spiked = vNow <= p.v_reset + 1e-9; // reset value means this step fired
+    const ctx = gauge.ctx;
+    const W = gauge.width, H = gauge.height;
+    ctx.clearRect(0, 0, W, H);
+    const pal = { ink: ui.color('ink'), muted: ui.color('muted'), rule: ui.color('rule') };
+    const x = W / 2, bw = 26, top = 14, bot = H - 14;
+    const yOf = (val) => bot - ((val - p.v_rest) / (p.threshold - p.v_rest)) * (bot - top);
+    ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+    ctx.strokeRect(x - bw / 2, top, bw, bot - top);
+    const vClamped = Math.max(p.v_rest, Math.min(p.threshold, vNow));
+    const yTop = yOf(vClamped);
+    ctx.fillStyle = spiked ? ui.color('c2') : ui.color('c1');
+    ctx.fillRect(x - bw / 2 + 1, yTop, bw - 2, bot - yTop);
+    ctx.strokeStyle = pal.muted; ctx.setLineDash([3, 3]);
+    for (const [val, lab] of [[p.threshold, 'threshold'], [p.v_rest, 'v_rest']]) {
+      const y = yOf(val);
+      ctx.beginPath(); ctx.moveTo(x - bw / 2 - 4, y); ctx.lineTo(x + bw / 2 + 4, y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = pal.muted;
+      ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(`${lab} ${val} mV`, x + bw / 2 + 8, y);
+      ctx.setLineDash([3, 3]);
+    }
+    ctx.setLineDash([]);
+    ctx.fillStyle = pal.ink;
+    ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, x, bot + 4);
+    ctx.fillStyle = ui.color('c4');
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText(`w = ${wNow.toFixed(2)} pA`, 6, 6);
   }
 
   function codeSnippet() {

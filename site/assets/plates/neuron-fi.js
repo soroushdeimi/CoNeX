@@ -10,6 +10,22 @@ export const meta = {
 const P = { ...DEFAULTS };
 const STEPS = 5000;
 const CURRENTS = [20, 40, 60, 80, 100, 120]; // pA
+const TRACE_STEPS = 500; // steps for the small voltage trace at a given I
+
+// Use ui.player when the shell provides it; otherwise fall back to a stub that
+// reveals the whole sweep once, so figures are never empty in the test mock.
+function makePlayer(ui, parent, onFrame) {
+  if (typeof ui.player === 'function') {
+    return ui.player(parent, { duration: 0, unit: 'pA', playSeconds: 5, loop: true, onFrame });
+  }
+  let t = 0;
+  return {
+    play() {}, pause() {},
+    seek(x) { t = x; }, // no player to animate; setDuration reveals the full sweep
+    playing() { return false; },
+    setDuration(d) { t = d; onFrame(d); },
+  };
+}
 
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
@@ -29,6 +45,9 @@ export function mount(root, ui) {
   const cDt = ui.slider(sec, { key: 'dt', label: 'dt', unit: 'ms', min: 0.01, max: 1, step: 0.01, value: P.dt });
 
   const fig = ui.plot(figures, { height: 300, xLabel: 'I', yLabel: 'f', xUnit: 'pA', yUnit: 'Hz' });
+  // Small voltage trace of the neuron at the current sweep current I.
+  const figV = ui.plot(figures, { height: 160, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
+  const player = makePlayer(ui, figures, frame);
 
   ui.note(notes, `The f-I curve plots the steady firing rate <var>f</var> (Hz) against the input current <var>I</var> (pA).
   Each point is measured by simulating that current for a fixed number of steps and counting spikes, so the
@@ -60,6 +79,10 @@ export function mount(root, ui) {
     return r.spikes.reduce((a, b) => a + (b ? 1 : 0), 0) / (STEPS * dt / 1000);
   }
 
+  let runData = null;
+
+  // Recompute the f-I curves and a voltage trace per current once; the player
+  // then sweeps I and reveals the curves point by point.
   function run() {
     const b = base();
     const dt = b.dt;
@@ -87,7 +110,26 @@ export function mount(root, ui) {
     });
     // Rate curves start at 0; pin the axis to 0 so the onset is readable.
     const maxRate = Math.max(...series.flatMap((s) => s.y), 1);
-    fig.draw(series, { yRange: [0, maxRate * 1.1] });
+    // Precompute a real voltage trace at each current (LIF, the primary model).
+    const traces = CURRENTS.map((c) => {
+      const r = simulate('lif', lif, c, TRACE_STEPS, dt, lif.v_rest);
+      return { c, t: r.v.map((_, n) => n * dt), v: r.v };
+    });
+    runData = { lif, series, maxRate, traces };
+    player.setDuration(CURRENTS[CURRENTS.length - 1]);
+    player.seek(0); // reveals the first frame (also covers reduced-motion, which starts paused)
+  }
+
+  // Reveal the f-I curves up to the sweep current I, and show the LIF voltage
+  // trace at the largest precomputed current not above I.
+  function frame(I) {
+    if (!runData) return;
+    const { lif, series, maxRate, traces } = runData;
+    fig.draw(series, { revealX: I, yRange: [0, maxRate * 1.1] });
+    let tr = traces[0];
+    for (const x of traces) if (x.c <= I) tr = x;
+    figV.draw([{ x: tr.t, y: tr.v, label: `v at I=${tr.c} pA`, color: 'c1', style: 'line' }],
+      { hlines: [{ y: lif.threshold, label: 'threshold' }] });
   }
 
   function codeSnippet() {

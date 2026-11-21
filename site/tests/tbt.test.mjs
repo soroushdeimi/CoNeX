@@ -544,6 +544,11 @@ import {
   glowRadius,
   gridNarration,
 } from '../assets/plates/tbt-grid.js';
+import {
+  arrowLength,
+  cellGlow,
+  displacementNarration,
+} from '../assets/plates/tbt-displacement.js';
 
 test('grid hero: trail alpha fades linearly from 1 to 0 over the window', () => {
   assert.equal(trailAlpha(0, 5), 1);
@@ -578,5 +583,39 @@ test('grid hero: narration reports the walk speed and firing level', () => {
   assert.match(low, /low level/);
   const mid = gridNarration({ meanAct: 0.5, speed: 0.2 });
   assert.match(mid, /medium level/);
+});
+
+// ---------------------------------------------------------------------------
+// tbt-displacement hero mappings
+// ---------------------------------------------------------------------------
+
+test('displacement hero: arrow length scales with magnitude and is bounded', () => {
+  assert.equal(arrowLength(0, 10), 0);
+  assert.equal(arrowLength(10, 10), 120);
+  assert.equal(arrowLength(5, 10), 60);
+  // clamped: magnitude above max -> full length, negative -> 0
+  assert.equal(arrowLength(20, 10), 120);
+  assert.equal(arrowLength(-4, 10), 0);
+  // zero max displacement -> no arrow
+  assert.equal(arrowLength(5, 0), 0);
+});
+
+test('displacement hero: cell glow is the clamped activation', () => {
+  assert.equal(cellGlow(0), 0);
+  assert.equal(cellGlow(1), 1);
+  assert.equal(cellGlow(0.4), 0.4);
+  assert.equal(cellGlow(-0.2), 0);
+  assert.equal(cellGlow(1.7), 1);
+});
+
+test('displacement hero: narration reports distance and decoded vector', () => {
+  const line = displacementNarration({
+    magnitude: 3.5,
+    decoded: [2.0, 2.5],
+    maxDisplacement: 10,
+  });
+  assert.match(line, /3\.50 a\.u\. from A/);
+  assert.match(line, /\(2\.00, 2\.50\) a\.u\./);
+  assert.match(line, /max 10\.0 a\.u\./);
 });
 

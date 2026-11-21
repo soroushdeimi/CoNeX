@@ -7,6 +7,25 @@ export const meta = {
   source: 'conex/behaviors/neurons/numenta/grid_cells.py',
 };
 
+// --- Pure mappings (model state -> drawn quantity / narration) -------------
+// Exported so site/tests/tbt.test.mjs can test them by hand-computed values.
+
+// Arrow length (px) for the A -> agent vector, from the displacement magnitude.
+export function arrowLength(magnitude, maxDisplacement) {
+  if (maxDisplacement <= 0) return 0;
+  return Math.max(0, Math.min(1, magnitude / maxDisplacement)) * 120;
+}
+
+// A displacement cell's glow (0..1) is its Gaussian activation.
+export function cellGlow(activation) {
+  return Math.max(0, Math.min(1, activation));
+}
+
+// One-line narration driven by the model state.
+export function displacementNarration({ magnitude, decoded, maxDisplacement }) {
+  return `agent is ${magnitude.toFixed(2)} a.u. from A; the population decodes the displacement as (${decoded[0].toFixed(2)}, ${decoded[1].toFixed(2)}) a.u. (max ${maxDisplacement.toFixed(1)} a.u.)`;
+}
+
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
@@ -63,7 +82,9 @@ export function mount(root, ui) {
       const t = i / N;
       const pos = [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t];
       const act = disp.computeDisplacement(A, pos);
-      frames.push({ pos, act, decoded: disp.decodeDisplacement(act) });
+      const decoded = disp.decodeDisplacement(act);
+      const magnitude = Math.hypot(pos[0] - A[0], pos[1] - A[1]);
+      frames.push({ pos, act, decoded, magnitude });
     }
   }
   const rebuild = () => { disp = buildDisp(); precompute(); render(); };
@@ -72,8 +93,8 @@ export function mount(root, ui) {
   sigma.onInput(rebuild);
   [ax, ay, bx, by].forEach((s) => s.onInput(rebuild));
 
-  // --- figures ---
-  const arena = ui.canvas(figures, { height: 300 });
+  // --- figures: hero arena on top, plots below ---
+  const hero = ui.hero(figures, { height: 300 });
   const dispPlot = ui.plot(figures, {
     height: 220, xLabel: 'displacement cell', xUnit: 'index',
     yLabel: 'activation', yUnit: 'a.u.',
@@ -87,8 +108,8 @@ export function mount(root, ui) {
   const PAD = 24;
   let currentFrame = null;
 
-  function drawArena() {
-    const { ctx, width, height } = arena;
+  function drawHero() {
+    const { ctx, width, height } = hero;
     ctx.clearRect(0, 0, width, height);
     const ink = ui.color('ink');
     const c1 = ui.color('c1');
@@ -98,21 +119,15 @@ export function mount(root, ui) {
     const sy = (y) => height - PAD - ((y + SPAN / 2) / SPAN) * (height - 2 * PAD);
     const A = [ax.get(), ay.get()];
     const B = [bx.get(), by.get()];
-    // displacement arrow A -> B
+    // faint full A -> B reference arrow
     ctx.strokeStyle = c3;
-    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.3;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(sx(A[0]), sy(A[1]));
     ctx.lineTo(sx(B[0]), sy(B[1]));
     ctx.stroke();
-    // arrowhead
-    const ang = Math.atan2(sy(B[1]) - sy(A[1]), sx(B[0]) - sx(A[0]));
-    ctx.beginPath();
-    ctx.moveTo(sx(B[0]), sy(B[1]));
-    ctx.lineTo(sx(B[0]) - 10 * Math.cos(ang - 0.4), sy(B[1]) - 10 * Math.sin(ang - 0.4));
-    ctx.moveTo(sx(B[0]), sy(B[1]));
-    ctx.lineTo(sx(B[0]) - 10 * Math.cos(ang + 0.4), sy(B[1]) - 10 * Math.sin(ang + 0.4));
-    ctx.stroke();
+    ctx.globalAlpha = 1;
     ctx.lineWidth = 1;
     // points
     ctx.fillStyle = c1;
@@ -123,23 +138,63 @@ export function mount(root, ui) {
     ctx.font = '13px ui-monospace, monospace';
     ctx.fillText('A', sx(A[0]) + 8, sy(A[1]) - 8);
     ctx.fillText('B', sx(B[0]) + 8, sy(B[1]) - 8);
-    // the agent at its current position, with the A -> agent displacement arrow
+
     if (currentFrame) {
       const p = currentFrame.pos;
-      ctx.strokeStyle = c1;
-      ctx.lineWidth = 1.5;
+      const mag = currentFrame.magnitude;
+      const ang = Math.atan2(sy(p[1]) - sy(A[1]), sx(p[0]) - sx(A[0]));
+      // animated vector arrow A -> agent, length from the real magnitude
+      const len = arrowLength(mag, maxDisp.get());
+      const tipX = sx(A[0]) + Math.cos(ang) * len;
+      const tipY = sy(A[1]) - Math.sin(ang) * len;
+      ctx.strokeStyle = c3;
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
       ctx.moveTo(sx(A[0]), sy(A[1]));
-      ctx.lineTo(sx(p[0]), sy(p[1]));
+      ctx.lineTo(tipX, tipY);
       ctx.stroke();
+      ctx.fillStyle = c3;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(tipX - 9 * Math.cos(ang - 0.4), tipY + 9 * Math.sin(ang - 0.4));
+      ctx.lineTo(tipX - 9 * Math.cos(ang + 0.4), tipY + 9 * Math.sin(ang + 0.4));
+      ctx.closePath();
+      ctx.fill();
       ctx.lineWidth = 1;
+      // the agent at its current position
       ctx.fillStyle = c1;
       ctx.beginPath(); ctx.arc(sx(p[0]), sy(p[1]), 5, 0, 2 * Math.PI); ctx.fill();
+
+      // polar ring of displacement cells: each cell's glow is its activation
+      const cx = width - 90;
+      const cy = height / 2;
+      const R = 62;
+      const n = disp.preferredDx.length;
+      for (let c = 0; c < n; c++) {
+        const a = currentFrame.act[c];
+        const glow = cellGlow(a);
+        if (glow < 0.02) continue;
+        const th = Math.atan2(disp.preferredDy[c], disp.preferredDx[c]);
+        const rr = (Math.hypot(disp.preferredDx[c], disp.preferredDy[c]) / maxDisp.get()) * R;
+        const px = cx + Math.cos(th) * rr;
+        const py = cy - Math.sin(th) * rr;
+        ctx.globalAlpha = glow;
+        ctx.fillStyle = c3;
+        ctx.beginPath(); ctx.arc(px, py, 2.5 + 3 * glow, 0, 2 * Math.PI); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = ink;
+      ctx.font = '10px ui-monospace, monospace';
+      ctx.fillText('displacement cells', cx - 44, cy + R + 16);
+
+      hero.narration(displacementNarration({
+        magnitude: mag, decoded: currentFrame.decoded, maxDisplacement: maxDisp.get(),
+      }));
     }
   }
 
   function render() {
-    drawArena();
+    drawHero();
     const A = [ax.get(), ay.get()];
     const B = [bx.get(), by.get()];
     const act = currentFrame ? currentFrame.act : disp.computeDisplacement(A, B);
@@ -165,9 +220,9 @@ export function mount(root, ui) {
     render();
   }
 
-  // The arena canvas must draw inside onResize (called after layout and on
+  // The hero canvas must draw inside onResize (called after layout and on
   // every resize); drawing once at mount with a 0 width would leave it empty.
-  arena.onResize(drawArena);
+  hero.onResize(render);
   precompute();
   currentFrame = frames[N]; // start at B so the initial draw is the full A->B code
   render();
@@ -188,14 +243,16 @@ export function mount(root, ui) {
     distance between the actual displacement and its preferred one. This is how a
     column links a feature seen at one place to the same feature seen at another
     &mdash; the core of learning object structure through movement.</p>
-    <p>The two location codes (top plot) are the grid cell activations at A and
+    <p>The hero walks the agent from A to B. The ochre arrow is the <em>real</em>
+    displacement vector from A to the agent, its length scaled by the magnitude;
+    the polar ring on the right is the displacement-cell population, each cell
+    glowing in proportion to its activation for that vector. As the agent moves,
+    the arrow grows and the lit cells sweep along the path, settling on the full
+    A&rarr;B code at the end.</p>
+    <p>The two location codes (bottom plot) are the grid cell activations at A and
     B. The displacement code (middle plot) is the population pattern for the
     vector from A to the agent; a population-vector decode recovers the arrow you
     see in the arena.</p>
-    <p>The player walks the agent from A to B. At every point the displacement
-    code is the <em>real</em> activation of the cells for the vector from A to the
-    agent's current position, so the pattern shifts continuously as the agent
-    moves and settles on the full A&rarr;B code at the end.</p>
   `);
   ui.equation(notes, `
     <p>activation<sub>c</sub> = exp(&minus;|<var>d</var><sub>c</sub> &minus; <var>d</var>|&sup2; / (2&sigma;&sup2;))</p>

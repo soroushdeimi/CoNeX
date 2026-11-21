@@ -77,6 +77,17 @@ export function hhStep(state, p, I, dt) {
   return { v: v + dv, m, h, n, i_Na, i_K, i_L, spike };
 }
 
+// Ionic currents (uA/cm2) from a single model sample {v, m, h, n} and params.
+// The hero uses this so the displayed gate labels and current readout always
+// come from the SAME sample (no separate easing of the numbers).
+export function hhCurrents(s, p) {
+  return {
+    i_Na: p.g_Na * s.m ** 3 * s.h * (s.v - p.E_Na),
+    i_K: p.g_K * s.n ** 4 * (s.v - p.E_K),
+    i_L: p.g_L * (s.v - p.E_L),
+  };
+}
+
 // Run one neuron for `steps` iterations. `I` is a number (constant) or a
 // function of the step index (for a pulse). Returns the full traces.
 export function hhSimulate(p, I, steps, dt, initV) {
@@ -97,11 +108,11 @@ export function hhSimulate(p, I, steps, dt, initV) {
 // --- Pure mapping functions for the hero animation (AMENDMENT 5) ---
 
 // Opening angle (degrees) of a gate flap from its gate variable (0 closed ..
-// 1 open). A fully open flap swings 50 degrees from the closed (blocking)
+// 1 open). A fully open flap swings 90 degrees from the closed (blocking)
 // position.
 export function flapAngle(gate) {
   if (gate < 0 || gate > 1) throw new RangeError(`gate must be in [0,1], got ${gate}`);
-  return 50 * gate;
+  return 90 * gate;
 }
 
 // Particle spawn rate (particles per second of real time) from a real current

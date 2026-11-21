@@ -7,6 +7,7 @@ import {
   hhSteadyGates,
   hhStep,
   hhSimulate,
+  hhCurrents,
   flapAngle,
   particleRate,
   membranePolarity,
@@ -114,9 +115,20 @@ test('hhStep: no reset after a spike (v keeps rising past threshold)', () => {
 
 test('flapAngle: gate variable -> opening angle (hand-computed)', () => {
   assert.equal(flapAngle(0), 0);
-  assert.equal(flapAngle(1), 50);
-  assert.equal(flapAngle(0.5), 25);
-  assert.equal(flapAngle(0.2), 10);
+  assert.equal(flapAngle(1), 90);
+  assert.equal(flapAngle(0.5), 45);
+  assert.equal(flapAngle(0.2), 18);
+});
+
+test('hhCurrents: readout values satisfy I_K = g_K n^4 (v - E_K) and I_Na = g_Na m^3 h (v - E_Na)', () => {
+  // The hero shows gate labels and the current readout from the SAME sample;
+  // this checks that relationship holds for the displayed numbers.
+  const p = { ...P };
+  const s = { v: -64, m: 0.3, h: 0.6, n: 0.73 };
+  const c = hhCurrents(s, p);
+  close(c.i_K, p.g_K * s.n ** 4 * (s.v - p.E_K), 1e-9, 'I_K = g_K n^4 (v - E_K)');
+  close(c.i_Na, p.g_Na * s.m ** 3 * s.h * (s.v - p.E_Na), 1e-9, 'I_Na = g_Na m^3 h (v - E_Na)');
+  close(c.i_L, p.g_L * (s.v - p.E_L), 1e-9, 'I_L = g_L (v - E_L)');
 });
 
 test('flapAngle throws on a gate outside [0,1]', () => {

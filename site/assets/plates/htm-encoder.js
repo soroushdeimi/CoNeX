@@ -18,11 +18,39 @@ export function mount(root, ui) {
   const deltaCtl = ui.slider(controls, { key: 'delta', label: 'distance Δ', unit: 'a.u.', min: 0, max: 0.5, step: 0.01, value: 0.02, onInput: () => redraw() });
 
   const bitsCanvas = ui.canvas(figures, { height: 90 });
-  const overlapPlot = ui.plot(figures, { height: 220, xLabel: 'Δ (a.u.)', yLabel: 'overlap (bits)', xUnit: 'a.u.', yUnit: 'bits' });
+  const overlapPlot = ui.plot(figures, { height: 220, xLabel: 'Δ', yLabel: 'overlap', xUnit: 'a.u.', yUnit: 'bits' });
 
   function opts() {
     return { size: sizeCtl.get(), n_active: Math.min(nActiveCtl.get(), sizeCtl.get()), min_val: minCtl.get(), max_val: maxCtl.get() };
   }
+
+  let last = null;
+
+  // Canvas backing store resets on layout/resize, so register the draw via
+  // onResize (called after layout and on every resize) rather than once.
+  function drawBitsFig() {
+    if (!last) return;
+    const { ctx, width, height } = bitsCanvas;
+    ctx.clearRect(0, 0, width, height);
+    const pad = 8;
+    const rowH = 18;
+    const c1 = ui.color('c1');
+    const c2 = ui.color('c2');
+    const muted = ui.color('muted');
+    const n = last.o.size;
+    const gap = 2;
+    const bw = (width - 2 * pad - gap * (n - 1)) / n;
+    const baseDense = last.base.toDense();
+    const nearDense = last.near.toDense();
+    for (let i = 0; i < n; i++) {
+      const x = pad + i * (bw + gap);
+      ctx.fillStyle = baseDense[i] ? c1 : muted;
+      ctx.fillRect(x, pad, bw, rowH);
+      ctx.fillStyle = nearDense[i] ? c2 : muted;
+      ctx.fillRect(x, pad + rowH + 6, bw, rowH);
+    }
+  }
+  bitsCanvas.onResize(drawBitsFig);
 
   function redraw() {
     const o = opts();
@@ -31,26 +59,8 @@ export function mount(root, ui) {
     const base = encodeScalar(value, o);
     const near = encodeScalar(value + delta, o);
     const overlap = base.overlap(near);
-
-    const { canvas, ctx, width } = bitsCanvas;
-    ctx.clearRect(0, 0, width, bitsCanvas.height);
-    const pad = 8;
-    const rowH = 18;
-    const c1 = ui.color('c1');
-    const c2 = ui.color('c2');
-    const muted = ui.color('muted');
-    const n = o.size;
-    const gap = 2;
-    const bw = (width - 2 * pad - gap * (n - 1)) / n;
-    const baseDense = base.toDense();
-    const nearDense = near.toDense();
-    for (let i = 0; i < n; i++) {
-      const x = pad + i * (bw + gap);
-      ctx.fillStyle = baseDense[i] ? c1 : muted;
-      ctx.fillRect(x, pad, bw, rowH);
-      ctx.fillStyle = nearDense[i] ? c2 : muted;
-      ctx.fillRect(x, pad + rowH + 6, bw, rowH);
-    }
+    last = { o, base, near };
+    drawBitsFig();
 
     // Overlap as a function of distance.
     const xs = [];

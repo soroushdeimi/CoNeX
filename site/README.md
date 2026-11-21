@@ -68,3 +68,28 @@ cursor line at the current time. On a parameter change, recompute the run and
 continue from the current `t` (clamped to the duration). The player autoplays on
 mount, pauses while the tab is hidden, and starts paused at the end for users
 who prefer reduced motion.
+
+## Live (oscilloscope) animation
+
+For continuous-time plates, `ui.live` steps the real model each frame instead of
+revealing a precomputed run. `ui.live(parent, {dt, unit, modelPerSecond,
+windowSize, step, reset, onFrame})` advances model time at
+`speed * modelPerSecond` per real second, calling `step()` once per `dt` of
+model time (a fractional accumulator carries the remainder; at most 2000 steps
+per frame, the rest dropped and the readout shows "(slowed)"). The plate keeps a
+ring buffer of the last `windowSize` of model time and redraws it each frame with
+a scrolling axis: `plot.draw(series, {xRange: [t - window, t]})` or
+`raster.draw(spikes, nRows, tMax, {xRange: [t - window, t]})`. It renders
+play/pause, reset, the shared speed slider (0.1x–10x) and a `t = …` readout,
+with no scrubber. Slider changes apply on the next step without a reset; controls
+that change sizes or seeds call `reset()`. It autoplays on mount, pauses while the
+tab is hidden, and starts paused for users who prefer reduced motion.
+
+## Hero animation and narration
+
+`ui.hero(parent, {height})` is the large animated diagram at the top of the
+figures column: a HiDPI canvas (like `ui.canvas`) that also redraws on theme
+change, plus a one-line narration caption under it. `hero.narration(text)` sets
+that line; `ui.narration(parent)` returns a standalone `{set(text), get()}`
+caption. `ui.ease(f)` is the shared ease-in-out (smoothstep) used to tween
+discrete-step plates between step k and k+1.

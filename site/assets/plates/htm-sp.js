@@ -90,16 +90,28 @@ export function mount(root, ui) {
     }
   }
 
+  // ui.canvas does not expose its <figure>, and site.css is shell-owned, so the
+  // strip captions are styled inline to match the .ui-figure figcaption look.
+  function caption(text) {
+    const d = document.createElement('div');
+    d.style.cssText = 'font-style:italic;color:var(--muted);font-size:0.85rem;margin-top:0.3rem;';
+    d.textContent = text;
+    figBox.appendChild(d);
+    return d;
+  }
+
   function rebuildFigures() {
     figBox.innerHTML = '';
     permHeat = ui.heatmap(figBox, {
       rows: run.n,
       cols: run.nPotential,
-      label: 'permanence (rows=columns, cols=potential inputs)',
+      label: `permanence 0–1 a.u. (rows=columns, cols=potential inputs); connected ≥ syn_perm_connected = ${connectedCtl.get()}`,
     });
     usagePlot = ui.plot(figBox, { height: 200, xLabel: 'column', yLabel: 'usage', xUnit: 'index', yUnit: 'a.u.' });
     inputCanvas = ui.canvas(figBox, { height: 60 });
+    caption('input bits at this step (green = active)');
     activeCanvas = ui.canvas(figBox, { height: 60 });
+    caption('columns (coral = winners this step)');
     // The canvas backing store is reset on layout/resize, so register the
     // draws via onResize (called after layout and on every resize).
     if (typeof inputCanvas.onResize === 'function') inputCanvas.onResize(drawInput);

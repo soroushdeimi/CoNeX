@@ -29,6 +29,12 @@ export function mount(root, ui) {
   const samplesCtl = ui.number(controls, { key: 'samples', label: 'Monte-Carlo samples', unit: '', value: 20000, onInput: () => recompute() });
 
   const bitsCanvas = ui.canvas(figures, { height: 120 });
+  // ui.canvas does not expose its <figure>, and site.css is shell-owned, so the
+  // caption is styled inline to match the .ui-figure figcaption look.
+  const bitsCap = document.createElement('div');
+  bitsCap.style.cssText = 'font-style:italic;color:var(--muted);font-size:0.85rem;margin-top:0.3rem;';
+  bitsCap.textContent = 'bits (teal = fixed code a, coral = current random sample, ink = their intersection)';
+  figures.appendChild(bitsCap);
   const histPlot = ui.plot(figures, { height: 220, xLabel: 'overlap b', yLabel: 'P(B = b)', xUnit: 'bits', yUnit: 'a.u.' });
   const readout = document.createElement('div');
   readout.className = 'ui-note';
@@ -61,8 +67,10 @@ export function mount(root, ui) {
       {
         xRange: [0, run.w],
         yRange: [0, run.maxPmf * 1.1],
-        hlines: [{ y: run.pMatch, label: `P(B≥θ)=${run.pMatch.toExponential(2)}` }],
-        vlines: [{ x: run.theta, label: `θ=${run.theta}` }],
+        // The hline label would sit on the bars at the low pMatch level, so the
+        // value is shown in the top vline label instead; the hline stays as a guide.
+        hlines: [{ y: run.pMatch, label: '' }],
+        vlines: [{ x: run.theta, label: `θ=${run.theta} · P(B≥θ)=${run.pMatch.toExponential(2)}` }],
       }
     );
     readout.textContent =

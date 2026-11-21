@@ -19,6 +19,12 @@ export function mount(root, ui) {
 
   const scoresPlot = ui.plot(figures, { height: 220, xLabel: 'class', yLabel: 'score', xUnit: 'index', yUnit: 'a.u.' });
   const bitsCanvas = ui.canvas(figures, { height: 90 });
+  // ui.canvas does not expose its <figure>, and site.css is shell-owned, so the
+  // caption is styled inline to match the .ui-figure figcaption look.
+  const bitsCap = document.createElement('div');
+  bitsCap.style.cssText = 'font-style:italic;color:var(--muted);font-size:0.85rem;margin-top:0.3rem;';
+  bitsCap.textContent = 'current SDR (teal = active bits): the training pattern, then the revealed test code';
+  figures.appendChild(bitsCap);
   const readout = document.createElement('div');
   readout.className = 'ui-note';
   figures.appendChild(readout);

@@ -192,7 +192,7 @@ export function mount(root, ui) {
 
     // weight matrix: square cells, eased between the two steps
     const n = SIZE;
-    const side = Math.min(width - 120, height - 40);
+    const side = Math.min(width - 120, height - 64);
     const ox = 40;
     const oy = 20;
     const cw = side / n;
@@ -224,10 +224,14 @@ export function mount(root, ui) {
       ctx.fillText(String(k), ox - 6, oy + (k + 0.5) * cw); // source i
       ctx.textAlign = 'center';
     }
+    // Axis titles: "source i" above the rows, "target j" centred under the
+    // columns. Kept off the right edge so they never collide with the error
+    // particle (which sits to the right of the matrix).
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
     ctx.fillText('source i →', ox, oy - 8);
-    ctx.fillText('target j', ox + side + 6, oy + side / 2);
+    ctx.textAlign = 'center';
+    ctx.fillText('target j', ox + side / 2, oy + side + 24);
 
     // error particles: radius shrinks as the mean |error| falls
     const err = s.meanAbsError + (sN.meanAbsError - s.meanAbsError) * e;
@@ -275,7 +279,7 @@ export function mount(root, ui) {
 
     statusNote.innerHTML = `
       <div style="font-family:ui-monospace,monospace;font-size:0.85rem;line-height:1.4;">
-        <strong>Step ${clampedStep}</strong>: Mean |error| = <span style="color:var(--c2,#d95b43);font-weight:bold;">${s.meanAbsError.toFixed(4)}</span>
+        <strong>Step ${Math.floor(clampedStep)}</strong>: Mean |error| = <span style="color:var(--c2,#d95b43);font-weight:bold;">${s.meanAbsError.toFixed(4)}</span>
         &bull; Mean precision = <span style="color:var(--c1,#0f7b7f);font-weight:bold;">${s.meanPrecision.toFixed(3)}</span>
         &bull; Free energy = ${s.freeEnergy.toFixed(4)}
       </div>

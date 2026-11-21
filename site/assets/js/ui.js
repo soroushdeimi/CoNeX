@@ -1,5 +1,5 @@
 // Shared UI + plotting API for the CoNeX site. See .worker/CONTRACT.md.
-import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, listenerList } from './core.js';
+import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList } from './core.js';
 
 const THEME_KEY = 'conex-theme';
 
@@ -157,7 +157,7 @@ export function slider(parent, { key, label, unit, min, max, step, value, onInpu
     },
     set(v) {
       input.value = String(v);
-      readout.textContent = `${v} ${unit}`;
+      readout.textContent = `${formatValue(v, step)} ${unit}`;
     },
     onInput(fn) {
       return listeners.add(fn);
@@ -166,7 +166,7 @@ export function slider(parent, { key, label, unit, min, max, step, value, onInpu
   control.set(value);
   input.addEventListener('input', () => {
     const v = Number(input.value);
-    readout.textContent = `${v} ${unit}`;
+    readout.textContent = `${formatValue(v, step)} ${unit}`;
     if (key) commitControl(key, spec, control);
     if (onInput) onInput(v);
     listeners.emit(v);

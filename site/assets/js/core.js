@@ -144,3 +144,20 @@ export function fmtTick(v, step) {
   if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
   return s;
 }
+
+// Format a control readout: decimals from the step (like fmtTick), capped at
+// 4 significant digits so 0.16666666666666666 shows as "0.1667".
+export function formatValue(v, step) {
+  if (!Number.isFinite(v)) return String(v);
+  if (v === 0) return '0';
+  const dec = Math.max(0, -Math.floor(Math.log10(step)) + (step < 1 ? 1 : 0));
+  let s = v.toFixed(Math.min(dec, 6));
+  if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  // cap at 4 significant digits, staying in plain notation
+  if (s.replace(/[-.]/g, '').length > 4) {
+    const d = Math.max(0, 3 - Math.floor(Math.log10(Math.abs(v))));
+    s = v.toFixed(d);
+    if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  }
+  return s;
+}

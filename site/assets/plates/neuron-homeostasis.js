@@ -144,16 +144,17 @@ export function mount(root, ui) {
     const meanRate = last2.reduce((a, o) => a + rate[o.i], 0) / last2.length;
     const meanCtrl = last2.reduce((a, o) => a + ctrl[o.i], 0) / last2.length;
 
-    // Show only the control plot whose y-axis label matches the mode.
+    // Draw BOTH control plots every run (the hidden one is stale-but-hidden and
+    // refreshes on the next run); show only the one whose y-axis label matches the mode.
     wrapAct.style.display = type === 'activity' ? '' : 'none';
     wrapVolt.style.display = type === 'voltage' ? '' : 'none';
+    figCtrlAct.draw([{ x: t, y: ctrl, label: 'mean threshold', color: 'c2', style: 'line' }], {});
+    figCtrlVolt.draw([{ x: t, y: ctrl, label: 'mean v', color: 'c2', style: 'line' }],
+      { hlines: [{ y: cTarget.get(), label: 'target_voltage' }] });
     if (type === 'activity') {
-      figCtrlAct.draw([{ x: t, y: ctrl, label: 'mean threshold', color: 'c2', style: 'line' }], {});
       caption.textContent = `mean over the last 2 s: rate ${meanRate.toPrecision(3)} Hz (target ${targetHz.toPrecision(3)} Hz), ` +
         `threshold ${meanCtrl.toPrecision(4)} mV (start ${p.threshold} mV)`;
     } else {
-      figCtrlVolt.draw([{ x: t, y: ctrl, label: 'mean v', color: 'c2', style: 'line' }],
-        { hlines: [{ y: cTarget.get(), label: 'target_voltage' }] });
       caption.textContent = `mean over the last 2 s: voltage ${meanCtrl.toPrecision(4)} mV (target ${cTarget.get()} mV)`;
     }
   }
@@ -177,7 +178,7 @@ pop = NeuronGroup(net=net, size=${SIZE}, behavior=[
 ])
 net.initialize()
 pop.threshold = pop.vector(mode=${cTh.get()})
-# set a random per-step input current (pA) on pop.I, then:
+pop.I = pop.vector(mode=${p.I_base})   # constant input current (pA)
 net.simulate_iterations(${STEPS})`;
   }
 

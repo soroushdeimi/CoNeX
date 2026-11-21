@@ -153,11 +153,16 @@ export function lifRheobase(p) {
 }
 
 // Analytic LIF firing rate (Hz, in a.u. of time): f = 1 / (tau * ln((vss-v_reset)/(vss-threshold)))
-// where vss = v_rest + R*I. Returns 0 when I is at or below the rheobase.
+// where vss = v_rest + R*I. The formula is only valid in the normal firing regime
+// v_reset < threshold < vss; outside it (e.g. v_reset >= threshold, or I at/below the
+// rheobase) it returns 0 rather than NaN/Infinity.
 export function lifRateAnalytic(p, I) {
   const vss = p.v_rest + p.R * I;
   if (vss <= p.threshold) return 0.0;
-  const T = p.tau * Math.log((vss - p.v_reset) / (vss - p.threshold));
+  const arg = (vss - p.v_reset) / (vss - p.threshold);
+  if (!(arg > 0)) return 0.0;
+  const T = p.tau * Math.log(arg);
+  if (!(T > 0)) return 0.0;
   return 1.0 / T;
 }
 

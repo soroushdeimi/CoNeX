@@ -664,3 +664,41 @@ test('dendrites hero: narration reports bits arrived and predictive count', () =
   assert.match(many, /4 of 6 context bits arrived/);
   assert.match(many, /3 cells now predictive/);
 });
+
+// ---------------------------------------------------------------------------
+// tbt-voting hero mappings
+// ---------------------------------------------------------------------------
+
+import {
+  barFraction,
+  topObject,
+  consensusObject,
+  votingNarration,
+} from '../assets/plates/tbt-voting.js';
+
+test('voting hero: bar fraction is value over max, clamped', () => {
+  assert.equal(barFraction(0, 4), 0);
+  assert.equal(barFraction(4, 4), 1);
+  assert.equal(barFraction(2, 4), 0.5);
+  assert.equal(barFraction(8, 4), 1); // clamped above
+  assert.equal(barFraction(2, 0), 0); // zero max -> no bar
+});
+
+test('voting hero: top object is the highest accumulator', () => {
+  assert.equal(topObject([0.1, 0.9, 0.3]), 1);
+  assert.equal(topObject([0.5, 0.5, 0.5]), 0); // ties -> lowest index
+  assert.equal(topObject([0, 0, 0]), 0);
+});
+
+test('voting hero: consensus object is the agreed object or -1', () => {
+  assert.equal(consensusObject([2, 2, 2]), 2);
+  assert.equal(consensusObject([2, 2, -1]), 2); // -1 means no column consensus
+  assert.equal(consensusObject([1, 2, 3]), 1); // no agreement -> first (count 1)
+  assert.equal(consensusObject([-1, -1, -1]), -1);
+});
+
+test('voting hero: narration reports consensus state', () => {
+  assert.equal(votingNarration({ step: 3, objs: [2, 2, 2], net: true }), 'step 3: network consensus on object 2');
+  assert.equal(votingNarration({ step: 1, objs: [2, 2, -1], net: false }), 'step 1: columns are converging on object 2');
+  assert.equal(votingNarration({ step: 0, objs: [-1, -1, -1], net: false }), 'step 0: no consensus yet');
+});

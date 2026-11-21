@@ -150,9 +150,17 @@ pre {
 /* Plate layout: controls | figures | notes */
 .plate-layout {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 300px minmax(0, 1fr);
   gap: 1.2rem;
   align-items: start;
+}
+
+/* min-width:0 lets a grid track shrink below its content's min-content width */
+.plate-controls,
+.plate-figures,
+.plate-notes {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .plate-controls {
@@ -166,15 +174,12 @@ pre {
 
 @media (max-width: 820px) {
   .plate-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
-  .plate-controls {
-    position: static;
-    order: 2;
-  }
-  .plate-figures {
-    order: 1;
-  }
+  /* phone order: figures, controls, notes (notes holds the code box) */
+  .plate-figures { order: 1; }
+  .plate-controls { order: 2; position: static; }
+  .plate-notes { order: 3; }
 }
 
 /* Controls */

@@ -87,12 +87,39 @@ export function computeTicks(min, max, target = 5) {
   return { ticks, step };
 }
 
-// Expand [min, max] to a range whose ends sit on nice multiples of a step.
-export function niceRange(min, max) {
+// Snap a value to a step multiple if it already sits on one (within float
+// noise), otherwise floor/ceil outward. Avoids padding an exact boundary.
+function snapFloor(v, step) {
+  const n = v / step;
+  const r = Math.round(n);
+  return (Math.abs(n - r) < 1e-9 ? r : Math.floor(n)) * step;
+}
+function snapCeil(v, step) {
+  const n = v / step;
+  const r = Math.round(n);
+  return (Math.abs(n - r) < 1e-9 ? r : Math.ceil(n)) * step;
+}
+
+// Expand a data min/max to nice tick boundaries, padding outward by at most
+// one tick step; never pads below 0 when the data min is 0.
+export function dataRange(min, max) {
   if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 1];
   if (min === max) return [min - 1, max + 1];
   const lo = Math.min(min, max);
   const hi = Math.max(min, max);
-  const step = niceNum((hi - lo) / 4, false);
-  return [Math.floor(lo / step - 1e-9) * step, Math.ceil(hi / step + 1e-9) * step];
+  const step = niceNum((hi - lo) / 4, true);
+  let a = snapFloor(lo, step);
+  let b = snapCeil(hi, step);
+  if (lo === 0 && a < 0) a = 0;
+  return [a, b];
+}
+
+// Format a tick value with decimals derived from the step. Trailing zeros are
+// trimmed only after a decimal point, so 10 stays "10" (not "1").
+export function fmtTick(v, step) {
+  if (v === 0) return '0';
+  const dec = Math.max(0, -Math.floor(Math.log10(step)) + (step < 1 ? 1 : 0));
+  let s = v.toFixed(Math.min(dec, 6));
+  if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  return s;
 }

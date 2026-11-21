@@ -1,5 +1,5 @@
 // Shared UI + plotting API for the CoNeX site. See .worker/CONTRACT.md.
-import { encodeHash, decodeHash, rng, computeTicks, niceRange } from './core.js';
+import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick } from './core.js';
 
 const THEME_KEY = 'conex-theme';
 
@@ -302,13 +302,7 @@ function makeCanvas(parent, height) {
   return state;
 }
 
-function fmtTick(v, step) {
-  if (v === 0) return '0';
-  const dec = Math.max(0, -Math.floor(Math.log10(step)) + (step < 1 ? 1 : 0));
-  return v.toFixed(Math.min(dec, 6)).replace(/\.?0+$/, '');
-}
-
-function drawAxes(ctx, w, h, m, xRange, yRange, xTicks, yTicks, xUnit, yUnit, xLabel, yLabel) {
+function drawAxes(ctx, w, h, m, xRange, yRange, xTicks, yTicks, xLabel, yLabel, xUnit, yUnit) {
   const pal = PALETTES[theme];
   const x0 = m.left, x1 = w - m.right, y0 = h - m.bottom, y1 = m.top;
   const sx = (x) => x0 + ((x - xRange[0]) / (xRange[1] - xRange[0])) * (x1 - x0);
@@ -319,7 +313,7 @@ function drawAxes(ctx, w, h, m, xRange, yRange, xTicks, yTicks, xUnit, yUnit, xL
   ctx.strokeStyle = pal.rule;
   ctx.lineWidth = 1;
 
-  for (const t of xTicks) {
+  for (const t of xTicks.ticks) {
     const px = sx(t);
     ctx.beginPath();
     ctx.moveTo(px, y1);
@@ -329,7 +323,7 @@ function drawAxes(ctx, w, h, m, xRange, yRange, xTicks, yTicks, xUnit, yUnit, xL
     ctx.textBaseline = 'top';
     ctx.fillText(fmtTick(t, xTicks.step), px, y0 + 4);
   }
-  for (const t of yTicks) {
+  for (const t of yTicks.ticks) {
     const py = sy(t);
     ctx.beginPath();
     ctx.moveTo(x0, py);
@@ -376,8 +370,8 @@ export function plot(parent, { height = 260, xLabel = 'x', yLabel = 'y', xUnit =
         for (const y of s.y) { if (y < ymin) ymin = y; if (y > ymax) ymax = y; }
       }
       if (!Number.isFinite(xmin)) { xmin = 0; xmax = 1; ymin = 0; ymax = 1; }
-      if (!xRange) xRange = niceRange(xmin, xmax);
-      if (!yRange) yRange = niceRange(ymin, ymax);
+      if (!xRange) xRange = dataRange(xmin, xmax);
+      if (!yRange) yRange = dataRange(ymin, ymax);
     }
     const xTicks = computeTicks(xRange[0], xRange[1]);
     const yTicks = computeTicks(yRange[0], yRange[1]);

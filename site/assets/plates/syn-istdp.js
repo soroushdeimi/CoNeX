@@ -49,7 +49,7 @@ export function mount(root, ui) {
         rho: state.rho, lr: state.lr, is_inhibitory: true, tau_s: state.tau_s,
       })[0];
       w += dw;
-      if (t % 100 === 0) {
+      if (t > 0 && t % 100 === 0) {
         xs.push(t * state.dt);
         rates.push(spikes / ((t * state.dt) / 1000));
         ws.push(w);

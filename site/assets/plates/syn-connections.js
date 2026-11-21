@@ -90,7 +90,11 @@ export function mount(root, ui) {
     inputHeat.draw(spikes, { min: 0, max: 1 });
     connHeat.draw(conn.values, { min: 0, max: 1 });
     const xs = current.map((_, i) => i);
-    currentPlot.draw([{ x: xs, y: current, label: 'current', color: 'c1', style: 'bars' }]);
+    const yMax = Math.max(0.1, ...current);
+    currentPlot.draw(
+      [{ x: xs, y: current, label: 'current', color: 'c1', style: 'bars' }],
+      { xRange: [0, Math.max(1, current.length)], yRange: [0, yMax] }
+    );
   }
 
   const sec = ui.section(controls, 'Connection');

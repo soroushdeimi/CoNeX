@@ -270,6 +270,9 @@ function makeUi() {
 
   // AMENDMENT 4: a live runner that steps the model a few times and fires
   // onFrame after each step, like the real ui.live does per animation frame.
+  // The real ui.live does NOT call reset() on mount (only the Reset button
+  // does), so the mock must not either: a plate that relies on an auto-reset
+  // to initialize its state will throw here, as it would in the browser.
   ui.live = (parent, opts) => {
     const { dt, step, reset, onFrame } = opts;
     let t = 0;
@@ -285,7 +288,6 @@ function makeUi() {
       t: () => t,
     };
     ui._lives.push(handle);
-    if (reset) reset();
     for (let i = 0; i < 3; i++) {
       if (step) step();
       t += dt;

@@ -39,6 +39,7 @@ NEURON_PRIORITIES = {
     "LIF": 260,
     "ELIF": 260,
     "AELIF": 260,
+    "HH": 260,
     "InherentNoise": 280,
     "KWTA": 300,
     "VoltageBaseHomeostasis": 301,

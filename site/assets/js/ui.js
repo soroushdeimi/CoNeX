@@ -1,7 +1,29 @@
 // Shared UI + plotting API for the CoNeX site. See .worker/CONTRACT.md.
-import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime } from './core.js';
+import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime, playerSpeedFromPos, playerPosFromSpeed } from './core.js';
 
 const THEME_KEY = 'conex-theme';
+const SPEED_KEY = 'conex-speed';
+
+// The last chosen playback speed, shared by every player. Falls back to 1x.
+function readSpeed() {
+  try {
+    const v = Number(localStorage.getItem(SPEED_KEY));
+    if (Number.isFinite(v) && v >= 0.1 && v <= 10) return v;
+  } catch {
+    // storage unavailable; use the default
+  }
+  return 1;
+}
+function writeSpeed(v) {
+  try {
+    localStorage.setItem(SPEED_KEY, String(v));
+  } catch {
+    // ignore
+  }
+}
+function fmtSpeed(v) {
+  return `${v.toFixed(1)}x`;
+}
 
 const PALETTES = {
   light: {
@@ -753,7 +775,7 @@ export function animate(fn) {
 export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = true, integer, onFrame }) {
   let dur = duration;
   let t = 0;
-  let speed = 1;
+  let speed = readSpeed();
   let playing = false;
   let raf = 0;
   let lastTs = 0;
@@ -775,20 +797,26 @@ export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = 
   restartBtn.type = 'button';
   restartBtn.textContent = 'Restart';
 
-  const speedSel = document.createElement('select');
-  speedSel.className = 'ui-player-speed';
-  for (const s of [0.25, 0.5, 1, 2, 4]) {
-    const o = document.createElement('option');
-    o.value = String(s);
-    o.textContent = `${s}x`;
-    speedSel.appendChild(o);
-  }
-  speedSel.value = '1';
+  const speedWrap = document.createElement('label');
+  speedWrap.className = 'ui-player-speed';
+  const speedName = document.createElement('span');
+  speedName.textContent = 'speed';
+  const speedReadout = document.createElement('span');
+  speedReadout.className = 'ui-readout';
+  const speedSlider = document.createElement('input');
+  speedSlider.type = 'range';
+  speedSlider.min = '0';
+  speedSlider.max = '1';
+  speedSlider.step = '0.01';
+  speedSlider.value = String(playerPosFromSpeed(speed));
+  speedSlider.setAttribute('aria-label', 'Playback speed');
+  speedReadout.textContent = fmtSpeed(speed);
+  speedWrap.append(speedName, speedReadout, speedSlider);
 
   const readout = document.createElement('span');
   readout.className = 'ui-readout ui-player-readout';
 
-  row.append(playBtn, restartBtn, speedSel, readout);
+  row.append(playBtn, restartBtn, speedWrap, readout);
 
   const scrub = document.createElement('input');
   scrub.type = 'range';
@@ -865,8 +893,10 @@ export function player(parent, { duration, unit = 'ms', playSeconds = 5, loop = 
     seek(0);
     play();
   });
-  speedSel.addEventListener('change', () => {
-    speed = Number(speedSel.value);
+  speedSlider.addEventListener('input', () => {
+    speed = playerSpeedFromPos(Number(speedSlider.value));
+    speedReadout.textContent = fmtSpeed(speed);
+    writeSpeed(speed);
   });
   scrub.addEventListener('input', () => {
     seek(Number(scrub.value));

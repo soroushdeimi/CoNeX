@@ -312,6 +312,13 @@ async function checkPlate(platePath) {
     `${id}: plate neither creates a ui.player nor calls ui.animate`,
   );
 
+  // TASK 3: every animation must have the player controls. A plate that calls
+  // ui.animate must also create a ui.player (the speed slider lives there).
+  assert.ok(
+    !ui._animated || ui._players.length > 0,
+    `${id}: plate calls ui.animate without also creating a ui.player`,
+  );
+
   // Every ui.code function returns a non-empty string.
   assert.ok(ui._code.length > 0, `${id}: no ui.code snippet`);
   let snippet = '';

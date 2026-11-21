@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   encodeHash, decodeHash, rng, computeTicks, niceNum, dataRange, fmtTick,
   formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime,
+  playerSpeedFromPos, playerPosFromSpeed,
 } from '../assets/js/core.js';
 
 // --- URL-hash encode/decode ------------------------------------------------
@@ -276,6 +277,40 @@ test('playerAdvance wraps past the end when looping', () => {
 test('playerAdvance with a zero step stays put', () => {
   assert.equal(playerAdvance(30, 0, 100, 5, 1, false), 30);
   assert.equal(playerAdvance(30, 0, 100, 5, 1, true), 30);
+});
+
+// --- playerSpeedFromPos / playerPosFromSpeed (log-scale speed slider) -------
+
+test('playerSpeedFromPos maps the slider ends and middle to 0.1x / 1x / 10x', () => {
+  assert.ok(Math.abs(playerSpeedFromPos(0) - 0.1) < 1e-9, 'pos 0 -> 0.1x');
+  assert.ok(Math.abs(playerSpeedFromPos(0.5) - 1) < 1e-9, 'pos 0.5 -> 1x');
+  assert.ok(Math.abs(playerSpeedFromPos(1) - 10) < 1e-9, 'pos 1 -> 10x');
+});
+
+test('playerSpeedFromPos clamps out-of-range and non-finite input', () => {
+  assert.ok(Math.abs(playerSpeedFromPos(-1) - 0.1) < 1e-9, 'clamps low to 0.1x');
+  assert.ok(Math.abs(playerSpeedFromPos(2) - 10) < 1e-9, 'clamps high to 10x');
+  assert.ok(Math.abs(playerSpeedFromPos(NaN) - 1) < 1e-9, 'NaN -> 1x');
+});
+
+test('playerPosFromSpeed is the inverse of playerSpeedFromPos', () => {
+  for (const pos of [0, 0.25, 0.5, 0.75, 1]) {
+    const speed = playerSpeedFromPos(pos);
+    assert.ok(Math.abs(playerPosFromSpeed(speed) - pos) < 1e-9, `round-trip at pos ${pos}`);
+  }
+});
+
+test('playerPosFromSpeed maps 0.1x / 1x / 10x to the ends and middle', () => {
+  assert.ok(Math.abs(playerPosFromSpeed(0.1) - 0) < 1e-9, '0.1x -> 0');
+  assert.ok(Math.abs(playerPosFromSpeed(1) - 0.5) < 1e-9, '1x -> 0.5');
+  assert.ok(Math.abs(playerPosFromSpeed(10) - 1) < 1e-9, '10x -> 1');
+});
+
+test('playerPosFromSpeed clamps out-of-range and non-finite input', () => {
+  assert.equal(playerPosFromSpeed(0.01), 0, 'below 0.1x clamps to 0');
+  assert.equal(playerPosFromSpeed(100), 1, 'above 10x clamps to 1');
+  assert.equal(playerPosFromSpeed(NaN), 0.5, 'NaN -> middle');
+  assert.equal(playerPosFromSpeed(0), 0.5, 'non-positive -> middle');
 });
 
 // --- playerInteger / playerShownTime (discrete-unit readout) ---------------

@@ -5,6 +5,11 @@ parameters (C=1 uF/cm2, g_Na=120, g_K=36, g_L=0.3 mS/cm2, E_Na=50, E_K=-77,
 E_L=-54.387 mV, threshold=0 mV, init_v=-65 mV) at dt=0.025 ms.
 """
 
+# Measured firing behavior (dt=0.025 ms, init_v=-65 mV):
+#   10 uA/cm2, 200 ms -> 14 spikes (70 Hz), periodic (last-3 ISI spread 0.17%)
+#   6  uA/cm2, 200 ms -> 2 spikes at 2.575 ms and 21.9 ms (onset transient)
+#   5  uA/cm2, 200 ms -> 1 spike (onset only, no repetitive firing)
+
 import numpy as np
 import pytest
 import torch
@@ -36,6 +41,16 @@ def run(net, pop, steps):
         n_spikes += int(pop.spikes.sum())
         peak = max(peak, pop.v.item())
     return n_spikes, peak
+
+
+def spike_times(net, pop, steps):
+    """Simulate and record the time (ms) of each spike."""
+    times = []
+    for t in range(steps):
+        net.simulate_iteration()
+        if pop.spikes[0]:
+            times.append((t + 1) * DT)
+    return times
 
 
 @pytest.fixture
@@ -74,17 +89,31 @@ class TestHH:
         assert n_spikes == 1
         assert peak > 30.0  # mV
 
-    def test_constant_current_above_rheobase_fires_repeatedly(self, hh_group):
-        # measured: 6 uA/cm2 gives 2 spikes in 100 ms
-        hh_group.I = hh_group.vector(mode=6.0)
-        n_spikes, _ = run(hh_group.network, hh_group, 4000)
-        assert n_spikes >= 2
+    def test_constant_current_fires_periodically(self, hh_group):
+        # 10 uA/cm2 for 200 ms: 14 spikes (70 Hz, measured). The last three
+        # inter-spike intervals agree within 1%, i.e. the firing is periodic,
+        # not an onset transient.
+        hh_group.I = hh_group.vector(mode=10.0)
+        times = spike_times(hh_group.network, hh_group, 8000)
+        assert len(times) == 14
+        isis = [b - a for a, b in zip(times, times[1:])]
+        last3 = isis[-3:]
+        spread = (max(last3) - min(last3)) / (sum(last3) / 3)
+        assert spread < 0.01
 
-    def test_constant_current_below_rheobase_does_not_fire(self, hh_group):
-        # measured: 5 uA/cm2 gives 1 spike in 100 ms, no repetitive firing
+    def test_current_near_rheobase_gives_an_onset_transient(self, hh_group):
+        # 6 uA/cm2 for 200 ms: 2 spikes (measured), both early (2.575 ms and
+        # 21.9 ms) -- an onset transient, not sustained periodic firing.
+        hh_group.I = hh_group.vector(mode=6.0)
+        times = spike_times(hh_group.network, hh_group, 8000)
+        assert len(times) == 2
+        assert times[-1] < 50.0  # both spikes in the first quarter
+
+    def test_current_below_rheobase_does_not_fire_repeatedly(self, hh_group):
+        # 5 uA/cm2 for 200 ms: at most one onset spike (measured: 1)
         hh_group.I = hh_group.vector(mode=5.0)
-        n_spikes, _ = run(hh_group.network, hh_group, 4000)
-        assert n_spikes <= 1
+        times = spike_times(hh_group.network, hh_group, 8000)
+        assert len(times) <= 1
 
     def test_no_reset_after_spike(self, hh_group):
         # HH has no reset: after the spike the voltage decays back to rest

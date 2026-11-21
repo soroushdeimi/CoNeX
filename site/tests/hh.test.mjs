@@ -8,6 +8,7 @@ import {
   hhStep,
   hhSimulate,
   hhCurrents,
+  heroLabels,
   flapAngle,
   particleRate,
   membranePolarity,
@@ -129,6 +130,22 @@ test('hhCurrents: readout values satisfy I_K = g_K n^4 (v - E_K) and I_Na = g_Na
   close(c.i_K, p.g_K * s.n ** 4 * (s.v - p.E_K), 1e-9, 'I_K = g_K n^4 (v - E_K)');
   close(c.i_Na, p.g_Na * s.m ** 3 * s.h * (s.v - p.E_Na), 1e-9, 'I_Na = g_Na m^3 h (v - E_Na)');
   close(c.i_L, p.g_L * (s.v - p.E_L), 1e-9, 'I_L = g_L (v - E_L)');
+});
+
+test('heroLabels: every printed number (m, h, n, I_Na, I_K) is consistent for one sample', () => {
+  // The hero prints the m/h/n labels and the I_Na/I_K readout from heroLabels;
+  // this checks the printed gate values equal the sample AND that the printed
+  // currents satisfy the HH equations for those same printed gate values.
+  const p = { ...P };
+  const s = { v: -62.3, m: 0.68, h: 0.14, n: 0.68 };
+  const lab = heroLabels(s, p);
+  // printed gate labels are the sample's gates
+  close(lab.m, s.m, 1e-12, 'printed m');
+  close(lab.h, s.h, 1e-12, 'printed h');
+  close(lab.n, s.n, 1e-12, 'printed n');
+  // printed currents satisfy the HH equations for the printed gates
+  close(lab.i_K, p.g_K * lab.n ** 4 * (s.v - p.E_K), 1e-9, 'I_K = g_K n^4 (v - E_K)');
+  close(lab.i_Na, p.g_Na * lab.m ** 3 * lab.h * (s.v - p.E_Na), 1e-9, 'I_Na = g_Na m^3 h (v - E_Na)');
 });
 
 test('flapAngle throws on a gate outside [0,1]', () => {

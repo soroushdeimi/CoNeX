@@ -3,6 +3,7 @@ import {
   hhStep,
   hhInitialState,
   hhCurrents,
+  heroLabels,
   flapAngle,
   particleRate,
   membranePolarity,
@@ -191,9 +192,10 @@ export function mount(root, ui) {
     spawn(naParticles, naX, particleRate(curNow.i_Na, 3.0) * dtReal, yTop - 24, 60, rng);
     spawn(kParticles, kX, particleRate(curNow.i_K, 3.0) * dtReal, yBot + 24, 60, rng);
 
-    // draw pores
-    for (const x of naX) drawNaPore(ctx, x, poreY, poreW, poreH, sm, pal, mono);
-    for (const x of kX) drawKPore(ctx, x, poreY, poreW, poreH, sm, pal, mono);
+    // draw pores: flap angles from the eased copy (sm), printed labels from the
+    // raw model sample (last) so they match the current readout
+    for (const x of naX) drawNaPore(ctx, x, poreY, poreW, poreH, sm, last, pal, mono);
+    for (const x of kX) drawKPore(ctx, x, poreY, poreW, poreH, sm, last, pal, mono);
 
     // draw particles (fading)
     for (const p of naParticles) { ctx.fillStyle = pal.na; ctx.globalAlpha = p.alpha; dot(ctx, p.x, p.y, 3); }
@@ -207,26 +209,29 @@ export function mount(root, ui) {
     // voltmeter: a small gauge on the right showing v
     drawVoltmeter(ctx, W - 46, H * 0.14, 30, last.v, pal, mono);
 
-    // readouts: gate labels and currents from the SAME model sample (last)
-    const cur = hhCurrents(last, params());
+    // readouts: every printed number (gate labels + currents) comes from
+    // heroLabels(last), so the m/h/n labels and the I_Na/I_K readout are the
+    // same model sample and mutually consistent.
+    const lab = heroLabels(last, params());
     ctx.fillStyle = pal.ink; ctx.font = mono; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillText(`v = ${last.v.toFixed(1)} mV`, 8, 8);
-    ctx.fillText(`I_Na = ${cur.i_Na.toFixed(2)} uA/cm2`, 8, 22);
-    ctx.fillText(`I_K = ${cur.i_K.toFixed(2)} uA/cm2`, 8, 36);
+    ctx.fillText(`I_Na = ${lab.i_Na.toFixed(2)} uA/cm2`, 8, 22);
+    ctx.fillText(`I_K = ${lab.i_K.toFixed(2)} uA/cm2`, 8, 36);
     ctx.textAlign = 'right';
     ctx.fillText('outside (extracellular)', W - 8, 8);
     ctx.fillText('inside (cytoplasm)', W - 8, H - 18);
 
-    hero.narration(hhNarration({ v: last.v, v_rest: P.init_v, i_Na: cur.i_Na, i_K: cur.i_K, h: last.h }));
+    hero.narration(hhNarration({ v: last.v, v_rest: P.init_v, i_Na: lab.i_Na, i_K: lab.i_K, h: last.h }));
   }
 
   // A Na+ pore: filled protein (two rounded half-cylinders) with 3 m flaps at
   // the outer (top) mouth and an h ball-and-chain at the inner (bottom) mouth.
-  function drawNaPore(ctx, cx, y0, w, h, s, pal, mono) {
+  // `sm` (eased) drives the flap angles; `last` (raw) drives the printed labels.
+  function drawNaPore(ctx, cx, y0, w, h, sm, last, pal, mono) {
     const half = w / 2, wallW = Math.max(14, w * 0.26);
     drawProtein(ctx, cx, y0, w, h, wallW, pal.na);
     // 3 m flaps at the outer mouth (top), hinged at the pore gap
-    const mAngle = flapAngle(s.m);
+    const mAngle = flapAngle(sm.m);
     const gapL = cx - half + wallW, gapR = cx + half - wallW;
     for (let i = 0; i < 3; i++) {
       const fx = gapL + (i + 0.5) * ((gapR - gapL) / 3);
@@ -234,33 +239,34 @@ export function mount(root, ui) {
     }
     // h ball-and-chain at the inner mouth (bottom): the ball swings into the
     // pore as h -> 0 (closed) and retracts as h -> 1 (open)
-    const swing = (1 - s.h) * (Math.PI / 2); // 0 (open) .. 90 deg (plugged)
+    const swing = (1 - sm.h) * (Math.PI / 2); // 0 (open) .. 90 deg (plugged)
     const chainLen = 16;
     const bx = cx + Math.sin(swing) * chainLen;
     const by = y0 + h - 4 - Math.cos(swing) * chainLen;
     ctx.strokeStyle = pal.na; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(cx, y0 + h - 4); ctx.lineTo(bx, by); ctx.stroke();
     ctx.fillStyle = pal.na; ctx.beginPath(); ctx.arc(bx, by, 5, 0, Math.PI * 2); ctx.fill();
-    // labels (raw gate values)
+    // labels from the raw model sample (last), matching the current readout
     ctx.fillStyle = pal.na; ctx.font = mono; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`m=${s.m.toFixed(2)}`, cx - half, y0 - 6);
+    ctx.fillText(`m=${last.m.toFixed(2)}`, cx - half, y0 - 6);
     ctx.textBaseline = 'top';
-    ctx.fillText(`h=${s.h.toFixed(2)}`, cx + half, y0 + h + 6);
+    ctx.fillText(`h=${last.h.toFixed(2)}`, cx + half, y0 + h + 6);
     ctx.fillText('Na+', cx, y0 - 20);
   }
 
   // A K+ pore: filled protein with 4 n flaps at the outer mouth.
-  function drawKPore(ctx, cx, y0, w, h, s, pal, mono) {
+  // `sm` (eased) drives the flap angles; `last` (raw) drives the printed label.
+  function drawKPore(ctx, cx, y0, w, h, sm, last, pal, mono) {
     const half = w / 2, wallW = Math.max(14, w * 0.26);
     drawProtein(ctx, cx, y0, w, h, wallW, pal.k);
-    const nAngle = flapAngle(s.n);
+    const nAngle = flapAngle(sm.n);
     const gapL = cx - half + wallW, gapR = cx + half - wallW;
     for (let i = 0; i < 4; i++) {
       const fx = gapL + (i + 0.5) * ((gapR - gapL) / 4);
       drawFlap(ctx, fx, y0 + 4, nAngle, pal.k);
     }
     ctx.fillStyle = pal.k; ctx.font = mono; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`n=${s.n.toFixed(2)}`, cx, y0 - 6);
+    ctx.fillText(`n=${last.n.toFixed(2)}`, cx, y0 - 6);
     ctx.fillText('K+', cx, y0 - 20);
   }
 

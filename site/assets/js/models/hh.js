@@ -88,6 +88,14 @@ export function hhCurrents(s, p) {
   };
 }
 
+// Every number the hero PRINTS (the m, h, n labels and the I_Na, I_K readout),
+// from one model sample. Using this for all printed values guarantees the gate
+// labels and the current readout are mutually consistent (same sample).
+export function heroLabels(s, p) {
+  const c = hhCurrents(s, p);
+  return { m: s.m, h: s.h, n: s.n, i_Na: c.i_Na, i_K: c.i_K };
+}
+
 // Run one neuron for `steps` iterations. `I` is a number (constant) or a
 // function of the step index (for a pulse). Returns the full traces.
 export function hhSimulate(p, I, steps, dt, initV) {

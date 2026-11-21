@@ -7,6 +7,69 @@ export const meta = {
   source: 'conex/behaviors/neurons/numenta/grid_cells.py',
 };
 
+// --- Pure mappings (model state -> drawn quantity / narration) -------------
+// Exported so site/tests/tbt.test.mjs can test them by hand-computed values.
+
+// Fading trail: alpha 1 at age 0, 0 at age = window, clamped.
+export function trailAlpha(age, window) {
+  if (window <= 0) return 0;
+  return Math.max(0, Math.min(1, 1 - age / window));
+}
+
+// Glow radius (px) around the agent, driven by the mean grid activation (0..1 a.u.).
+export function glowRadius(meanActivation) {
+  return 10 + 30 * Math.max(0, Math.min(1, meanActivation));
+}
+
+// One-line narration driven by the model state.
+export function gridNarration({ meanAct, speed }) {
+  if (speed === 0) return 'agent at rest: the grid cells hold the position code';
+  const level = meanAct > 2 / 3 ? 'high' : meanAct > 1 / 3 ? 'medium' : 'low';
+  return `agent walks at ${speed.toFixed(2)} a.u./s; grid cells at its position fire at ${level} level (mean ${meanAct.toFixed(2)} a.u.)`;
+}
+
+// The model extent shown (a.u.) and the hero rate-map resolution (samples per
+// axis). Exported so the tests can check the sampling against the wavelength.
+export const SPAN = 4;
+export const HERO_N = 80;
+
+// Sample spacing (a.u.) of a rate map: the model extent divided by the number
+// of samples per axis. It must be <= lambda/8 (>= 8 samples per spatial
+// wavelength) or the hexagonal pattern aliases into a checkerboard.
+export function rateMapSpacing(span, n) {
+  if (n <= 1) return 0;
+  return span / (n - 1);
+}
+
+// The 6-fold symmetry residual of a grid cell's rate map: the max, over the
+// given radii and angles, of |rate(c + r*u(theta)) - rate(c + r*u(theta+step))|.
+// A true hexagonal map is invariant under a 60-degree rotation about a field
+// center, so this is ~0 (float noise). A wrong symmetry (e.g. 90 deg) is large.
+export function gridSymmetryDiff(rate, center, radii, angles, stepDeg = 60) {
+  const step = (stepDeg * Math.PI) / 180;
+  let max = 0;
+  for (const r of radii) {
+    for (const th of angles) {
+      const a = rate(center[0] + r * Math.cos(th), center[1] + r * Math.sin(th));
+      const b = rate(center[0] + r * Math.cos(th + step), center[1] + r * Math.sin(th + step));
+      const d = Math.abs(a - b);
+      if (d > max) max = d;
+    }
+  }
+  return max;
+}
+
+// Activation of one cell (mirrors GridCellModule.computeActivation for a single cell).
+function cellActivation(module, cell, x, y) {
+  const px = x - module.gridPhase[cell * 2];
+  const py = y - module.gridPhase[cell * 2 + 1];
+  let sum = 0;
+  for (let i = 0; i < 3; i++) {
+    sum += Math.cos(module.waveVectors[(cell * 3 + i) * 2] * px + module.waveVectors[(cell * 3 + i) * 2 + 1] * py);
+  }
+  return (sum / 3 + 1) / 2;
+}
+
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
@@ -31,7 +94,16 @@ export function mount(root, ui) {
     key: 'speed', label: 'walk speed', unit: 'a.u./s',
     min: 0, max: 2, step: 0.05, value: 0.6,
   });
+  const turn = ui.slider(sec, {
+    key: 'turnRate', label: 'turn rate', unit: 'rad/s',
+    min: 0, max: 2, step: 0.05, value: 0.5,
+  });
   const autoWalk = ui.toggle(sec, { key: 'autoWalk', label: 'auto-walk', value: true });
+  const heroModule = ui.select(sec, {
+    key: 'heroModule', label: 'hero firing map (module)',
+    options: [0, 1, 2, 3].map((m) => ({ value: String(m), label: `module ${m}` })),
+    value: '0',
+  });
 
   // Fixed phases so the pattern is reproducible (torch.rand in CoNeX).
   const phases = buildPhases(nModules, cellsPerModule, 1234);
@@ -45,196 +117,219 @@ export function mount(root, ui) {
     });
   }
 
-  // --- figures ---
-  const arena = ui.canvas(figures, { height: 320 });
-  const tiles = ui.canvas(figures, { height: 160 });
-  // The firing map is drawn on a canvas (not ui.heatmap) so we can force a
-  // square display area: a heatmap stretches its cells to fill a wide, short
-  // box, which squashes the hexagonal lattice into horizontal stripes.
-  const firing = ui.canvas(figures, { height: 360 });
+  // --- figures: hero arena on top, one small firing map per module below ---
+  ui.note(figures, '<em>Try this: raise <code>turn rate</code> and watch the agent spiral &mdash; the glow brightens where the agent sits on a bright patch of the firing-rate map.</em>');
+  const hero = ui.hero(figures, { height: 300 });
+  const maps = ui.canvas(figures, { height: 220 });
 
-  const pos = [1.0, 1.0];
-  let heading = 0.0;
-
-  const SPAN = 6;
   const PAD = 20;
+  const DT = 0.05; // s of model time per step
+  const WINDOW = 5; // s of trail kept on screen
 
-  function drawFiring() {
-    const { ctx, width, height } = firing;
+  let heading = 0;
+  let t = 0; // model time (s)
+  let trail = []; // {x, y, t}
+  let meanAct = 0;
+
+  function pos() { return module.gridPosition; }
+
+  function reset() {
+    module.gridPosition = [1, 1];
+    heading = 0;
+    t = 0;
+    trail = [];
+  }
+
+  // One dt of the model: turn, path-integrate, wrap, record the trail.
+  function step() {
+    if (!autoWalk.get()) return;
+    t += DT;
+    heading += turn.get() * DT;
+    const v = speed.get();
+    module.pathIntegrate([v * Math.cos(heading), v * Math.sin(heading)], DT);
+    let [x, y] = module.gridPosition;
+    if (x > SPAN / 2) x -= SPAN;
+    if (x < -SPAN / 2) x += SPAN;
+    if (y > SPAN / 2) y -= SPAN;
+    if (y < -SPAN / 2) y += SPAN;
+    module.gridPosition = [x, y];
+    trail.push({ x, y, t });
+    while (trail.length && trail[0].t < t - WINDOW) trail.shift();
+  }
+
+  function drawHero() {
+    const { ctx, width, height } = hero;
     ctx.clearRect(0, 0, width, height);
-    const paper = ui.color('paper');
+    const muted = ui.color('muted');
     const c1 = ui.color('c1');
-    const ink = ui.color('ink');
-    const N = 96;
-    // Centered square so the lattice is not stretched into stripes.
-    const side = Math.min(width, height) - 44;
-    const ox = (width - side) / 2;
-    const oy = (height - side) / 2;
+    // Equal x/y scale: the model extent (SPAN x SPAN, square) is fitted into the
+    // canvas height and centred, so the firing map has square pixels in model
+    // units (the real geometry, not a stretched checkerboard).
+    const side = height - 2 * PAD;
+    const left = (width - side) / 2;
+    const top = PAD;
+    const sx = (x) => left + ((x + SPAN / 2) / SPAN) * side;
+    const sy = (y) => top + ((SPAN / 2 - y) / SPAN) * side;
+    // Background: the REAL firing-rate map of ONE cell of the selected module
+    // (the same quantity as the small map below it), sampled at >= 8 samples per
+    // spatial wavelength so the hexagonal pattern is not aliased into a
+    // checkerboard. Drawn at low opacity so the agent passes through firing
+    // fields. No square lattice lines.
+    const mIdx = Number(heroModule.get());
+    const cell = mIdx * cellsPerModule;
+    const N = HERO_N;
     const cw = side / N;
-    ctx.fillStyle = paper;
-    ctx.fillRect(ox, oy, side, side);
     for (let r = 0; r < N; r++) {
-      const y = -SPAN / 2 + (r / (N - 1)) * SPAN;
+      const wy = -SPAN / 2 + (r / (N - 1)) * SPAN;
       for (let c = 0; c < N; c++) {
-        const x = -SPAN / 2 + (c / (N - 1)) * SPAN;
-        const a = module.computeActivation([x, y])[0];
-        if (a > 0.02) {
-          ctx.globalAlpha = a;
+        const wx = -SPAN / 2 + (c / (N - 1)) * SPAN;
+        const a = cellActivation(module, cell, wx, wy);
+        if (a > 0.03) {
+          ctx.globalAlpha = 0.35 * a;
           ctx.fillStyle = c1;
-          ctx.fillRect(ox + c * cw, oy + r * cw, cw + 0.5, cw + 0.5);
+          ctx.fillRect(left + c * cw, top + r * cw, cw + 0.5, cw + 0.5);
         }
       }
     }
     ctx.globalAlpha = 1;
-    ctx.strokeStyle = ink;
-    ctx.strokeRect(ox, oy, side, side);
-    ctx.fillStyle = ink;
-    ctx.font = '11px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText('firing map, module 0 cell 0', width / 2, height - 2);
-    ctx.textAlign = 'start';
-    ctx.textBaseline = 'alphabetic';
-  }
-
-  function rebuild() {
-    module = buildModule();
-    module.gridPosition = [pos[0], pos[1]];
-    module.forward();
-    drawFiring(); // firing map depends only on the module, not the position
-  }
-  scaleMin.onInput(rebuild);
-  scaleMax.onInput(rebuild);
-  orientMax.onInput(rebuild);
-  drawFiring(); // initial firing map
-
-  function drawArena() {
-    const { ctx, width, height } = arena;
-    ctx.clearRect(0, 0, width, height);
-    const muted = ui.color('muted');
-    const c1 = ui.color('c1');
-    const sx = (x) => PAD + ((x + SPAN / 2) / SPAN) * (width - 2 * PAD);
-    const sy = (y) => height - PAD - ((y + SPAN / 2) / SPAN) * (height - 2 * PAD);
+    // light frame + axis scale in a.u. (unit in an axis title, not a tick)
     ctx.strokeStyle = muted;
-    ctx.globalAlpha = 0.25;
-    for (let g = -3; g <= 3; g++) {
-      ctx.beginPath(); ctx.moveTo(sx(g), sy(-3)); ctx.lineTo(sx(g), sy(3)); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(sx(-3), sy(g)); ctx.lineTo(sx(3), sy(g)); ctx.stroke();
+    ctx.strokeRect(left, top, side, side);
+    ctx.fillStyle = muted;
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.fillText('-2', left - 2, top + side + 14);
+    ctx.fillText('0', left + side / 2 - 3, top + side + 14);
+    ctx.fillText('+2', left + side - 12, top + side + 14);
+    ctx.fillText('position (a.u.)', left + side / 2 - 34, top + side + 28);
+    // caption: name the cell whose rate map is shown
+    ctx.fillStyle = ui.color('ink');
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.fillText(`firing-rate map: module ${mIdx}, cell ${cell}`, left, top - 6);
+    // fading trail (skip segments that cross the wrap)
+    ctx.strokeStyle = c1;
+    ctx.lineWidth = 2;
+    for (let i = 1; i < trail.length; i++) {
+      const a = trail[i - 1], b = trail[i];
+      if (Math.abs(a.x - b.x) > SPAN / 2 || Math.abs(a.y - b.y) > SPAN / 2) continue;
+      ctx.globalAlpha = 0.5 * trailAlpha(t - b.t, WINDOW);
+      ctx.beginPath(); ctx.moveTo(sx(a.x), sy(a.y)); ctx.lineTo(sx(b.x), sy(b.y)); ctx.stroke();
     }
     ctx.globalAlpha = 1;
+    ctx.lineWidth = 1;
+    // firing-field glow: concentric fills, radius driven by the mean activation
+    const [x, y] = pos();
+    const r = glowRadius(meanAct);
+    ctx.fillStyle = c1;
+    for (let i = 4; i >= 1; i--) {
+      ctx.globalAlpha = 0.08 * i;
+      ctx.beginPath(); ctx.arc(sx(x), sy(y), (r * i) / 4, 0, 2 * Math.PI); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // agent
     ctx.fillStyle = c1;
     ctx.beginPath();
-    ctx.arc(sx(pos[0]), sy(pos[1]), 6, 0, 2 * Math.PI);
+    ctx.arc(sx(x), sy(y), 6, 0, 2 * Math.PI);
     ctx.fill();
     ctx.strokeStyle = c1;
     ctx.beginPath();
-    ctx.moveTo(sx(pos[0]), sy(pos[1]));
-    ctx.lineTo(sx(pos[0]) + 14 * Math.cos(heading), sy(pos[1]) - 14 * Math.sin(heading));
+    ctx.moveTo(sx(x), sy(y));
+    ctx.lineTo(sx(x) + 14 * Math.cos(heading), sy(y) - 14 * Math.sin(heading));
     ctx.stroke();
+    hero.narration(gridNarration({ meanAct, speed: speed.get() }));
   }
 
-  // One tile per module: its scale, orientation, and phase offset.
-  function drawTiles() {
-    const { ctx, width, height } = tiles;
+  // One small firing map per module (cell 0 of each), with the agent's position.
+  function drawMaps() {
+    const { ctx, width, height } = maps;
     ctx.clearRect(0, 0, width, height);
     const ink = ui.color('ink');
     const muted = ui.color('muted');
     const c1 = ui.color('c1');
+    const c2 = ui.color('c2');
     const n = nModules;
-    const tw = width / n;
-    const th = height - 22;
+    const side = Math.min((width - (n + 1) * 8) / n, height - 26);
+    const [ax, ay] = pos();
     for (let m = 0; m < n; m++) {
-      const scale = module.scales[m * cellsPerModule];
-      const orient = module.orientations[m * cellsPerModule];
-      const px = module.gridPhase[m * cellsPerModule * 2];
-      const py = module.gridPhase[m * cellsPerModule * 2 + 1];
-      const x0 = m * tw + 4;
-      const y0 = 4;
-      ctx.strokeStyle = muted;
-      ctx.strokeRect(x0, y0, tw - 8, th);
-      // mini grid: lines at the module's orientation, spaced by its scale
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(x0, y0, tw - 8, th);
-      ctx.clip();
-      ctx.strokeStyle = c1;
-      ctx.globalAlpha = 0.5;
-      const spacing = Math.max(6, (scale / 2.0) * 22);
-      const ang = orient;
-      for (let o = -th; o < tw + th; o += spacing) {
-        ctx.beginPath();
-        ctx.moveTo(x0 + o, y0);
-        ctx.lineTo(x0 + o + th * Math.tan(ang), y0 + th);
-        ctx.stroke();
+      const x0 = 8 + m * (side + 8);
+      const y0 = 8;
+      const cell = m * cellsPerModule;
+      const N = 48;
+      const cw = side / N;
+      for (let r = 0; r < N; r++) {
+        const wy = -SPAN / 2 + (r / (N - 1)) * SPAN;
+        for (let c = 0; c < N; c++) {
+          const wx = -SPAN / 2 + (c / (N - 1)) * SPAN;
+          const a = cellActivation(module, cell, wx, wy);
+          if (a > 0.02) {
+            ctx.globalAlpha = a;
+            ctx.fillStyle = c1;
+            ctx.fillRect(x0 + c * cw, y0 + r * cw, cw + 0.5, cw + 0.5);
+          }
+        }
       }
       ctx.globalAlpha = 1;
-      ctx.restore();
-      // phase marker
-      ctx.fillStyle = c1;
-      ctx.beginPath();
-      ctx.arc(x0 + (px / (2 * Math.PI)) * (tw - 8), y0 + (1 - py / (2 * Math.PI)) * th, 3, 0, 2 * Math.PI);
-      ctx.fill();
-      // labels
+      ctx.strokeStyle = muted;
+      ctx.strokeRect(x0, y0, side, side);
+      // agent position on this module's map
+      const dx = x0 + ((ax + SPAN / 2) / SPAN) * side;
+      const dy = y0 + ((SPAN / 2 - ay) / SPAN) * side;
+      ctx.fillStyle = c2;
+      ctx.beginPath(); ctx.arc(dx, dy, 3, 0, 2 * Math.PI); ctx.fill();
       ctx.fillStyle = ink;
       ctx.font = '10px ui-monospace, monospace';
-      ctx.fillText(`m${m}`, x0 + 2, y0 + 11);
-      ctx.fillStyle = muted;
-      ctx.fillText(`λ${scale.toFixed(1)} θ${orient.toFixed(1)}`, x0 + 2, y0 + th - 4);
+      ctx.fillText(`module ${m}  λ=${module.scales[cell].toFixed(2)} a.u.`, x0, y0 + side + 14);
     }
   }
 
   function render() {
-    drawArena();
-    drawTiles();
+    const act = module.computeActivation(pos());
+    let s = 0;
+    for (const v of act) s += v;
+    meanAct = s / act.length;
+    drawHero();
+    drawMaps();
   }
-  // Draw the canvases inside onResize (called after layout and on every
-  // resize); drawing once at mount with a 0 width would leave them empty.
-  arena.onResize(drawArena);
-  tiles.onResize(drawTiles);
-  firing.onResize(drawFiring);
 
-  // The player drives the walk; its speed select (0.25x..4x) is the speed
-  // control. Model time is in seconds, so dtMs/1000 is the path-integration dt.
-  let lastT = 0;
-  const player = ui.player(figures, {
-    duration: 10,
-    unit: 's',
-    playSeconds: 5,
-    loop: true,
-    onFrame(t) {
-      // t wraps to 0 on loop; skip that frame so dt stays positive.
-      const dtMs = t >= lastT ? (t - lastT) * 1000 : 0;
-      lastT = t;
-      if (autoWalk.get()) {
-        heading += 0.15 * (dtMs / 16.7);
-        const v = speed.get();
-        module.pathIntegrate([v * Math.cos(heading), v * Math.sin(heading)], dtMs / 1000);
-        pos[0] = module.gridPosition[0];
-        pos[1] = module.gridPosition[1];
-        if (pos[0] > 3) pos[0] = -3;
-        if (pos[0] < -3) pos[0] = 3;
-        if (pos[1] > 3) pos[1] = -3;
-        if (pos[1] < -3) pos[1] = 3;
-      }
-      render();
-    },
+  // Module changes rebuild the firing maps and reset the walk.
+  function rebuild() {
+    module = buildModule();
+    reset();
+    render();
+  }
+  scaleMin.onInput(rebuild);
+  scaleMax.onInput(rebuild);
+  orientMax.onInput(rebuild);
+  // speed / turn rate / auto-walk apply on the next step without a reset
+  speed.onInput(render);
+  turn.onInput(render);
+  autoWalk.onInput(render);
+  heroModule.onInput(render);
+
+  // The live runner steps the real model each frame (path integration).
+  const live = ui.live(figures, {
+    dt: DT, unit: 's', modelPerSecond: 1, windowSize: WINDOW,
+    step, reset,
+    onFrame: render,
   });
 
   // drag to move the agent
-  const canvas = arena.canvas;
+  const canvas = hero.canvas;
   let dragging = false;
   function toWorld(ev) {
     const rect = canvas.getBoundingClientRect();
-    const x = ((ev.clientX - rect.left - PAD) / (rect.width - 2 * PAD)) * SPAN - SPAN / 2;
-    const y = SPAN / 2 - ((ev.clientY - rect.top - PAD) / (rect.height - 2 * PAD)) * SPAN;
+    // match the hero's equal-scale, centred mapping (side = height - 2*PAD)
+    const side = rect.height - 2 * PAD;
+    const left = (rect.width - side) / 2;
+    const x = ((ev.clientX - rect.left - left) / side) * SPAN - SPAN / 2;
+    const y = SPAN / 2 - ((ev.clientY - rect.top - PAD) / side) * SPAN;
     return [x, y];
   }
   const onDown = (ev) => { dragging = true; autoWalk.set(false); };
   const onMove = (ev) => {
     if (!dragging) return;
     const [x, y] = toWorld(ev);
-    pos[0] = x; pos[1] = y;
     module.gridPosition = [x, y];
+    trail.push({ x, y, t });
     render();
   };
   const onUp = () => { dragging = false; };
@@ -242,7 +337,12 @@ export function mount(root, ui) {
   canvas.addEventListener('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
 
+  // Draw inside onResize (called after layout and on every resize); drawing
+  // once at mount with a 0 width would leave the canvases empty.
+  hero.onResize(render);
+  maps.onResize(render);
   ui.onTheme(render);
+  render();
 
   // --- notes ---
   ui.note(notes, `
@@ -255,11 +355,13 @@ export function mount(root, ui) {
     integrates velocity over time (dead reckoning). This is the allocentric
     reference frame the Thousand Brains Theory uses to let each column track
     where an object is.</p>
-    <p>The tiles show each module's own scale &lambda; and orientation &theta;
-    (the line spacing and angle in the mini-grid) plus its phase offset (the dot).
-    The large square map is the firing map of module 0's first cell over the
-    arena. It is drawn on a square so the hexagonal lattice is not stretched
-    into stripes by a wide, short display box.</p>
+    <p>The hero shows the agent walking with a fading trail (the last 5 s of
+    model time) over the <em>real firing-rate map of the selected module</em>
+    (the same data as the small maps below, at low opacity). The glow around the
+    agent is the <em>mean activation of all grid cells at its position</em>
+    &mdash; it brightens where the agent sits on a bright patch of the map. The
+    four small maps are the firing fields of one cell per module; the dot is the
+    agent's position on each map.</p>
     <p><strong>Important:</strong> the hexagonal periodicity is <em>built into the
     model</em>. The wave vectors are fixed by the scale and orientation, so the
     lattice is imposed by construction &mdash; it is not learned from experience.
@@ -268,6 +370,7 @@ export function mount(root, ui) {
   ui.equation(notes, `
     <p><var>r</var>(<var>x</var>) = (1/3) &sum;<sub>i=1..3</sub> cos(<var>k</var><sub>i</sub> &middot; (<var>x</var> &minus; <var>phase</var>))</p>
     <p><var>k</var><sub>i</sub> = (2&pi;/&lambda;) [cos(&theta; + i&middot;60&deg;), sin(&theta; + i&middot;60&deg;)], &nbsp; activation = (<var>r</var> + 1)/2</p>
+    <p>path integration: <var>x</var> &larr; <var>x</var> + <var>v</var> &middot; <var>dt</var></p>
   `);
   ui.note(notes, `
     <p><strong>ML analogy:</strong> a grid module is like a bank of sinusoidal
@@ -302,7 +405,7 @@ activation = module.encode_position(neurons, torch.tensor([1.0, 1.0]))
 
   return {
     destroy() {
-      player.pause();
+      live.pause();
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);

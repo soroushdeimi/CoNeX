@@ -10,6 +10,26 @@ export const meta = {
 const SIZE = 8;
 const STEPS = 25;
 
+// --- Pure mappings (model state -> drawn quantity / narration) -------------
+// Exported so site/tests/learning.test.mjs can test them by hand-computed values.
+
+// A weight cell's colour fraction (0..1) over the [min, max] range.
+export function weightFraction(w, min, max) {
+  if (max <= min) return 0;
+  return Math.max(0, Math.min(1, (w - min) / (max - min)));
+}
+
+// An error particle's radius (px) shrinks as the mean |error| falls.
+export function errorParticleRadius(meanAbsError, maxError, maxRadius) {
+  if (maxError <= 0) return 0;
+  return Math.max(0, Math.min(1, meanAbsError / maxError)) * maxRadius;
+}
+
+// One-line narration driven by the model state.
+export function learnNarration({ step, meanAbsError, freeEnergy, meanPrecision }) {
+  return `step ${step}: weights are learning the mapping (mean |error| ${meanAbsError.toFixed(4)} a.u., free energy ${freeEnergy.toFixed(4)} a.u., precision ${meanPrecision.toFixed(3)} a.u.)`;
+}
+
 function mulberry(seed) {
   let s = seed >>> 0;
   return function next() {
@@ -68,19 +88,24 @@ export function mount(root, ui) {
   });
   const seedCtrl = ui.number(sec, { key: 'seed', label: 'seed', unit: '', value: 7 });
 
-  // --- Figures ---
-  const heatmapFig = ui.heatmap(figures, {
-    rows: SIZE,
-    cols: SIZE,
-    label: 'Rows: Level 1 (source i) → Cols: Level 0 (target j)',
-  });
+  ui.note(figures, '<em>Try this: raise <code>learning_rate</code> and watch the weight matrix settle and the error fall faster.</em>');
+
+  // --- Figures: hero (weight matrix + error particles) on top, plots below ---
+  const hero = ui.hero(figures, { height: 300 });
   const colorBarNote = ui.note(figures, '');
   const statusNote = ui.note(figures, '');
   const errPlot = ui.plot(figures, {
     height: 200,
     xLabel: 'learning step',
     xUnit: 'step',
-    yLabel: 'mean |error| / free energy',
+    yLabel: 'mean |error|',
+    yUnit: 'a.u.',
+  });
+  const fePlot = ui.plot(figures, {
+    height: 180,
+    xLabel: 'learning step',
+    xUnit: 'step',
+    yLabel: 'free energy',
     yUnit: 'a.u.',
   });
   const precPlot = ui.plot(figures, {
@@ -93,6 +118,7 @@ export function mount(root, ui) {
 
   let currentStep = 0;
   let trace = [];
+  let maxError = 1;
 
   function runSimulation() {
     const rng = mulberry(seedCtrl.get());
@@ -125,6 +151,7 @@ export function mount(root, ui) {
     net.topDownInput = Float64Array.from(higher);
 
     trace = [];
+    maxError = 1;
     for (let t = 0; t < STEPS; t++) {
       const stepRes = net.step();
       synModel.step({
@@ -132,7 +159,7 @@ export function mount(root, ui) {
         dstError: net.predictionError,
         dstActivity: net.activity,
       });
-
+      maxError = Math.max(maxError, stepRes.meanAbsError);
       trace.push({
         step: t,
         meanAbsError: stepRes.meanAbsError,
@@ -147,26 +174,94 @@ export function mount(root, ui) {
     }
   }
 
+  // Hero: the weight matrix morphs (eased) between step k and k+1; the error
+  // particle shrinks as the mean |error| falls.
+  function drawHero(stepFloat) {
+    const { ctx, width, height } = hero;
+    ctx.clearRect(0, 0, width, height);
+    const ink = ui.color('ink');
+    const muted = ui.color('muted');
+    const c1 = ui.color('c1');
+    const c2 = ui.color('c2');
+    const i = Math.max(0, Math.min(STEPS - 1, Math.floor(stepFloat)));
+    const j = Math.min(STEPS - 1, i + 1);
+    const e = ui.ease(stepFloat - i); // ease-in-out between step k and k+1
+    const s = trace[i];
+    const sN = trace[j];
+    if (!s) return;
+
+    // weight matrix: square cells, eased between the two steps
+    const n = SIZE;
+    const side = Math.min(width - 120, height - 40);
+    const ox = 40;
+    const oy = 20;
+    const cw = side / n;
+    let minW = Infinity, maxW = -Infinity;
+    for (let k = 0; k < n * n; k++) {
+      const w = s.weights[k] + (sN.weights[k] - s.weights[k]) * e;
+      if (w < minW) minW = w;
+      if (w > maxW) maxW = w;
+    }
+    if (minW === maxW) { minW -= 0.1; maxW += 0.1; }
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        const w = s.weights[r * n + c] + (sN.weights[r * n + c] - s.weights[r * n + c]) * e;
+        const f = weightFraction(w, minW, maxW);
+        ctx.fillStyle = mixHex(ui.color('paper'), c1, f);
+        ctx.fillRect(ox + c * cw, oy + r * cw, cw + 0.5, cw + 0.5);
+      }
+    }
+    ctx.strokeStyle = ink;
+    ctx.strokeRect(ox, oy, side, side);
+    // row / column indices
+    ctx.fillStyle = muted;
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let k = 0; k < n; k++) {
+      ctx.fillText(String(k), ox + (k + 0.5) * cw, oy + side + 10); // target j
+      ctx.textAlign = 'right';
+      ctx.fillText(String(k), ox - 6, oy + (k + 0.5) * cw); // source i
+      ctx.textAlign = 'center';
+    }
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('source i →', ox, oy - 8);
+    ctx.fillText('target j', ox + side + 6, oy + side / 2);
+
+    // error particles: radius shrinks as the mean |error| falls
+    const err = s.meanAbsError + (sN.meanAbsError - s.meanAbsError) * e;
+    const r = errorParticleRadius(err, maxError, 16);
+    const cx = ox + side + 50;
+    const cy = oy + side / 2;
+    ctx.fillStyle = c2;
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath(); ctx.arc(cx, cy, Math.max(1, r), 0, 2 * Math.PI); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = ink;
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('|error|', cx, cy + Math.max(1, r) + 16);
+    ctx.textAlign = 'left';
+
+    hero.narration(learnNarration({
+      step: i, meanAbsError: err, freeEnergy: s.freeEnergy, meanPrecision: s.meanPrecision,
+    }));
+  }
+
   function renderAt(step) {
     if (!trace || trace.length === 0) return;
     const clampedStep = Math.max(0, Math.min(step, STEPS - 1));
     currentStep = clampedStep;
-    const s = trace[clampedStep];
+    const s = trace[Math.floor(clampedStep)];
 
-    // 1. Draw weights heatmap
-    let minW = Infinity;
-    let maxW = -Infinity;
+    // colour scale for the weight matrix
+    let minW = Infinity, maxW = -Infinity;
     for (let i = 0; i < s.weights.length; i++) {
       if (s.weights[i] < minW) minW = s.weights[i];
       if (s.weights[i] > maxW) maxW = s.weights[i];
     }
-    if (minW === maxW) {
-      minW -= 0.1;
-      maxW += 0.1;
-    }
-    heatmapFig.draw(s.weights, { min: minW, max: maxW });
-
-    // Colour scale and axis mapping note
+    if (minW === maxW) { minW -= 0.1; maxW += 0.1; }
     colorBarNote.innerHTML = `
       <div style="display:flex;align-items:center;justify-content:space-between;max-width:340px;margin:2px auto;font-family:ui-monospace,monospace;font-size:0.75rem;">
         <span>min: <strong>${minW.toFixed(3)}</strong></span>
@@ -178,7 +273,6 @@ export function mount(root, ui) {
       </div>
     `;
 
-    // 2. Status readout
     statusNote.innerHTML = `
       <div style="font-family:ui-monospace,monospace;font-size:0.85rem;line-height:1.4;">
         <strong>Step ${clampedStep}</strong>: Mean |error| = <span style="color:var(--c2,#d95b43);font-weight:bold;">${s.meanAbsError.toFixed(4)}</span>
@@ -187,7 +281,9 @@ export function mount(root, ui) {
       </div>
     `;
 
-    // 3. Error and free energy curves
+    drawHero(clampedStep);
+
+    // error and free energy on separate, named plots
     errPlot.draw(
       [
         {
@@ -196,6 +292,11 @@ export function mount(root, ui) {
           label: 'mean |prediction error|',
           color: 'c2',
         },
+      ],
+      { xRange: [0, STEPS - 1], revealX: clampedStep },
+    );
+    fePlot.draw(
+      [
         {
           x: trace.map((p) => p.step),
           y: trace.map((p) => p.freeEnergy),
@@ -203,13 +304,9 @@ export function mount(root, ui) {
           color: 'c4',
         },
       ],
-      {
-        xRange: [0, STEPS - 1],
-        revealX: clampedStep,
-      },
+      { xRange: [0, STEPS - 1], revealX: clampedStep },
     );
 
-    // 4. Precision curve
     precPlot.draw(
       [
         {
@@ -222,22 +319,21 @@ export function mount(root, ui) {
       {
         xRange: [0, STEPS - 1],
         revealX: clampedStep,
-        hlines: [
-          { y: 1.0, label: 'baseline precision (1.0)' },
-        ],
+        hlines: [{ y: 1.0, label: 'baseline precision (1.0)' }],
       },
     );
   }
 
-  // --- Animation / Player (direct integration per AMENDMENT 2, no fallback guards) ---
+  // --- Animation / Player (eased morph between steps) ---
+  // A continuous unit so onFrame gets a fractional step index; the hero
+  // narration names the current step.
   const player = ui.player(figures, {
     duration: STEPS - 1,
-    unit: 'step',
+    unit: 'a.u.',
     playSeconds: 6,
     loop: true,
-    integer: true,
     onFrame: (t) => {
-      renderAt(Math.round(t));
+      renderAt(t);
     },
   });
 
@@ -250,6 +346,9 @@ export function mount(root, ui) {
     c.onInput(rebuild);
   });
 
+  // The hero canvas must draw inside onResize (called after layout and on
+  // every resize); drawing once at mount with a 0 width would leave it empty.
+  hero.onResize(() => { if (trace.length) drawHero(currentStep); });
   ui.onTheme(() => {
     renderAt(currentStep);
   });
@@ -263,7 +362,9 @@ export function mount(root, ui) {
     predictions against actual incoming drive, computing a residual <strong>prediction error</strong> that ascends the hierarchy.</p>
     <p>Learning in CoNeX updates the feedback prediction weights via gradient descent on prediction error
     (<code>PredictiveSynapseLearning</code> with eligibility traces, and <code>PredictiveCodingLearning</code>).
-    As the synaptic weights learn the mapping from the higher-level pattern to the sensory activity, the prediction error falls monotonically.</p>
+    The hero shows the weight matrix <strong>W</strong> morphing, eased, from one learning step to the next; as the weights
+    learn the mapping from the higher-level pattern to the sensory activity, the prediction error falls and the error
+    particle (right) shrinks.</p>
     <p><strong>Precision weighting</strong> (<code>PrecisionWeighting._learn_precision</code>) estimates the inverse variance of the error signal online.
     Reliable, low-noise units develop high precision, amplifying their prediction errors, whereas noisy or uncertain units are down-weighted.</p>
     <p><em>Note on CoNeX hierarchy:</em> In <code>conex/behaviors/neurons/numenta/predictive_coding.py</code> (around line 753),
@@ -277,8 +378,8 @@ export function mount(root, ui) {
     <p>Prediction: <var>pred</var> = <var>W</var><sup>T</sup> &middot; <var>top_down_input</var></p>
     <p>Signed error: <var>e</var><sub>signed</sub> = <var>activity</var> &minus; <var>pred</var>, &nbsp; <var>e</var> = <var>f</var>(<var>e</var><sub>signed</sub>)</p>
     <p>Synapse update: &Delta;<var>W</var> = <var>top_down_input</var> &otimes; <var>e</var>, &nbsp; <var>eligibility</var> &larr; 0.9 &middot; <var>eligibility</var> + 0.1 &Delta;<var>W</var></p>
-    <p>Precision gradient: &part;<var>F</var>/&part;<var>&gamma;</var> = 0.5 &middot; (<var>e</var><sub>signed</sub><sup>2</sup> &minus; 1 / (<var>&gamma;</var> + 10<sup>&minus;8</sup>))</p>
-    <p>Variational free energy: <var>F</var> = 0.5 &sum; <var>&gamma;</var> &middot; <var>e</var><sub>signed</sub><sup>2</sup> &minus; 0.5 &sum; log(<var>&gamma;</var> + 10<sup>&minus;8</sup>)</p>
+    <p>Precision gradient: &part;<var>F</var>/&part;<var>&gamma</var> = 0.5 &middot; (<var>e</var><sub>signed</sub><sup>2</sup> &minus; 1 / (<var>&gamma</var> + 10<sup>&minus;8</sup>))</p>
+    <p>Variational free energy: <var>F</var> = 0.5 &sum; <var>&gamma</var> &middot; <var>e</var><sub>signed</sub><sup>2</sup> &minus; 0.5 &sum; log(<var>&gamma</var> + 10<sup>&minus;8</sup>)</p>
   `);
 
   ui.note(notes, `
@@ -331,4 +432,17 @@ net.initialize()
       if (player && typeof player.pause === 'function') player.pause();
     },
   };
+}
+
+// Blend two hex colors; t in [0,1].
+function mixHex(a, b, t) {
+  const pa = hex(a), pb = hex(b);
+  const c = pa.map((v, i) => Math.round(v + (pb[i] - v) * t));
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+}
+function hex(s) {
+  const m = s.match(/^#([0-9a-f]{6})$/i);
+  if (!m) return [128, 128, 128];
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }

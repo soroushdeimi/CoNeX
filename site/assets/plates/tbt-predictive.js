@@ -7,6 +7,27 @@ export const meta = {
   source: 'conex/behaviors/neurons/numenta/predictive_coding.py',
 };
 
+// --- Pure mappings (model state -> drawn quantity / narration) -------------
+// Exported so site/tests/tbt.test.mjs can test them by hand-computed values.
+
+// Particle spawn rate (particles / s) is proportional to the real magnitude.
+export function particleRate(magnitude, maxMagnitude, maxRate) {
+  if (maxMagnitude <= 0) return 0;
+  return Math.max(0, Math.min(1, magnitude / maxMagnitude)) * maxRate;
+}
+
+// The precision gain knob position (0..1) over [minPrecision, maxPrecision].
+export function precisionKnob(precision, minPrec, maxPrec) {
+  if (maxPrec <= minPrec) return 0;
+  return Math.max(0, Math.min(1, (precision - minPrec) / (maxPrec - minPrec)));
+}
+
+// One-line narration driven by the model state.
+export function predictiveNarration({ meanAbs, freeEnergy, meanPrec }) {
+  const trend = meanAbs < 0.05 ? 'error is small: the prediction fits the input' : 'error is large: the prediction is surprised';
+  return `${trend} (mean |error| ${meanAbs.toFixed(3)} a.u., free energy ${freeEnergy.toFixed(3)} a.u., precision ${meanPrec.toFixed(2)} a.u.)`;
+}
+
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
@@ -88,11 +109,12 @@ export function mount(root, ui) {
   const rebuild = () => { build(); runSteps(40); currentStep = trace.length - 1; };
   [signalType, sigSeed, hiSeed, lr, precTau, precLr, minPrec, maxPrec, nonlin, sparse, errThresh].forEach((c) => c.onInput(rebuild));
 
-  // --- figures ---
+  // --- figures: hero on top, plots below ---
+  ui.note(figures, '<em>Try this: press <strong>Perturb input</strong> and watch the error stream (coral, up) jump, then thin out again as the weights re-learn.</em>');
+  const hero = ui.hero(figures, { height: 260 });
   const errPlot = ui.plot(figures, { height: 220, xLabel: 'step', xUnit: 'index', yLabel: 'mean |error| / prediction', yUnit: 'a.u.' });
   const fePlot = ui.plot(figures, { height: 200, xLabel: 'step', xUnit: 'index', yLabel: 'free energy', yUnit: 'a.u.' });
   const precPlot = ui.plot(figures, { height: 200, xLabel: 'step', xUnit: 'index', yLabel: 'mean precision', yUnit: 'a.u.' });
-  const diagram = ui.canvas(figures, { height: 160 });
   let currentStep = 0;
 
   function record() {
@@ -123,6 +145,105 @@ export function mount(root, ui) {
     runSteps(6);
   }
 
+  // Hero: two level boxes. Teal particles flow down (prediction), coral
+  // particles flow up (error); spawn rate is proportional to the real mean
+  // prediction / mean |error| at the current step. Precision is a gain knob.
+  let downParticles = [];
+  let upParticles = [];
+  const prng = mulberry(1234); // seeded jitter for particle spawn (decorative)
+  function drawHero(p, dtMs) {
+    const { ctx, width, height } = hero;
+    ctx.clearRect(0, 0, width, height);
+    const ink = ui.color('ink');
+    const muted = ui.color('muted');
+    const c1 = ui.color('c1');
+    const c2 = ui.color('c2');
+    const c5 = ui.color('c5');
+    const cx = width / 2;
+    const topY = 30, botY = height - 30;
+    ctx.font = '12px ui-monospace, monospace';
+    ctx.fillStyle = ink;
+    ctx.textAlign = 'center';
+    ctx.fillText('level 1 (higher)', cx, topY - 10);
+    ctx.fillText('level 0 (sensory)', cx, botY + 18);
+    ctx.strokeStyle = muted;
+    ctx.strokeRect(cx - 80, topY - 4, 160, 22);
+    ctx.strokeRect(cx - 80, botY - 18, 160, 22);
+
+    const err = p ? p.meanAbs : 0;
+    const pred = p ? p.meanPred : 0;
+    const prec = p ? p.meanPrec : 1;
+    const dt = dtMs / 1000;
+
+    // spawn particles at a rate proportional to the real magnitude
+    const downRate = particleRate(pred, 1, 14); // particles / s
+    const upRate = particleRate(err, 1, 14);
+    const spawn = (arr, rate, x, y, vy) => {
+      let n = Math.floor(rate * dt);
+      if (prng() < rate * dt - n) n++; // fractional remainder
+      for (let i = 0; i < n; i++) {
+        arr.push({ x: x + (prng() - 0.5) * 10, y, vy, life: 1 });
+      }
+    };
+    spawn(downParticles, downRate, cx + 26, topY + 18, 90);
+    spawn(upParticles, upRate, cx - 26, botY - 18, -90);
+
+    // prediction down (teal)
+    ctx.fillStyle = c1;
+    for (const pt of downParticles) {
+      pt.y += pt.vy * dt;
+      if (pt.y > botY - 18) pt.life = 0;
+      ctx.globalAlpha = 0.8 * pt.life;
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, 2.5, 0, 2 * Math.PI); ctx.fill();
+    }
+    // error up (coral)
+    ctx.fillStyle = c2;
+    for (const pt of upParticles) {
+      pt.y += pt.vy * dt;
+      if (pt.y < topY + 18) pt.life = 0;
+      ctx.globalAlpha = 0.8 * pt.life;
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, 2.5, 0, 2 * Math.PI); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    downParticles = downParticles.filter((pt) => pt.life > 0);
+    upParticles = upParticles.filter((pt) => pt.life > 0);
+
+    // arrowheads
+    arrowHead(ctx, cx - 26, topY + 18, c2, -1);
+    arrowHead(ctx, cx + 26, botY - 18, c1, 1);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c2;
+    ctx.fillText('error up', cx - 26 - 58, (topY + botY) / 2 - 6);
+    ctx.fillStyle = c1;
+    ctx.fillText('prediction down', cx + 34, (topY + botY) / 2 + 6);
+    ctx.textAlign = 'center';
+
+    // precision gain knob (right side)
+    const kx = width - 46;
+    const ky0 = topY + 18, ky1 = botY - 18;
+    const knob = precisionKnob(prec, minPrec.get(), maxPrec.get());
+    ctx.strokeStyle = muted;
+    ctx.beginPath(); ctx.moveTo(kx, ky0); ctx.lineTo(kx, ky1); ctx.stroke();
+    ctx.fillStyle = c5;
+    const ky = ky1 - knob * (ky1 - ky0);
+    ctx.beginPath(); ctx.arc(kx, ky, 6, 0, 2 * Math.PI); ctx.fill();
+    ctx.fillStyle = ink;
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.fillText('precision', kx, ky0 - 8);
+    ctx.fillText(prec.toFixed(2), kx, ky1 + 14);
+
+    hero.narration(predictiveNarration({ meanAbs: err, freeEnergy: p ? p.freeEnergy : 0, meanPrec: prec }));
+  }
+  function arrowHead(ctx, x, y, color, dir) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - 5, y + 8 * dir);
+    ctx.lineTo(x + 5, y + 8 * dir);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   function render() {
     const t = trace;
     const revealX = t[currentStep] ? t[currentStep].step : 0;
@@ -141,64 +262,7 @@ export function mount(root, ui) {
       [{ x: t.map((p) => p.step), y: t.map((p) => p.meanPrec), label: 'mean precision', color: 'c5' }],
       { xRange: [0, Math.max(1, t.length - 1)], revealX },
     );
-    drawDiagram(t[currentStep]);
-  }
-
-  // Small schematic: error flows up, prediction flows down. The arrow
-  // thickness is the current step's real mean |error| and mean prediction.
-  function drawDiagram(p) {
-    const { ctx, width, height } = diagram;
-    ctx.clearRect(0, 0, width, height);
-    const ink = ui.color('ink');
-    const muted = ui.color('muted');
-    const c1 = ui.color('c1');
-    const c2 = ui.color('c2');
-    const cx = width / 2;
-    const topY = 24, botY = height - 24;
-    // two level boxes
-    ctx.font = '12px ui-monospace, monospace';
-    ctx.fillStyle = ink;
-    ctx.textAlign = 'center';
-    ctx.fillText('level 1 (higher)', cx, topY - 8);
-    ctx.fillText('level 0 (sensory)', cx, botY + 16);
-    ctx.strokeStyle = muted;
-    ctx.strokeRect(cx - 70, topY - 4, 140, 20);
-    ctx.strokeRect(cx - 70, botY - 16, 140, 20);
-    const err = p ? p.meanAbs : 0;
-    const pred = p ? p.meanPred : 0;
-    // error up (left), prediction down (right); thickness scales with magnitude
-    const errW = 1 + Math.min(8, err * 20);
-    const predW = 1 + Math.min(8, pred * 20);
-    ctx.strokeStyle = c2;
-    ctx.lineWidth = errW;
-    ctx.beginPath();
-    ctx.moveTo(cx - 24, botY - 16);
-    ctx.lineTo(cx - 24, topY + 16);
-    ctx.stroke();
-    arrowHead(ctx, cx - 24, topY + 16, c2, -1);
-    ctx.strokeStyle = c1;
-    ctx.lineWidth = predW;
-    ctx.beginPath();
-    ctx.moveTo(cx + 24, topY + 16);
-    ctx.lineTo(cx + 24, botY - 16);
-    ctx.stroke();
-    arrowHead(ctx, cx + 24, botY - 16, c1, 1);
-    ctx.lineWidth = 1;
-    ctx.textAlign = 'left';
-    ctx.fillStyle = c2;
-    ctx.fillText('error up', cx - 24 - 60, (topY + botY) / 2 - 6);
-    ctx.fillStyle = c1;
-    ctx.fillText('prediction down', cx + 34, (topY + botY) / 2 + 6);
-    ctx.textAlign = 'center';
-  }
-  function arrowHead(ctx, x, y, color, dir) {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x - 5, y + 8 * dir);
-    ctx.lineTo(x + 5, y + 8 * dir);
-    ctx.closePath();
-    ctx.fill();
+    drawHero(t[currentStep], 16);
   }
 
   function onFrame(t) {
@@ -211,9 +275,9 @@ export function mount(root, ui) {
   ui.button(controls, { label: 'Perturb input', onClick: perturb });
   ui.button(controls, { label: 'Reset', onClick: rebuild });
 
-  // The diagram canvas must draw inside onResize (called after layout and on
+  // The hero canvas must draw inside onResize (called after layout and on
   // every resize); drawing once at mount with a 0 width would leave it empty.
-  diagram.onResize(() => { if (trace[currentStep]) drawDiagram(trace[currentStep]); });
+  hero.onResize(() => { if (trace[currentStep]) drawHero(trace[currentStep], 16); });
 
   build();
   // Run a default learning run on load so the plots are not empty; the buttons
@@ -238,20 +302,19 @@ export function mount(root, ui) {
     to predict its input from it. Each step runs the CoNeX chain
     <code>TopDownPrediction &rarr; ErrorUnit &rarr; PrecisionWeighting &rarr;
     FreeEnergyMinimization &rarr; PredictiveCodingLearning</code>.</p>
-    <p>As the top-down weights learn the mapping, the mean |error| and the free
-    energy both fall. <strong>Perturb input</strong> injects noise into the sensory
-    signal and the error jumps again &mdash; the "surprise" a real hierarchy would
-    propagate upward.</p>
-    <p>The player sweeps the 40-step run: the three plots reveal their curves up to
-    the current step, and the small diagram shows error flowing up and prediction
-    flowing down with arrow thickness set to that step's real mean |error| and mean
-    prediction.</p>
+    <p>The hero shows the two levels. Teal particles flow <em>down</em> (the
+    prediction) and coral particles flow <em>up</em> (the error); the rate at which
+    each stream spawns is proportional to that step's real mean prediction and mean
+    |error|. The knob on the right is the mean precision, the gain that weights how
+    much each unit's error matters. As the top-down weights learn, the error stream
+    thins and the free-energy plot (below) falls.</p>
+    <p><strong>Perturb input</strong> injects noise into the sensory signal and the
+    error jumps again &mdash; the "surprise" a real hierarchy would propagate upward.</p>
     <p><strong>Precision</strong> is the inverse of the error variance, learned
     online and clamped to [<code>min_precision</code>, <code>max_precision</code>].
-    It weights how much each unit's error matters. Note the free-energy quirk in
-    CoNeX: with the error near zero the log-normaliser term dominates and precision
-    keeps climbing, so the free energy keeps falling &mdash; there is no prior over
-    the precision to give it a resting point.</p>
+    Note the free-energy quirk in CoNeX: with the error near zero the log-normaliser
+    term dominates and precision keeps climbing, so the free energy keeps falling
+    &mdash; there is no prior over the precision to give it a resting point.</p>
     <p>A note on scope: this plate runs CoNeX's single-level predictive-coding
     chain &mdash; the wiring of
     <code>Example/numenta/predictive_coding.py</code>. CoNeX also has

@@ -201,3 +201,38 @@ test('local2dStdpDw rejects mismatched local weights size', () => {
 test('computeDwForClass rejects unknown class', () => {
   assert.throws(() => M.computeDwForClass('UnknownRule', {}), /unknown learning class "UnknownRule"/);
 });
+
+// ---------------------------------------------------------------------------
+// learn-predictive hero mappings (model state -> drawn quantity / narration)
+// ---------------------------------------------------------------------------
+
+import {
+  weightFraction,
+  errorParticleRadius,
+  learnNarration,
+} from '../assets/plates/learn-predictive.js';
+
+test('learn-predictive hero: weight fraction maps weight to [0,1]', () => {
+  assert.equal(weightFraction(0, 0, 10), 0);
+  assert.equal(weightFraction(10, 0, 10), 1);
+  assert.equal(weightFraction(5, 0, 10), 0.5);
+  assert.equal(weightFraction(20, 0, 10), 1); // clamped above
+  assert.equal(weightFraction(-5, 0, 10), 0); // clamped below
+  assert.equal(weightFraction(5, 3, 3), 0); // degenerate range
+});
+
+test('learn-predictive hero: error particle radius shrinks as error falls', () => {
+  assert.equal(errorParticleRadius(0, 1, 16), 0);
+  assert.equal(errorParticleRadius(1, 1, 16), 16);
+  assert.equal(errorParticleRadius(0.5, 1, 16), 8);
+  assert.equal(errorParticleRadius(2, 1, 16), 16); // clamped above
+  assert.equal(errorParticleRadius(0.5, 0, 16), 0); // zero max -> no particle
+});
+
+test('learn-predictive hero: narration names the step and the values', () => {
+  const line = learnNarration({ step: 4, meanAbsError: 0.1234, freeEnergy: 0.5678, meanPrecision: 1.234 });
+  assert.match(line, /^step 4:/);
+  assert.match(line, /mean \|error\| 0\.1234 a\.u\./);
+  assert.match(line, /free energy 0\.5678 a\.u\./);
+  assert.match(line, /precision 1\.234 a\.u\./);
+});

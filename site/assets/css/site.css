@@ -672,6 +672,45 @@ pre {
   display: block;
 }
 
+/* Core-concepts nesting: the SVG shrinks to tiny labels on phones, so below
+   600 px show a vertical stack instead */
+.concept-stack {
+  display: none;
+}
+@media (max-width: 600px) {
+  .concept-stack {
+    display: block;
+    margin: 0.8rem 0;
+  }
+  .concept-figure {
+    display: none;
+  }
+  .concept-stack-item {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 14px;
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--c1);
+    border-radius: 4px;
+    padding: 0.5rem 0.8rem;
+  }
+  .concept-stack-arrow {
+    text-align: center;
+    color: var(--muted);
+    line-height: 1.2;
+    margin: 0.15rem 0;
+  }
+  .concept-stack-row {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 0.6rem;
+  }
+  .concept-stack-row .concept-stack-item {
+    flex: 1;
+    text-align: center;
+  }
+}
+
 .start-path {
   display: flex;
   flex-wrap: wrap;

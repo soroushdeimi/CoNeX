@@ -55,6 +55,52 @@
     </section>
 
     <section>
+      <h2>Explore the atlas</h2>
+      <p>
+        The atlas is a set of interactive plates, grouped into four areas.
+        Each plate mirrors a piece of the CoNeX code and lets you adjust every
+        parameter.
+      </p>
+      <div class="area-cards">
+        <a class="area-card" href="atlas/index.html#neurons">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M24 10 C15 10 13 20 18 26 C14 30 16 38 24 38 C32 38 34 30 30 26 C35 20 33 10 24 10 Z" fill="none" stroke="var(--c1)" stroke-width="2"/>
+            <path d="M24 14 V34 M18 24 H30" fill="none" stroke="var(--c1)" stroke-width="1.5"/>
+          </svg>
+          <div class="title">Neurons</div>
+          <div class="summary">Neuron models: LIF, ELIF, AELIF and their voltage dynamics.</div>
+        </a>
+        <a class="area-card" href="atlas/index.html#plasticity">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M8 34 C18 34 18 14 28 14 C34 14 36 20 40 20" fill="none" stroke="var(--c2)" stroke-width="2"/>
+            <circle cx="8" cy="34" r="3" fill="var(--c2)"/>
+            <circle cx="40" cy="20" r="3" fill="var(--c2)"/>
+          </svg>
+          <div class="title">Plasticity</div>
+          <div class="summary">Synaptic learning rules: STDP, RSTDP and iSTDP.</div>
+        </a>
+        <a class="area-card" href="atlas/index.html#htm">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <rect x="8" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
+            <rect x="20" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
+            <rect x="32" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
+            <path d="M12 30 V18 M24 30 V18 M36 30 V18 M12 18 H36" fill="none" stroke="var(--c4)" stroke-width="1.5"/>
+          </svg>
+          <div class="title">HTM</div>
+          <div class="summary">Hierarchical Temporal Memory: spatial pooler and temporal memory.</div>
+        </a>
+        <a class="area-card" href="atlas/index.html#tbt">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M10 38 L24 10 L38 38 Z" fill="none" stroke="var(--c5)" stroke-width="2"/>
+            <path d="M17 29 L31 29 M20 22 L28 22" fill="none" stroke="var(--c5)" stroke-width="1.5"/>
+          </svg>
+          <div class="title">Thousand Brains Theory</div>
+          <div class="summary">Grid cells, active dendrites, column voting and predictive coding.</div>
+        </a>
+      </div>
+    </section>
+
+    <section>
       <h2>What is CoNeX</h2>
       <p>
         CoNeX is a Python framework for building, simulating, and experimenting
@@ -132,7 +178,20 @@ symbol  anomaly  bursting columns
         <code>Behavior</code>s are the classes that give a group its dynamics
         (for example an LIF neuron model or an STDP learning rule).
       </p>
-      <figure class="ui-figure">
+      <div class="concept-stack" aria-hidden="false">
+        <div class="concept-stack-item">Neocortex</div>
+        <div class="concept-stack-arrow">↓</div>
+        <div class="concept-stack-item">CorticalColumn</div>
+        <div class="concept-stack-arrow">↓</div>
+        <div class="concept-stack-item">Layer</div>
+        <div class="concept-stack-arrow">↓</div>
+        <div class="concept-stack-item">NeuronGroup</div>
+        <div class="concept-stack-row">
+          <span class="concept-stack-item">SynapseGroup</span>
+          <span class="concept-stack-item">Behavior</span>
+        </div>
+      </div>
+      <figure class="ui-figure concept-figure">
         <svg viewBox="0 0 640 300" role="img"
              aria-label="Nesting diagram: Neocortex contains CorticalColumn, which contains Layer, which contains NeuronGroup; SynapseGroup connects NeuronGroups; Behavior is attached to a group.">
           <style>
@@ -170,52 +229,6 @@ symbol  anomaly  bursting columns
         </svg>
         <figcaption>How the structures nest: Neocortex &gt; CorticalColumn &gt; Layer &gt; NeuronGroup, with SynapseGroups between groups and Behaviors attached to them.</figcaption>
       </figure>
-    </section>
-
-    <section>
-      <h2>Explore the atlas</h2>
-      <p>
-        The atlas is a set of interactive plates, grouped into four areas.
-        Each plate mirrors a piece of the CoNeX code and lets you adjust every
-        parameter.
-      </p>
-      <div class="area-cards">
-        <a class="area-card" href="atlas/index.html#neurons">
-          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
-            <path d="M24 10 C15 10 13 20 18 26 C14 30 16 38 24 38 C32 38 34 30 30 26 C35 20 33 10 24 10 Z" fill="none" stroke="var(--c1)" stroke-width="2"/>
-            <path d="M24 14 V34 M18 24 H30" fill="none" stroke="var(--c1)" stroke-width="1.5"/>
-          </svg>
-          <div class="title">Neurons</div>
-          <div class="summary">Neuron models: LIF, ELIF, AELIF and their voltage dynamics.</div>
-        </a>
-        <a class="area-card" href="atlas/index.html#plasticity">
-          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
-            <path d="M8 34 C18 34 18 14 28 14 C34 14 36 20 40 20" fill="none" stroke="var(--c2)" stroke-width="2"/>
-            <circle cx="8" cy="34" r="3" fill="var(--c2)"/>
-            <circle cx="40" cy="20" r="3" fill="var(--c2)"/>
-          </svg>
-          <div class="title">Plasticity</div>
-          <div class="summary">Synaptic learning rules: STDP, RSTDP and iSTDP.</div>
-        </a>
-        <a class="area-card" href="atlas/index.html#htm">
-          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
-            <rect x="8" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
-            <rect x="20" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
-            <rect x="32" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
-            <path d="M12 30 V18 M24 30 V18 M36 30 V18 M12 18 H36" fill="none" stroke="var(--c4)" stroke-width="1.5"/>
-          </svg>
-          <div class="title">HTM</div>
-          <div class="summary">Hierarchical Temporal Memory: spatial pooler and temporal memory.</div>
-        </a>
-        <a class="area-card" href="atlas/index.html#tbt">
-          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
-            <path d="M10 38 L24 10 L38 38 Z" fill="none" stroke="var(--c5)" stroke-width="2"/>
-            <path d="M17 29 L31 29 M20 22 L28 22" fill="none" stroke="var(--c5)" stroke-width="1.5"/>
-          </svg>
-          <div class="title">Thousand Brains Theory</div>
-          <div class="summary">Grid cells, active dendrites, column voting and predictive coding.</div>
-        </a>
-      </div>
     </section>
 
     <section>
@@ -329,6 +342,14 @@ symbol  anomaly  bursting columns
         ctx.fillText('threshold -50 mV', 26, sy(THR) - 2);
         ctx.textBaseline = 'top';
         ctx.fillText('reset -55 mV', 26, sy(V_RESET) + 2);
+        // axis titles
+        ctx.fillStyle = pal.muted;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText('v (mV)', 2, 2);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('time (ms)', w / 2, H - 2);
 
         // voltage trace
         ctx.strokeStyle = pal.c1;

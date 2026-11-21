@@ -291,7 +291,7 @@ def main():
     golden["scenarios"]["phys_aelif"] = aelif_rows
 
     with open(OUT, "w") as f:
-        json.dump(golden, f, indent=2)
+        json.dump(golden, f, separators=(",", ":"))
         f.write("\n")
     print("wrote", os.path.normpath(OUT))
 

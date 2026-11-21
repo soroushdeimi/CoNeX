@@ -1,0 +1,40 @@
+{
+  "area": "learning",
+  "title": "Learning rules",
+  "order": 5,
+  "plates": [
+    {
+      "id": "learn-segments",
+      "title": "Dendritic segment learning",
+      "summary": "Reinforce active synapses, punish inactive ones, and grow new connections on dendritic segments in HTM and sequence memory.",
+      "level": "core",
+      "conex": [
+        "ActiveDendriteComputation",
+        "DendriticSegment",
+        "TemporalMemory"
+      ],
+      "learning_rules": [
+        "DendriticSegment.learn_on_segments",
+        "TemporalMemory.adapt_segment",
+        "TemporalMemory.punish_segments",
+        "TemporalMemory.grow_synapses"
+      ]
+    },
+    {
+      "id": "learn-predictive",
+      "title": "Predictive coding learning",
+      "summary": "Minimize prediction errors via synaptic descent and online precision estimation in predictive coding circuits.",
+      "level": "advanced",
+      "conex": [
+        "PredictiveSynapseLearning",
+        "PredictiveCodingLearning",
+        "PrecisionWeighting"
+      ],
+      "learning_rules": [
+        "PredictiveSynapseLearning",
+        "PredictiveCodingLearning",
+        "PrecisionWeighting._learn_precision"
+      ]
+    }
+  ]
+}

@@ -180,7 +180,8 @@ export function mount(root, ui) {
       notes,
       `<p><b>Background.</b> This is a minimal content-addressable readout: the SDR is the input, the class weights are the stored ` +
         `associations. <b>ML analogy:</b> a linear probe / naive Bayes over sparse features. The analogy breaks because there is no ` +
-        `bias term, no softmax, and the score is normalized by how often each class was seen, so a rarely-trained class is penalized.</p>`
+        `bias term, no softmax, and the score is divided by how often each class was seen, giving the ` +
+        `average weight per presentation, so a frequently-trained class does not win just by count.</p>`
     );
     ui.equation(
       notes,

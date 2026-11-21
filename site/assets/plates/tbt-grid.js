@@ -28,6 +28,37 @@ export function gridNarration({ meanAct, speed }) {
   return `agent walks at ${speed.toFixed(2)} a.u./s; grid cells at its position fire at ${level} level (mean ${meanAct.toFixed(2)} a.u.)`;
 }
 
+// The model extent shown (a.u.) and the hero rate-map resolution (samples per
+// axis). Exported so the tests can check the sampling against the wavelength.
+export const SPAN = 4;
+export const HERO_N = 80;
+
+// Sample spacing (a.u.) of a rate map: the model extent divided by the number
+// of samples per axis. It must be <= lambda/8 (>= 8 samples per spatial
+// wavelength) or the hexagonal pattern aliases into a checkerboard.
+export function rateMapSpacing(span, n) {
+  if (n <= 1) return 0;
+  return span / (n - 1);
+}
+
+// The 6-fold symmetry residual of a grid cell's rate map: the max, over the
+// given radii and angles, of |rate(c + r*u(theta)) - rate(c + r*u(theta+step))|.
+// A true hexagonal map is invariant under a 60-degree rotation about a field
+// center, so this is ~0 (float noise). A wrong symmetry (e.g. 90 deg) is large.
+export function gridSymmetryDiff(rate, center, radii, angles, stepDeg = 60) {
+  const step = (stepDeg * Math.PI) / 180;
+  let max = 0;
+  for (const r of radii) {
+    for (const th of angles) {
+      const a = rate(center[0] + r * Math.cos(th), center[1] + r * Math.sin(th));
+      const b = rate(center[0] + r * Math.cos(th + step), center[1] + r * Math.sin(th + step));
+      const d = Math.abs(a - b);
+      if (d > max) max = d;
+    }
+  }
+  return max;
+}
+
 // Activation of one cell (mirrors GridCellModule.computeActivation for a single cell).
 function cellActivation(module, cell, x, y) {
   const px = x - module.gridPhase[cell * 2];
@@ -91,7 +122,6 @@ export function mount(root, ui) {
   const hero = ui.hero(figures, { height: 300 });
   const maps = ui.canvas(figures, { height: 220 });
 
-  const SPAN = 6;
   const PAD = 20;
   const DT = 0.05; // s of model time per step
   const WINDOW = 5; // s of trail kept on screen
@@ -140,11 +170,14 @@ export function mount(root, ui) {
     const top = PAD;
     const sx = (x) => left + ((x + SPAN / 2) / SPAN) * side;
     const sy = (y) => top + ((SPAN / 2 - y) / SPAN) * side;
-    // Background: the REAL firing-rate map of the selected module (same data and
-    // resolution as the small maps below), drawn at low opacity so the agent
-    // passes through firing fields. No square lattice lines.
-    const cell = Number(heroModule.get()) * cellsPerModule;
-    const N = 48;
+    // Background: the REAL firing-rate map of ONE cell of the selected module
+    // (the same quantity as the small map below it), sampled at >= 8 samples per
+    // spatial wavelength so the hexagonal pattern is not aliased into a
+    // checkerboard. Drawn at low opacity so the agent passes through firing
+    // fields. No square lattice lines.
+    const mIdx = Number(heroModule.get());
+    const cell = mIdx * cellsPerModule;
+    const N = HERO_N;
     const cw = side / N;
     for (let r = 0; r < N; r++) {
       const wy = -SPAN / 2 + (r / (N - 1)) * SPAN;
@@ -164,10 +197,14 @@ export function mount(root, ui) {
     ctx.strokeRect(left, top, side, side);
     ctx.fillStyle = muted;
     ctx.font = '10px ui-monospace, monospace';
-    ctx.fillText('-3', left - 2, top + side + 14);
+    ctx.fillText('-2', left - 2, top + side + 14);
     ctx.fillText('0', left + side / 2 - 3, top + side + 14);
-    ctx.fillText('+3', left + side - 12, top + side + 14);
+    ctx.fillText('+2', left + side - 12, top + side + 14);
     ctx.fillText('position (a.u.)', left + side / 2 - 34, top + side + 28);
+    // caption: name the cell whose rate map is shown
+    ctx.fillStyle = ui.color('ink');
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.fillText(`firing-rate map: module ${mIdx}, cell ${cell}`, left, top - 6);
     // fading trail (skip segments that cross the wrap)
     ctx.strokeStyle = c1;
     ctx.lineWidth = 2;

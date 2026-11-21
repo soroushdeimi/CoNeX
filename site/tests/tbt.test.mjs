@@ -39,6 +39,21 @@ function closeVec(a, b, opts) {
   for (let i = 0; i < a.length; i++) close(a[i], b[i], opts);
 }
 
+// Deterministic 2D phases in [0, 2*pi) — the same generator the tbt-grid plate
+// uses, so the symmetry test exercises the plate's actual module.
+function buildPhases(nModules, cellsPerModule, seed) {
+  let s = seed >>> 0;
+  const rand = () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (s >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const out = new Float64Array(nModules * cellsPerModule * 2);
+  for (let i = 0; i < out.length; i++) out[i] = rand() * 2 * Math.PI;
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // GridCellModule
 // ---------------------------------------------------------------------------
@@ -543,6 +558,10 @@ import {
   trailAlpha,
   glowRadius,
   gridNarration,
+  rateMapSpacing,
+  gridSymmetryDiff,
+  SPAN,
+  HERO_N,
 } from '../assets/plates/tbt-grid.js';
 import {
   arrowLength,
@@ -583,6 +602,37 @@ test('grid hero: narration reports the walk speed and firing level', () => {
   assert.match(low, /low level/);
   const mid = gridNarration({ meanAct: 0.5, speed: 0.2 });
   assert.match(mid, /medium level/);
+});
+
+test('grid hero: the rate map is 6-fold symmetric and sampled at >= 8 per wavelength', () => {
+  // Build the same module the plate uses (fixed phases, seed 1234).
+  const nModules = 4, cellsPerModule = 25;
+  const phases = buildPhases(nModules, cellsPerModule, 1234);
+  const m = new GridCellModule({
+    nModules, cellsPerModule,
+    scaleRange: [0.5, 2.0],
+    orientationRange: [0.0, Math.PI / 3],
+    phases,
+  });
+  const cell = 0;
+  const rate = (x, y) => m.computeActivation([x, y])[cell];
+  const center = [m.gridPhase[cell * 2], m.gridPhase[cell * 2 + 1]]; // a field center
+  const radii = [0.1, 0.3, 0.7, 1.2];
+  const angles = [];
+  for (let i = 0; i < 12; i++) angles.push((i * Math.PI) / 6);
+
+  // 6-fold symmetry: rotating a field center by 60 deg leaves the rate unchanged.
+  const d60 = gridSymmetryDiff(rate, center, radii, angles, 60);
+  assert.ok(d60 < 1e-9, `expected 6-fold symmetry, got residual ${d60}`);
+  // A wrong symmetry (90 deg) is large, so the test is not vacuous.
+  const d90 = gridSymmetryDiff(rate, center, radii, angles, 90);
+  assert.ok(d90 > 0.1, `expected 90 deg to break the symmetry, got ${d90}`);
+
+  // The hero map's sample spacing must be <= lambda/8 (>= 8 samples per
+  // wavelength) for the finest module (smallest lambda = scaleRange[0]).
+  const lambda = m.scales[0];
+  const spacing = rateMapSpacing(SPAN, HERO_N);
+  assert.ok(spacing <= lambda / 8, `spacing ${spacing} > lambda/8 = ${lambda / 8}`);
 });
 
 // ---------------------------------------------------------------------------

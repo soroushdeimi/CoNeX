@@ -78,7 +78,9 @@ export function mount(root, ui) {
       { x: run.xs, y: run.noW, label: 'weight (no reward)', color: 'c2' },
     ], { xRange: [0, T], revealX: t });
     dopPlot.draw([{ x: run.xs, y: run.dops, label: 'dopamine', color: 'c4' }], { xRange: [0, T], yRange: [0, Math.max(0.1, ...run.dops)], revealX: t });
-    eligPlot.draw([{ x: run.xs, y: run.cs, label: 'eligibility c', color: 'c3' }], { xRange: [0, T], yRange: [0, Math.max(0.01, ...run.cs)], revealX: t });
+    // eligibility can go negative (the a_minus term), so span both signs
+    const cMin = Math.min(0, ...run.cs), cMax = Math.max(0.01, ...run.cs);
+    eligPlot.draw([{ x: run.xs, y: run.cs, label: 'eligibility c', color: 'c3' }], { xRange: [0, T], yRange: [cMin, cMax], revealX: t });
     drawTimeline(t);
   }
 

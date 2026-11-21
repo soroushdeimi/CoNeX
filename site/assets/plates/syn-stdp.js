@@ -66,7 +66,10 @@ export function mount(root, ui) {
       w += dw;
       preTs.push(preT); postTs.push(postT); ws.push(w);
     }
-    run = { preS, postS, preT: preTs, postT: postTs, w: ws, steps: T };
+    // yRange from the whole run's data (traces can exceed 1, weight can go < 0) with 10% headroom
+    const dataMax = Math.max(state.w_max, ...preTs, ...postTs, ...ws);
+    const dataMin = Math.min(state.w_min, ...preTs, ...postTs, ...ws);
+    run = { preS, postS, preT: preTs, postT: postTs, w: ws, steps: T, yMin: dataMin, yMax: dataMax * 1.1 };
   }
 
   function computeWindow() {
@@ -111,6 +114,18 @@ export function mount(root, ui) {
     // neurons
     const neuron = (x, color) => { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, cy, r, 0, Math.PI * 2); ctx.fill(); };
     neuron(preX, pal.c1); neuron(postX, pal.c2);
+
+    // labels
+    ctx.fillStyle = pal.ink;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText('pre', preX, cy + r + 4);
+    ctx.fillText('post', postX, cy + r + 4);
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`w = ${w.toFixed(3)}`, synX, cy - 24);
+    ctx.textBaseline = 'top';
+    ctx.fillText('pre trace', W * 0.28, baseY + 4);
+    ctx.fillText('post trace', W * 0.72, baseY + 4);
   }
 
   function renderAt(t) {
@@ -121,7 +136,7 @@ export function mount(root, ui) {
       { x: run.w.map((_, i) => i), y: run.preT, label: 'pre_trace', color: 'c1' },
       { x: run.w.map((_, i) => i), y: run.postT, label: 'post_trace', color: 'c2' },
       { x: run.w.map((_, i) => i), y: run.w, label: 'weight', color: 'c4' },
-    ], { xRange: [0, T], yRange: [0, 1], hlines: [{ y: state.w_min, label: 'w_min' }, { y: state.w_max, label: 'w_max' }], revealX: t });
+    ], { xRange: [0, T], yRange: [run.yMin, run.yMax], hlines: [{ y: state.w_min, label: 'w_min' }, { y: state.w_max, label: 'w_max' }], revealX: t });
     // window sweeps delta t from -60 to +60 as the run plays
     const maxT = 60;
     const revealWin = -maxT + (t / T) * (2 * maxT);
@@ -142,7 +157,7 @@ export function mount(root, ui) {
   ui.slider(sec, { key: 'tau_s', label: 'tau_s', unit: 'ms', min: 1, max: 50, step: 1, value: state.tau_s, onInput: (v) => { state.tau_s = v; recompute(); } });
   ui.slider(sec, { key: 'w0', label: 'w0', unit: 'a.u.', min: 0, max: 1, step: 0.05, value: state.w0, onInput: (v) => { state.w0 = v; recompute(); } });
   ui.slider(sec, { key: 'offset', label: 'post offset', unit: 'steps', min: -10, max: 10, step: 1, value: state.offset, onInput: (v) => { state.offset = v; recompute(); } });
-  ui.slider(sec, { key: 'steps', label: 'steps', unit: 'ms', min: 20, max: 100, step: 10, value: state.steps, onInput: (v) => { state.steps = v; recompute(); } });
+  ui.slider(sec, { key: 'steps', label: 'steps', unit: 'steps', min: 20, max: 100, step: 10, value: state.steps, onInput: (v) => { state.steps = v; recompute(); } });
   ui.select(sec, { key: 'bound', label: 'bound', value: state.bound, options: [{ value: 'no_bound', label: 'no_bound' }, { value: 'hard_bound', label: 'hard_bound' }, { value: 'soft_bound', label: 'soft_bound' }], onInput: (v) => { state.bound = v; recompute(); } });
 
   recompute();

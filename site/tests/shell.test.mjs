@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   encodeHash, decodeHash, rng, computeTicks, niceNum, dataRange, fmtTick,
   formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime,
-  playerSpeedFromPos, playerPosFromSpeed,
+  playerSpeedFromPos, playerPosFromSpeed, liveSteps, LIVE_MAX_STEPS, ease,
 } from '../assets/js/core.js';
 
 // --- URL-hash encode/decode ------------------------------------------------
@@ -336,4 +336,91 @@ test('playerShownTime floors in integer mode and passes through otherwise', () =
   assert.equal(playerShownTime(0, true), 0);
   assert.equal(playerShownTime(13999.2, false), 13999.2);
   assert.equal(playerShownTime(14.9, false), 14.9);
+});
+
+// --- liveSteps / LIVE_MAX_STEPS (backing ui.live) ---------------------------
+
+test('liveSteps converts model time gained into whole dt steps', () => {
+  // 100 ms of real time at 100 model ms per real second, dt = 1 ms -> 10 steps
+  assert.deepEqual(liveSteps(0, 100, 100, 1), { steps: 10, acc: 0 });
+});
+
+test('liveSteps keeps the fractional remainder in the accumulator', () => {
+  // 16.67 ms at 100 model ms/s -> 1.667 dt of 1 ms: 1 step, 0.667 left over
+  assert.deepEqual(liveSteps(0, 16.67, 100, 1), { steps: 1, acc: 0.667 });
+  // the remainder carries into the next frame: 0.667 + 1.667 = 2.334
+  assert.deepEqual(liveSteps(0.667, 16.67, 100, 1), { steps: 2, acc: 0.3340000000000001 });
+});
+
+test('liveSteps scales with modelPerSecond and dt', () => {
+  assert.deepEqual(liveSteps(0, 1000, 300, 1), { steps: 300, acc: 0 });
+  assert.deepEqual(liveSteps(0, 1000, 300, 10), { steps: 30, acc: 0 });
+});
+
+test('liveSteps returns 0 steps for a zero frame', () => {
+  assert.deepEqual(liveSteps(0.5, 0, 100, 1), { steps: 0, acc: 0.5 });
+});
+
+test('liveSteps maps invalid input to 0 steps and a clean accumulator', () => {
+  assert.deepEqual(liveSteps(NaN, 100, 100, 1), { steps: 0, acc: 0 });
+  assert.deepEqual(liveSteps(0, Infinity, 100, 1), { steps: 0, acc: 0 });
+  assert.deepEqual(liveSteps(0, 100, 100, 0), { steps: 0, acc: 0 });
+  assert.deepEqual(liveSteps(0, 100, 100, -1), { steps: 0, acc: 0 });
+});
+
+test('LIVE_MAX_STEPS is the per-frame cap of ui.live', () => {
+  assert.equal(LIVE_MAX_STEPS, 2000);
+  // a frame that would run 3000 steps is capped; the excess is dropped
+  const r = liveSteps(0, 10000, 300, 1);
+  assert.ok(r.steps > LIVE_MAX_STEPS, 'test frame must exceed the cap');
+  assert.equal(Math.min(r.steps, LIVE_MAX_STEPS), LIVE_MAX_STEPS);
+});
+
+test('live stepping matches a precomputed run bit-for-bit', () => {
+  // The live loop advances t by dt per step; the sequence of t values is
+  // dt, 2dt, 3dt, ... regardless of how the steps are batched per frame.
+  const dt = 1; // ms
+  const model = (t) => Math.sin(2 * Math.PI * 1 * (t / 1000)); // 1 Hz sine
+  const precomputed = [];
+  for (let i = 1; i <= 1000; i++) precomputed.push(model(i * dt));
+  const live = [];
+  let t = 0, acc = 0;
+  for (let frame = 0; live.length < 1000; frame++) {
+    const dtMs = frame % 3 === 0 ? 16.67 : 100; // mixed frame times
+    const r = liveSteps(acc, dtMs, 100, dt);
+    acc = r.acc;
+    for (let i = 0; i < Math.min(r.steps, LIVE_MAX_STEPS) && live.length < 1000; i++) {
+      t += dt;
+      live.push(model(t));
+    }
+  }
+  assert.equal(live.length, precomputed.length);
+  for (let i = 0; i < live.length; i++) {
+    assert.equal(live[i], precomputed[i], `sample ${i} differs`);
+  }
+});
+
+// --- ease (AMENDMENT 4 tweening) -------------------------------------------
+
+test('ease is 0 at 0 and 1 at 1', () => {
+  assert.equal(ease(0), 0);
+  assert.equal(ease(1), 1);
+});
+
+test('ease is symmetric and monotone on [0,1]', () => {
+  assert.ok(Math.abs(ease(0.5) - 0.5) < 1e-12, 'midpoint is 0.5');
+  assert.ok(Math.abs(ease(0.3) + ease(0.7) - 1) < 1e-12, 'symmetric about 0.5');
+  let prev = 0;
+  for (let i = 1; i <= 20; i++) {
+    const v = ease(i / 20);
+    assert.ok(v > prev, `not monotone at ${i / 20}`);
+    prev = v;
+  }
+});
+
+test('ease clamps out-of-range and non-finite input', () => {
+  assert.equal(ease(-0.5), 0);
+  assert.equal(ease(1.5), 1);
+  assert.equal(ease(NaN), 0); // NaN maps to 0
+  assert.equal(ease(Infinity), 1); // +Infinity clamps to 1
 });

@@ -5,7 +5,8 @@
 //
 // Mounts every plate in site/assets/plates/*.js (except _example.js) against a
 // mock of the CONTRACT ui.js API (including AMENDMENT 1: controls expose
-// onInput(fn) as a method). No real DOM, no dependencies. For each plate it
+// onInput(fn) as a method, and AMENDMENT 4: ui.live steps the model a few
+// times and fires onFrame). No real DOM, no dependencies. For each plate it
 // checks: meta.id matches the file name, mount() does not throw, every created
 // plot/raster/heatmap received at least one draw() with finite numbers, every
 // ui.code function returns a non-empty string, and sweeping each slider to its
@@ -102,6 +103,7 @@ function makeUi() {
     _buttons: [],
     _canvasResizes: [], // onResize handlers, fired after mount (initial layout)
     _players: [], // player() handles created by the plate
+    _lives: [], // live() handles created by the plate
     _animated: false, // set true when the plate calls ui.animate
   };
 
@@ -241,6 +243,32 @@ function makeUi() {
     return handle;
   };
 
+  // AMENDMENT 4: a live runner that steps the model a few times and fires
+  // onFrame after each step, like the real ui.live does per animation frame.
+  ui.live = (parent, opts) => {
+    const { dt, step, reset, onFrame } = opts;
+    let t = 0;
+    const handle = {
+      play() {},
+      pause() {},
+      playing() { return false; },
+      reset() {
+        t = 0;
+        if (reset) reset();
+        if (onFrame) onFrame(t);
+      },
+      t: () => t,
+    };
+    ui._lives.push(handle);
+    if (reset) reset();
+    for (let i = 0; i < 3; i++) {
+      if (step) step();
+      t += dt;
+      if (onFrame) onFrame(t);
+    }
+    return handle;
+  };
+
   return ui;
 }
 
@@ -306,17 +334,18 @@ async function checkPlate(platePath) {
     assertFiniteFigure(fig, id);
   }
 
-  // AMENDMENT 2: every plate animates via a ui.player or ui.animate.
+  // AMENDMENT 2/4: every plate animates via a ui.player, a ui.live or ui.animate.
   assert.ok(
-    ui._players.length > 0 || ui._animated,
-    `${id}: plate neither creates a ui.player nor calls ui.animate`,
+    ui._players.length > 0 || ui._lives.length > 0 || ui._animated,
+    `${id}: plate neither creates a ui.player nor a ui.live nor calls ui.animate`,
   );
 
   // TASK 3: every animation must have the player controls. A plate that calls
-  // ui.animate must also create a ui.player (the speed slider lives there).
+  // ui.animate must also create a ui.player or ui.live (the speed slider
+  // lives there).
   assert.ok(
-    !ui._animated || ui._players.length > 0,
-    `${id}: plate calls ui.animate without also creating a ui.player`,
+    !ui._animated || ui._players.length > 0 || ui._lives.length > 0,
+    `${id}: plate calls ui.animate without also creating a ui.player or ui.live`,
   );
 
   // Every ui.code function returns a non-empty string.

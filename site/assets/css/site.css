@@ -285,6 +285,15 @@ pre {
   accent-color: var(--c1);
 }
 
+/* Live model runner (AMENDMENT 4); reuses the player row/speed styles */
+.ui-live {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--card);
+}
+
 /* Figures */
 .ui-figure {
   margin: 0.8rem 0;

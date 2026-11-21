@@ -186,6 +186,29 @@ export function playerAdvance(t, dtMs, duration, playSeconds, speed, loop) {
   return clampTime(t + dt, duration);
 }
 
+// ui.live step accounting: advance the fractional accumulator by the model
+// time gained this frame and return the whole number of dt steps to run.
+// The remainder stays in the accumulator for the next frame.
+export function liveSteps(acc, dtMs, modelPerSecond, dt) {
+  if (!Number.isFinite(acc) || !Number.isFinite(dtMs) || !Number.isFinite(modelPerSecond) || !Number.isFinite(dt) || dt <= 0) {
+    return { steps: 0, acc: 0 };
+  }
+  const a = acc + (dtMs / 1000) * modelPerSecond / dt;
+  return { steps: Math.floor(a), acc: a - Math.floor(a) };
+}
+
+// Cap on dt steps per animation frame; the rest is dropped and the readout
+// says "(slowed)".
+export const LIVE_MAX_STEPS = 2000;
+
+// Ease-in-out (smoothstep): 0 at 0, 1 at 1, flat at both ends.
+// Out-of-range input is clamped; NaN maps to 0.
+export function ease(f) {
+  const x = Math.min(1, Math.max(0, f));
+  if (!Number.isFinite(x)) return 0;
+  return x * x * (3 - 2 * x);
+}
+
 // Format a tick value with decimals derived from the step. Trailing zeros are
 // trimmed only after a decimal point, so 10 stays "10" (not "1").
 export function fmtTick(v, step) {

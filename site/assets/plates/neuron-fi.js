@@ -208,9 +208,12 @@ tryThis.style.fontStyle = 'italic';
     ctx.fillStyle = pal.ink; ctx.font = mono;
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.fillText(`f(I) = ${f.toFixed(0)} Hz`, cx, yRim - 8);
-    // v readout inside the water
-    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillText(`v = ${heroV.toFixed(1)} mV`, bx + 6, yWater + 4);
+    // v readout inside the water; hide it when the fill is too small to hold
+    // the label (it would otherwise poke out of the fill in the small bucket).
+    if (yBot - yWater >= 16) {
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(`v = ${heroV.toFixed(1)} mV`, bx + 6, yWater + 4);
+    }
     ctx.fillStyle = pal.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillText('a real LIF at this I (slowed)', cx, yBot + 8);
   }

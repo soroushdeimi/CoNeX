@@ -229,9 +229,11 @@ tryThis.style.fontStyle = 'italic';
     ctx.strokeStyle = pal.muted; ctx.setLineDash([3, 3]);
     ctx.beginPath(); ctx.moveTo(tx, tMid); ctx.lineTo(tx + tw, tMid); ctx.stroke();
     ctx.setLineDash([]);
+    // The midline label sits inside the tank (right-aligned to the right wall)
+    // so it is never cut at the right edge on a narrow canvas.
     ctx.fillStyle = pal.muted; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText('w = 0 pA', tx + tw + 4, tMid);
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText('w = 0 pA', tx + tw - 4, tMid);
     ctx.fillStyle = pal.adapt; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.fillText(`w = ${wNow.toFixed(2)} pA`, tcx, tTop - 6);
     ctx.fillStyle = pal.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'top';

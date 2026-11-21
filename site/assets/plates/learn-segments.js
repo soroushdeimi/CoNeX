@@ -106,6 +106,27 @@ export function mount(root, ui) {
   // --- Figures ---
   const canvasFig = ui.hero(figures, { height: 270 });
   const heroCap = { set(text) { canvasFig.narration(text); } };
+  // A four-state dot key beside the branch diagram (the beads use these colours).
+  const dotKey = document.createElement('div');
+  dotKey.style.cssText = 'font-size:0.8rem;display:flex;flex-wrap:wrap;gap:0.6rem;margin-top:0.3rem;';
+  const dotStates = [
+    ['var(--c5)', 'reinforced (grows)'],
+    ['var(--c2)', 'punished (shrinks)'],
+    ['var(--c1)', 'newly grown'],
+    ['var(--c3)', 'connected (perm ≥ threshold)'],
+  ];
+  for (const [color, label] of dotStates) {
+    const item = document.createElement('span');
+    item.style.cssText = 'display:inline-flex;align-items:center;gap:0.3rem;';
+    const dot = document.createElement('span');
+    dot.style.cssText = `width:10px;height:10px;border-radius:50%;background:${color};display:inline-block;`;
+    const lbl = document.createElement('span');
+    lbl.textContent = label;
+    item.appendChild(dot);
+    item.appendChild(lbl);
+    dotKey.appendChild(item);
+  }
+  figures.appendChild(dotKey);
   const depolCaption = ui.note(figures, '<em>Depolarization is computed as max segment activity / activation_threshold, capped at 1, as in compute_depolarization (active_dendrites.py:181).</em>');
   // The per-step details live in a collapsible <details> so they do not
   // duplicate the hero narration line.
@@ -237,27 +258,26 @@ export function mount(root, ui) {
     drawCanvas(st);
     heroCap.set(st.narration);
 
-    // 2. Status note
-    let actDetails = [];
-    for (let s = 0; s < 2; s++) {
-      const segAct = sData.actions[s] || [];
-      const reinforced = segAct.filter((a) => a.action === 'reinforced').map((a) => `Syn ${a.synapseIdx}`);
-      const punished = segAct.filter((a) => a.action === 'punished').map((a) => `Syn ${a.synapseIdx}`);
-      const grown = segAct.filter((a) => a.action === 'grown').map((a) => `Syn ${a.synapseIdx}`);
-
-      let statusMsg = sData.matching[s] ? 'matched' : 'not matched: no weight changes';
-      let summary = `<strong>Segment ${s}</strong> (active connected = ${sData.activation[s]}, threshold ${learnThresh.get()}: <em>${statusMsg}</em>): `;
-      const parts = [];
-      if (reinforced.length) parts.push(`<span style="color:var(--c5,#5b8a3c)">reinforced [${reinforced.slice(0, 5).join(', ')}${reinforced.length > 5 ? '…' : ''}]</span>`);
-      if (punished.length) parts.push(`<span style="color:var(--c2,#d95b43)">punished [${punished.slice(0, 5).join(', ')}${punished.length > 5 ? '…' : ''}]</span>`);
-      if (grown.length) parts.push(`<span style="color:var(--c1,#0f7b7f)">grown [${grown.join(', ')}]</span>`);
-      if (!parts.length) parts.push('no weight changes');
-      actDetails.push(summary + parts.join('; '));
+    // 2. Status note: a compact table of the synapse actions on segment 0
+    // (the segment that learns). The narration line already names the step,
+    // match state and depolarization, so this only lists the actions.
+    const segAct = sData.actions[0] || [];
+    const byAction = (a) => segAct.filter((x) => x.action === a).map((x) => x.synapseIdx);
+    const rows = [
+      ['var(--c5)', 'reinforced', byAction('reinforced')],
+      ['var(--c2)', 'punished', byAction('punished')],
+      ['var(--c1)', 'newly grown', byAction('grown')],
+    ];
+    let table = '<table style="border-collapse:collapse;font-size:0.8rem;">';
+    for (const [color, name, ids] of rows) {
+      const idText = ids.length ? ids.map((i) => `Syn ${i}`).join(', ') : '—';
+      table += `<tr><td style="padding:2px 8px 2px 0;"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${color};"></span></td>` +
+        `<td style="padding:2px 8px;">${name}</td>` +
+        `<td style="padding:2px 8px;text-align:right;">${ids.length}</td>` +
+        `<td style="padding:2px 0;color:var(--muted);">${idText}</td></tr>`;
     }
-
-    // The narration line already names the step, match state and depolarization,
-    // so the details block only lists the per-segment synapse actions.
-    statusBody.innerHTML = actDetails.join('<br>');
+    table += '</table>';
+    statusBody.innerHTML = table;
 
     // 3. Draw permanences plot over all steps with revealX
     // Plot exactly 6 representative synapses from Segment 0 with concise labels

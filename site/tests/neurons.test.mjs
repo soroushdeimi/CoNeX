@@ -10,6 +10,7 @@ import {
   simulate,
   lifRheobase,
   lifRateAnalytic,
+  bucketFlows,
   fiCurve,
   kwta,
   inherentNoise,
@@ -43,6 +44,25 @@ test('lifStep matches golden lif_step trace', () => {
 test('lifRheobase equals (threshold - v_rest)/R and matches golden', () => {
   const p = S.lif_rheobase.params;
   close(lifRheobase(p), S.lif_rheobase.i_rheo);
+});
+
+test('bucketFlows: inflow = R*I/tau, outflow = (v - v_rest)/tau (hand-computed)', () => {
+  const p = { R: 0.5, I: 65, tau: 20, v_rest: -70 };
+  const { input, leak } = bucketFlows(p, -60);
+  // input = 0.5 * 65 / 20 = 1.625 mV/ms; leak = (-60 - (-70)) / 20 = 0.5 mV/ms
+  close(input, 1.625, 1e-9, 'input');
+  close(leak, 0.5, 1e-9, 'leak');
+});
+
+test('bucketFlows: leak is 0 at rest and negative above rest; input scales with I', () => {
+  const p = { R: 0.5, I: 65, tau: 20, v_rest: -70 };
+  close(bucketFlows(p, -70).leak, 0, 1e-9, 'leak at rest');
+  close(bucketFlows(p, -80).leak, -0.5, 1e-9, 'leak below rest');
+  close(bucketFlows({ ...p, I: 0 }, -60).input, 0, 1e-9, 'no input at I=0');
+});
+
+test('bucketFlows throws on non-positive tau', () => {
+  assert.throws(() => bucketFlows({ R: 0.5, I: 65, tau: 0, v_rest: -70 }, -60), /tau must be a positive finite number/);
 });
 
 test('LIF at rheobase never fires; just above it fires (golden)', () => {

@@ -10,7 +10,8 @@ export const meta = {
 const P = { ...DEFAULTS };
 const STEPS = 5000;
 const CURRENTS = [20, 40, 60, 80, 100, 120]; // pA
-const TRACE_STEPS = 500; // steps for the small voltage trace at a given I
+const MAX_I = CURRENTS[CURRENTS.length - 1];
+const FINE_STEP = 2; // pA, grid for the hero dial/bucket rate
 
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
@@ -43,8 +44,8 @@ export function mount(root, ui) {
     return r.spikes.reduce((a, b) => a + (b ? 1 : 0), 0) / (STEPS * dt / 1000);
   }
 
-  // Compute the f-I curves and a voltage trace per current once; the player then
-  // sweeps I and reveals the curves point by point.
+  // Compute the f-I curves and a fine LIF rate curve (for the hero dial/bucket)
+  // once; the player then sweeps I and reveals the curves point by point.
   let runData = null;
   function computeRun() {
     const b = base();
@@ -71,29 +72,39 @@ export function mount(root, ui) {
       color: 'ink',
       style: 'dots',
     });
-    // Rate curves start at 0; pin the axis to 0 so the onset is readable.
     const maxRate = Math.max(...series.flatMap((s) => s.y), 1);
-    // Precompute a real voltage trace at each current (LIF, the primary model).
-    const traces = CURRENTS.map((c) => {
-      const r = simulate('lif', lif, c, TRACE_STEPS, dt, lif.v_rest);
-      return { c, t: r.v.map((_, n) => n * dt), v: r.v };
-    });
-    runData = { lif, series, maxRate, traces };
+    // Fine LIF rate curve on a 2 pA grid, for the hero dial and bucket.
+    const fineI = [];
+    const fineRate = [];
+    for (let c = 0; c <= MAX_I; c += FINE_STEP) {
+      fineI.push(c);
+      fineRate.push(rate('lif', lif, c, dt));
+    }
+    runData = { lif, series, maxRate, fineI, fineRate };
   }
 
-  const fig = ui.plot(figures, { height: 300, xLabel: 'I', yLabel: 'f', xUnit: 'pA', yUnit: 'Hz' });
-  // Small voltage trace of the neuron at the current sweep current I.
-  const figV = ui.plot(figures, { height: 160, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
-  // Build the run before the player: ui.player may call onFrame synchronously.
-  // The sweep runs from 0 to the largest current, so the duration is that current.
-  computeRun();
-  const player = ui.player(figures, { duration: CURRENTS[CURRENTS.length - 1], unit: 'pA', playSeconds: 5, loop: true, onFrame: frame });
+  // Interpolate the fine LIF rate at an arbitrary current I (pA).
+  function rateAt(I) {
+    const { fineI, fineRate } = runData;
+    if (I <= fineI[0]) return fineRate[0];
+    if (I >= fineI[fineI.length - 1]) return fineRate[fineRate.length - 1];
+    const k = I / FINE_STEP;
+    const lo = Math.floor(k);
+    const f = k - lo;
+    return fineRate[lo] * (1 - f) + fineRate[lo + 1] * f;
+  }
 
+  // --- figures ---
+  const hero = ui.hero(figures, { height: 300 });
+  const fig = ui.plot(figures, { height: 300, xLabel: 'I', yLabel: 'f', xUnit: 'pA', yUnit: 'Hz' });
+
+  // --- notes ---
   ui.note(notes, `The f-I curve plots the steady firing rate <var>f</var> (Hz) against the input current <var>I</var> (pA).
   Each point is measured by simulating that current for a fixed number of steps and counting spikes, so the
   curves are the real CoNeX dynamics, not a formula. The dots are the analytic LIF rate
   <var>f</var> = 1 / (<var>tau</var>·ln((<var>v</var><sub>ss</sub>−<var>v</var><sub>reset</sub>)/(<var>v</var><sub>ss</sub>−<var>threshold</var>))), <var>v</var><sub>ss</sub> = <var>v</var><sub>rest</sub> + <var>R</var>·<var>I</var>.
-  Units: v in mV, t in ms, I in pA, R in GOhm.`);
+  Units: v in mV, t in ms, I in pA, R in GOhm. The hero sweeps the current with a dial; the small bucket
+  fires at the measured rate <var>f</var>(<var>I</var>), and each point lands on the f-I curve as the sweep passes.`);
   ui.note(notes, `For the default parameters the measured rheobases (smallest current that fires) are
   LIF ≈ 40 pA, ELIF ≈ 36 pA and AELIF ≈ 36 pA. So ELIF and AELIF start firing at a lower current than
   LIF: the exponential term pushes them over threshold sooner. AELIF's adaptation current <var>w</var> does
@@ -105,22 +116,94 @@ export function mount(root, ui) {
   analogy breaks because it is a dynamical, history-dependent rate, not a static function of the input.`);
   ui.code(notes, () => codeSnippet());
 
-  // On a parameter change: recompute the curves and re-render at the current I.
-  function run() {
-    computeRun();
-    player.setDuration(CURRENTS[CURRENTS.length - 1]); // re-fires onFrame at the clamped I
+  // --- hero: current dial + small bucket firing at rate f(I) ---
+  let firePhase = 0; // fractional spike accumulator for the bucket
+  let lastReal = 0;
+  let flash = 0; // 0..1, decays after a spike
+
+  function drawHero(I) {
+    const ctx = hero.ctx;
+    const W = hero.width, H = hero.height;
+    ctx.clearRect(0, 0, W, H);
+    const pal = {
+      ink: ui.color('ink'), muted: ui.color('muted'), rule: ui.color('rule'),
+      water: ui.color('c1'), coral: ui.color('c2'), ochre: ui.color('c3'),
+    };
+    const mono = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+    const f = rateAt(I); // Hz at the current sweep current
+
+    // ---- left: current dial (semicircle) ----
+    const dcx = W * 0.26, dcy = H * 0.62, dr = Math.min(70, W * 0.16);
+    const frac = Math.max(0, Math.min(1, I / MAX_I));
+    const ang = Math.PI * (1 - frac); // PI (I=0) to 0 (I=MAX)
+    ctx.strokeStyle = pal.rule; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.arc(dcx, dcy, dr, Math.PI, 2 * Math.PI); ctx.stroke();
+    // filled arc up to the current I
+    ctx.strokeStyle = pal.ochre; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.arc(dcx, dcy, dr, Math.PI, ang); ctx.stroke();
+    // needle
+    ctx.strokeStyle = pal.ink; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(dcx, dcy);
+    ctx.lineTo(dcx + (dr - 6) * Math.cos(ang), dcy - (dr - 6) * Math.sin(ang));
+    ctx.stroke();
+    ctx.fillStyle = pal.ink; ctx.font = mono;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(`I = ${I.toFixed(0)} pA`, dcx, dcy + 8);
+    ctx.fillStyle = pal.muted; ctx.textBaseline = 'bottom';
+    ctx.fillText('sweep current', dcx, dcy - dr - 8);
+
+    // ---- right: small bucket firing at rate f(I) ----
+    const bw = Math.min(120, Math.max(72, W * 0.22));
+    const bx = W * 0.62, cx = bx + bw / 2;
+    const yRim = H * 0.30, yBot = H * 0.82;
+    // fill level oscillates: rises, then a spike drops it (schematic of firing at rate f)
+    // level = (firePhase) mapped to the bucket, so it visibly fills and resets per spike
+    const level = firePhase;
+    const yWater = yBot - level * (yBot - yRim);
+    ctx.fillStyle = flash > 0 ? pal.coral : pal.water;
+    ctx.globalAlpha = 0.82;
+    ctx.fillRect(bx + 2, yWater, bw - 4, yBot - yWater);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = pal.ink; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(bx, yRim); ctx.lineTo(bx, yBot); ctx.lineTo(bx + bw, yBot); ctx.lineTo(bx + bw, yRim);
+    ctx.stroke();
+    // rim flash on a spike
+    if (flash > 0) {
+      ctx.strokeStyle = pal.coral; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(bx, yRim); ctx.lineTo(bx + bw, yRim); ctx.stroke();
+    }
+    ctx.fillStyle = pal.ink; ctx.font = mono;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText(`f(I) = ${f.toFixed(0)} Hz`, cx, yRim - 8);
+    ctx.fillStyle = pal.muted; ctx.textBaseline = 'top';
+    ctx.fillText('bucket fires at f(I)', cx, yBot + 8);
   }
 
-  // Reveal the f-I curves up to the sweep current I, and show the LIF voltage
-  // trace at the largest precomputed current not above I.
+  // Advance the bucket's firing at the real measured rate f(I) (scaled to a few
+  // flashes per second at the maximum rate so it is visible).
+  function tickBucket(I, dtReal) {
+    const f = rateAt(I);
+    const maxF = runData.maxRate || 1;
+    const realRate = (f / maxF) * 3; // spikes per real second, max 3/s
+    firePhase += realRate * dtReal;
+    if (firePhase >= 1) { firePhase -= 1; flash = 1; }
+    flash = Math.max(0, flash - dtReal * 4);
+  }
+
+  // --- frame: the player sweeps I (0..MAX_I) ---
+  let curI = 0;
   function frame(I) {
-    if (!runData) return;
-    const { lif, series, maxRate, traces } = runData;
-    fig.draw(series, { revealX: I, yRange: [0, maxRate * 1.1] });
-    let tr = traces[0];
-    for (const x of traces) if (x.c <= I) tr = x;
-    figV.draw([{ x: tr.t, y: tr.v, label: `v at I=${tr.c} pA`, color: 'c1', style: 'line' }],
-      { hlines: [{ y: lif.threshold, label: 'threshold' }] });
+    curI = I;
+    const now = typeof performance !== 'undefined' ? performance.now() : 0;
+    const dtReal = lastReal ? Math.min(0.05, (now - lastReal) / 1000) : 0;
+    lastReal = now;
+    tickBucket(I, dtReal);
+    drawHero(I);
+    const { series, maxRate } = runData;
+    fig.draw(series, { revealX: I, yRange: [0, maxRate * 1.1], vlines: [{ x: I, label: '' }] });
+    hero.narration(`sweep current I = ${I.toFixed(0)} pA → f = ${rateAt(I).toFixed(0)} Hz`);
   }
 
   function codeSnippet() {
@@ -149,8 +232,18 @@ aelif = fi(AELIF(R=${b.R}, threshold=${cThExp.get()}, tau=${b.tau}, v_reset=${b.
                  delta=${b.delta}, theta_rh=${b.theta_rh}, alpha=${b.alpha}, beta=${b.beta}, w_tau=${b.w_tau}), currents)`;
   }
 
+  // On a parameter change: recompute the curves and re-render at the current I.
+  function run() {
+    computeRun();
+    player.setDuration(MAX_I); // re-fires onFrame at the clamped I
+  }
+
+  computeRun();
+  const player = ui.player(figures, { duration: MAX_I, unit: 'pA', playSeconds: 5, loop: true, onFrame: frame });
+  frame(0);
+  hero.onResize(() => frame(curI));
+
   for (const c of [cR, cTau, cThLif, cThExp, cReset, cRest, cDelta, cTheta, cAlpha, cBeta, cWTau, cDt]) c.onInput(run);
-  ui.onTheme(run);
 
   return { destroy() {} };
 }

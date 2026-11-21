@@ -136,3 +136,5 @@ dmypy.json
 
 # STUPID APPLE. GO TO HEll
 .DS_Store
+
+site/tests/snippets/

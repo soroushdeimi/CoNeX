@@ -152,6 +152,17 @@ export function lifRheobase(p) {
   return (p.threshold - p.v_rest) / p.R;
 }
 
+// Leaky-bucket picture of the LIF. The "water level" is v; two flow rates
+// (mV/ms) move it. Inflow from the tap is the input term R*I/tau; outflow
+// through the hole is the leak (v - v_rest)/tau. Together they are exactly the
+// LIF update dv/dt = (R*I + (v_rest - v)) / tau. `params` needs R, I, tau, v_rest.
+export function bucketFlows(params, v) {
+  assertPositive('tau', params.tau);
+  const input = (params.R * params.I) / params.tau;
+  const leak = (v - params.v_rest) / params.tau;
+  return { input, leak };
+}
+
 // Analytic LIF firing rate (Hz, in a.u. of time): f = 1 / (tau * ln((vss-v_reset)/(vss-threshold)))
 // where vss = v_rest + R*I. The formula is only valid in the normal firing regime
 // v_reset < threshold < vss; outside it (e.g. v_reset >= threshold, or I at/below the

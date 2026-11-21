@@ -23,13 +23,13 @@ const golden = JSON.parse(readFileSync(new URL('golden/neurons.json', import.met
 const S = golden.scenarios;
 const TOL = 1e-4;
 
-function close(a, b, tol = TOL) {
-  assert.ok(Math.abs(a - b) <= tol, `expected ${a} to be within ${tol} of ${b}`);
+function close(a, b, tol = TOL, msg = '') {
+  assert.ok(Math.abs(a - b) <= tol, `expected ${a} to be within ${tol} of ${b} ${msg}`);
 }
 
-function traceClose(got, want, tol = TOL) {
-  assert.equal(got.length, want.length, 'trace length mismatch');
-  for (let i = 0; i < want.length; i++) close(got[i], want[i], tol);
+function traceClose(got, want, tol = TOL, msg = '') {
+  assert.equal(got.length, want.length, `trace length mismatch ${msg}`);
+  for (let i = 0; i < want.length; i++) close(got[i], want[i], tol, msg);
 }
 
 // --- LIF ---
@@ -180,9 +180,11 @@ test('voltage homeostasis matches golden v and exhaustion traces', () => {
 });
 
 // --- Physiological cases (Gerstner Table 6.1 units) ---
-// CoNeX runs in float32, JS in float64, so long traces drift by a few mV.
-// Tolerances are set from the observed JS-vs-CoNeX gap, not tuned to pass.
-const PHYS_TOL = 5.0; // mV, max |dv| over a 5000-step physiological trace
+// The golden physiological networks are built with dtype=torch.float64, so the JS
+// (float64) mirror matches to ~1e-12 mV. Tolerance 1e-6 mV is far below any
+// parameter error (a 1% tau or R error shifts the trace by mV), so a wrong
+// parameter fails. Spike steps are compared exactly.
+const PHYS_TOL = 1e-6; // mV, max |dv| over a 5000-step physiological trace
 
 test('physiological LIF matches golden trace (Table 6.1 units)', () => {
   const g = S.phys_lif;
@@ -198,14 +200,11 @@ test('physiological ELIF matches golden trace (Table 6.1 units)', () => {
   assert.deepEqual(r.spikes, g.spikes);
 });
 
-test('physiological AELIF reproduces each Table 6.1 row spike count', () => {
-  // Spike counts match CoNeX exactly. The exact spike step can shift by <1 step
-  // over 5000 steps (CoNeX float32 vs JS float64), so compare counts, not the trace.
+test('physiological AELIF matches each Table 6.1 row trace and spike steps', () => {
   for (const [name, g] of Object.entries(S.phys_aelif)) {
     const r = simulate('aelif', g.params, g.current, g.steps, g.dt, g.params.v_rest);
-    const js = r.spikes.filter(Boolean).length;
-    const cx = g.spikes.filter(Boolean).length;
-    assert.equal(js, cx, `AELIF ${name} spike count: js=${js} conex=${cx}`);
+    traceClose(r.v, g.v, PHYS_TOL, `AELIF ${name} v trace`);
+    assert.deepEqual(r.spikes, g.spikes, `AELIF ${name} spike steps`);
   }
 });
 

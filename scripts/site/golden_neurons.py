@@ -56,17 +56,22 @@ def make_net(dt=1.0):
 
 
 def run_phys(behavior_cls, params, current, steps, dt=PHYS_DT):
-    """Run one physiological neuron starting at v_rest; return v and spike traces."""
-    net = make_net(dt)
+    """Run one physiological neuron starting at v_rest; return v and spike traces.
+
+    Built with dtype=torch.float64 so the JS (float64) mirror matches to ~1e-12 mV;
+    the a.u. cases stay float32. Values are stored at full precision.
+    """
+    net = Network(behavior=[TimeResolution(dt=dt)], dtype=torch.float64)
     pop = NeuronGroup(net=net, size=1, behavior=[
-        behavior_cls(**params, init_v=torch.tensor([params["v_rest"]])), Fire()])
+        behavior_cls(**params, init_v=torch.tensor([params["v_rest"]], dtype=torch.float64)),
+        Fire()])
     net.initialize()
     pop.I = pop.vector(mode=current)
     v = []
     spikes = []
     for _ in range(steps):
         net.simulate_iteration()
-        v.append(round(pop.v.item(), 6))
+        v.append(pop.v.item())
         spikes.append(bool(pop.spikes.item()))
     return {"v": v, "spikes": spikes}
 

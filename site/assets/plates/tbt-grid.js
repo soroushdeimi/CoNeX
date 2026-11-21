@@ -132,14 +132,20 @@ export function mount(root, ui) {
     ctx.clearRect(0, 0, width, height);
     const muted = ui.color('muted');
     const c1 = ui.color('c1');
-    const sx = (x) => PAD + ((x + SPAN / 2) / SPAN) * (width - 2 * PAD);
-    const sy = (y) => height - PAD - ((y + SPAN / 2) / SPAN) * (height - 2 * PAD);
-    // Background: the REAL firing-rate map of the selected module (same data as
-    // the small maps below), drawn at low opacity so the agent passes through
-    // firing fields. No square lattice lines (the model does not claim them).
+    // Equal x/y scale: the model extent (SPAN x SPAN, square) is fitted into the
+    // canvas height and centred, so the firing map has square pixels in model
+    // units (the real geometry, not a stretched checkerboard).
+    const side = height - 2 * PAD;
+    const left = (width - side) / 2;
+    const top = PAD;
+    const sx = (x) => left + ((x + SPAN / 2) / SPAN) * side;
+    const sy = (y) => top + ((SPAN / 2 - y) / SPAN) * side;
+    // Background: the REAL firing-rate map of the selected module (same data and
+    // resolution as the small maps below), drawn at low opacity so the agent
+    // passes through firing fields. No square lattice lines.
     const cell = Number(heroModule.get()) * cellsPerModule;
-    const N = 64;
-    const cw = (width - 2 * PAD) / N;
+    const N = 48;
+    const cw = side / N;
     for (let r = 0; r < N; r++) {
       const wy = -SPAN / 2 + (r / (N - 1)) * SPAN;
       for (let c = 0; c < N; c++) {
@@ -148,20 +154,20 @@ export function mount(root, ui) {
         if (a > 0.03) {
           ctx.globalAlpha = 0.35 * a;
           ctx.fillStyle = c1;
-          ctx.fillRect(PAD + c * cw, PAD + r * cw, cw + 0.5, cw + 0.5);
+          ctx.fillRect(left + c * cw, top + r * cw, cw + 0.5, cw + 0.5);
         }
       }
     }
     ctx.globalAlpha = 1;
-    // light frame + axis scale in a.u.
+    // light frame + axis scale in a.u. (unit in an axis title, not a tick)
     ctx.strokeStyle = muted;
-    ctx.strokeRect(PAD, PAD, width - 2 * PAD, height - 2 * PAD);
+    ctx.strokeRect(left, top, side, side);
     ctx.fillStyle = muted;
     ctx.font = '10px ui-monospace, monospace';
-    ctx.fillText('-3', PAD - 2, height - PAD + 14);
-    ctx.fillText('0', (width / 2) - 3, height - PAD + 14);
-    ctx.fillText('+3', width - PAD - 12, height - PAD + 14);
-    ctx.fillText('a.u.', width - PAD - 22, height - 4);
+    ctx.fillText('-3', left - 2, top + side + 14);
+    ctx.fillText('0', left + side / 2 - 3, top + side + 14);
+    ctx.fillText('+3', left + side - 12, top + side + 14);
+    ctx.fillText('position (a.u.)', left + side / 2 - 34, top + side + 28);
     // fading trail (skip segments that cross the wrap)
     ctx.strokeStyle = c1;
     ctx.lineWidth = 2;
@@ -274,8 +280,11 @@ export function mount(root, ui) {
   let dragging = false;
   function toWorld(ev) {
     const rect = canvas.getBoundingClientRect();
-    const x = ((ev.clientX - rect.left - PAD) / (rect.width - 2 * PAD)) * SPAN - SPAN / 2;
-    const y = SPAN / 2 - ((ev.clientY - rect.top - PAD) / (rect.height - 2 * PAD)) * SPAN;
+    // match the hero's equal-scale, centred mapping (side = height - 2*PAD)
+    const side = rect.height - 2 * PAD;
+    const left = (rect.width - side) / 2;
+    const x = ((ev.clientX - rect.left - left) / side) * SPAN - SPAN / 2;
+    const y = SPAN / 2 - ((ev.clientY - rect.top - PAD) / side) * SPAN;
     return [x, y];
   }
   const onDown = (ev) => { dragging = true; autoWalk.set(false); };

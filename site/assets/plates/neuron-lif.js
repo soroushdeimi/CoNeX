@@ -54,17 +54,18 @@ export function mount(root, ui) {
     }
     const ir = lifRheobase(p);
     const vss = p.v_rest + p.R * I;
-    runData = { p, I, t, v, i, spikes, ir, vss };
+    const spikeTimes = [];
+    for (let n = 0; n < spikes.length; n++) if (spikes[n]) spikeTimes.push(n * p.dt);
+    runData = { p, I, t, v, i, spikes, spikeTimes, ir, vss };
     return t[t.length - 1];
   }
 
   // --- figures ---
   const fig = ui.plot(figures, { height: 260, xLabel: 't', yLabel: 'v', xUnit: 'ms', yUnit: 'mV' });
   const figI = ui.plot(figures, { height: 120, xLabel: 't', yLabel: 'I', xUnit: 'ms', yUnit: 'pA' });
-  // Membrane gauge: a vertical bar from v_rest to threshold filled to the current v.
-  const gauge = ui.canvas(figures, { height: 260 });
-  // Leaky-bucket picture of the LIF, driven by the same run and the same t.
-  const bucket = ui.canvas(figures, { height: 300 });
+  // Leaky-bucket picture of the LIF (the main figure; it replaces the old
+  // membrane gauge), driven by the same run and the same t.
+  const bucket = ui.canvas(figures, { height: 420 });
   const bucketCap = document.createElement('p');
   bucketCap.style.fontStyle = 'italic';
   bucketCap.style.color = 'var(--muted)';
@@ -109,62 +110,27 @@ export function mount(root, ui) {
     const iTop = Math.max(I, ir) * 1.1 || 1;
     figI.draw([{ x: tt, y: i, label: 'I', color: 'c3', style: 'line' }],
       { revealX: t, yRange: [0, iTop], hlines: [{ y: ir, label: 'I_rheo' }] });
-    drawGauge(t);
     drawBucket(t);
   }
 
-  // Vertical bar from v_rest to threshold; the fill is the real v at time t.
-  // Coral flash on the step where the neuron just spiked.
-  function drawGauge(t) {
-    const { p, v } = runData;
-    const idx = Math.min(v.length - 1, Math.max(0, Math.round(t / p.dt)));
-    const vNow = v[idx];
-    const spiked = vNow <= p.v_reset + 1e-9; // reset value means this step fired
-    const ctx = gauge.ctx;
-    const W = gauge.width, H = gauge.height;
-    ctx.clearRect(0, 0, W, H);
-    const pal = { ink: ui.color('ink'), muted: ui.color('muted'), rule: ui.color('rule'), coral: ui.color('c2') };
-    const x = W / 2, bw = 26, top = 14, bot = H - 14;
-    const yOf = (val) => bot - ((val - p.v_rest) / (p.threshold - p.v_rest)) * (bot - top);
-    // track
-    ctx.strokeStyle = pal.rule;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x - bw / 2, top, bw, bot - top);
-    // fill from v_rest up to the current v (clipped to the track)
-    const vClamped = Math.max(p.v_rest, Math.min(p.threshold, vNow));
-    const yTop = yOf(vClamped);
-    ctx.fillStyle = spiked ? pal.coral : ui.color('c1');
-    ctx.fillRect(x - bw / 2 + 1, yTop, bw - 2, bot - yTop);
-    // threshold and rest markers
-    ctx.strokeStyle = pal.muted;
-    ctx.setLineDash([3, 3]);
-    for (const [val, lab] of [[p.threshold, 'threshold'], [p.v_rest, 'v_rest']]) {
-      const y = yOf(val);
-      ctx.beginPath(); ctx.moveTo(x - bw / 2 - 4, y); ctx.lineTo(x + bw / 2 + 4, y); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = pal.muted;
-      ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
-      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillText(`${lab} ${val} mV`, x + bw / 2 + 8, y);
-      ctx.setLineDash([3, 3]);
-    }
-    ctx.setLineDash([]);
-    // v readout to the left of the bar at the current level (the right side holds the markers).
-    ctx.fillStyle = pal.ink;
-    ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
-    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, x - bw / 2 - 8, yTop);
-  }
-
-  // Leaky-bucket picture. Water level = v(t); tap inflow = R*I/tau; hole outflow
-  // = (v - v_rest)/tau. Both flow rates come from the model (bucketFlows). On a
-  // spike the bucket empties to v_reset (splash) and a tick lands on the strip.
+  // Leaky-bucket picture — the main figure. Water level = v(t); tap inflow =
+  // R*I/tau; hole outflow = (v - v_rest)/tau. Both flow rates come from the model
+  // (bucketFlows). On a spike the water splashes over the rim for ~150 ms of model
+  // time, then drops to v_reset; a tick lands on the strip at each real spike time.
   function drawBucket(t) {
-    const { p, I, v, spikes } = runData;
+    const { p, I, v, spikeTimes } = runData;
     const idx = Math.min(v.length - 1, Math.max(0, Math.round(t / p.dt)));
     const vNow = v[idx];
-    const spiked = vNow <= p.v_reset + 1e-9; // reset value means this step fired
     const { input, leak } = bucketFlows({ R: p.R, I, tau: p.tau, v_rest: p.v_rest }, vNow);
+
+    // Splash: for ~150 ms of model time after a spike the water is shown at the
+    // rim (spilling over); after that it has dropped to v_reset.
+    const SPLASH_MS = 150;
+    let splashing = false;
+    for (const st of spikeTimes) {
+      if (t >= st && t < st + SPLASH_MS) { splashing = true; break; }
+    }
+    const vShown = splashing ? p.threshold : vNow;
 
     const ctx = bucket.ctx;
     const W = bucket.width, H = bucket.height;
@@ -173,75 +139,100 @@ export function mount(root, ui) {
       ink: ui.color('ink'), muted: ui.color('muted'), rule: ui.color('rule'),
       water: ui.color('c1'), tap: ui.color('c3'), leak: ui.color('c4'), coral: ui.color('c2'),
     };
-    const mono = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    const mono = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
 
-    // Bucket geometry.
-    const bx = 46, bw = 96;                 // left edge, width
-    const yRim = 58, yBot = 208;            // rim (threshold) and floor (v_rest)
-    const yOf = (val) => yBot - ((val - p.v_rest) / (p.threshold - p.v_rest)) * (yBot - yRim);
+    // Bucket geometry: centred, sized to fill the width sensibly.
+    const bw = Math.min(240, Math.max(150, W * 0.42));
+    const bx = (W - bw) / 2;
     const cx = bx + bw / 2;
+    const yRim = 92, yBot = 300;            // rim (threshold) and floor (v_rest)
+    const yOf = (val) => yBot - ((val - p.v_rest) / (p.threshold - p.v_rest)) * (yBot - yRim);
 
-    // Water fill from v_rest up to the current v (clipped to the bucket).
-    const vClamped = Math.max(p.v_rest, Math.min(p.threshold, vNow));
+    // Water fill from v_rest up to the current level (clipped to the bucket).
+    const vClamped = Math.max(p.v_rest, Math.min(p.threshold, vShown));
     const yWater = yOf(vClamped);
-    ctx.fillStyle = spiked ? pal.coral : pal.water;
-    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = splashing ? pal.coral : pal.water;
+    ctx.globalAlpha = 0.82;
     ctx.fillRect(bx + 2, yWater, bw - 4, yBot - yWater);
     ctx.globalAlpha = 1;
+    // light surface line with a subtle ripple
+    ctx.strokeStyle = pal.ink;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let x = bx + 2; x <= bx + bw - 2; x += 4) {
+      const y = yWater + Math.sin((x - bx) / 9) * 1.2;
+      if (x === bx + 2) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
 
-    // Bucket walls (open top).
+    // Glass bucket: open top, faint walls.
     ctx.strokeStyle = pal.ink;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(bx, yRim); ctx.lineTo(bx, yBot); ctx.lineTo(bx + bw, yBot); ctx.lineTo(bx + bw, yRim);
     ctx.stroke();
 
-    // threshold (rim) and v_rest (floor) marks with values.
+    // Dashed reference lines: threshold (rim) and v_reset, both labelled on the right.
     ctx.font = mono;
-    ctx.fillStyle = pal.muted;
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(`threshold ${p.threshold} mV`, bx + bw + 8, yRim);
-    ctx.fillText(`v_rest ${p.v_rest} mV`, bx + bw + 8, yBot);
+    const yReset = yOf(p.v_reset);
+    ctx.strokeStyle = pal.muted;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(bx, yRim); ctx.lineTo(bx + bw, yRim); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(bx, yReset); ctx.lineTo(bx + bw, yReset); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = pal.muted;
+    ctx.fillText(`threshold ${p.threshold} mV`, bx + bw + 10, yRim);
+    ctx.fillText(`v_reset ${p.v_reset} mV`, bx + bw + 10, yReset);
+    ctx.fillText(`v_rest ${p.v_rest} mV`, bx + bw + 10, yBot);
 
-    // Tap above the bucket; stream width proportional to the input flow.
-    const tapW = Math.max(2, Math.min(26, 2 + input * 4));
+    // Tap above the bucket; falling stream width = input.
+    const tapW = Math.max(2, Math.min(30, 2 + input * 5));
     ctx.strokeStyle = pal.tap;
-    ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(cx - 14, 22); ctx.lineTo(cx + 14, 22); ctx.stroke(); // pipe
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(cx - 18, 40); ctx.lineTo(cx + 18, 40); ctx.stroke(); // pipe
     ctx.lineWidth = tapW;
-    ctx.beginPath(); ctx.moveTo(cx, 24); ctx.lineTo(cx, yWater - 2); ctx.stroke();   // stream
+    ctx.beginPath(); ctx.moveTo(cx, 44); ctx.lineTo(cx, yWater - 2); ctx.stroke();   // stream
     ctx.fillStyle = pal.tap;
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`input R·I/tau = ${input.toFixed(2)} mV/ms`, cx, 18);
+    ctx.fillText(`input R·I/τ = ${input.toFixed(2)} mV/ms`, cx, 34);
 
-    // Hole near the bottom of the right wall; outflow stream width ∝ leak.
-    const holeY = yBot - 14;
-    const leakW = Math.max(1.5, Math.min(26, 1.5 + leak * 4));
+    // Hole near the bottom of the right wall; arcing jet width/length = leak.
+    const holeY = yBot - 20;
+    const leakW = Math.max(1.5, Math.min(30, 1.5 + leak * 5));
+    const jetLen = Math.max(10, Math.min(70, 10 + leak * 40));
     ctx.strokeStyle = pal.leak;
     ctx.lineWidth = leakW;
-    ctx.beginPath(); ctx.moveTo(bx + bw - 2, holeY); ctx.lineTo(bx + bw + 26, holeY + 16); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(bx + bw - 2, holeY);
+    ctx.quadraticCurveTo(bx + bw + jetLen * 0.5, holeY + 4, bx + bw + jetLen, holeY + jetLen * 0.5);
+    ctx.stroke();
     ctx.fillStyle = pal.leak;
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillText(`leak (v − v_rest)/tau = ${leak.toFixed(2)} mV/ms`, bx + bw + 8, holeY + 22);
+    ctx.fillText(`leak (v − v_rest)/τ = ${leak.toFixed(2)} mV/ms`, bx + bw + 10, holeY + 26);
 
-    // Splash on the step the neuron just spiked.
-    if (spiked) {
+    // v readout on the water surface (left of the tap stream, which falls at centre).
+    ctx.fillStyle = pal.ink;
+    ctx.font = mono;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText(`v = ${vNow.toFixed(1)} mV`, bx + 8, yWater - 4);
+
+    // Splash: droplets over the rim while splashing.
+    if (splashing) {
       ctx.fillStyle = pal.coral;
-      for (const [dx, dy] of [[-10, -8], [0, -14], [10, -8], [16, -4]]) {
-        ctx.beginPath(); ctx.arc(cx + dx, yRim + dy, 2.2, 0, Math.PI * 2); ctx.fill();
+      for (const [dx, dy] of [[-24, -14], [-8, -22], [8, -20], [24, -12], [34, -6]]) {
+        ctx.beginPath(); ctx.arc(cx + dx, yRim + dy, 3, 0, Math.PI * 2); ctx.fill();
       }
     }
 
     // Spike strip: a tick at each real spike time up to t.
     const tMax = v.length * p.dt;
-    const sx0 = bx, sx1 = W - 16, sy = 250, sh = 14;
+    const sx0 = bx, sx1 = bx + bw, sy = 330, sh = 16;
     ctx.strokeStyle = pal.rule;
     ctx.lineWidth = 1;
     ctx.strokeRect(sx0, sy, sx1 - sx0, sh);
     ctx.fillStyle = pal.ink;
-    for (let n = 0; n < spikes.length; n++) {
-      if (!spikes[n]) continue;
-      const st = n * p.dt;
+    for (const st of spikeTimes) {
       if (st > t) continue;
       const px = sx0 + (st / tMax) * (sx1 - sx0);
       ctx.fillRect(px - 0.75, sy + 2, 1.5, sh - 4);

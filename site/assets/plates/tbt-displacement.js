@@ -156,7 +156,9 @@ export function mount(root, ui) {
   `);
 
   ui.code(notes, () => `
-from conex import DisplacementCellModule, GridCellModule
+import torch
+from pymonntorch import Network, NeuronGroup
+from conex import DisplacementCellModule, GridCellModule, TimeResolution
 
 disp = DisplacementCellModule(
     n_cells=${nCells.get()},
@@ -165,14 +167,23 @@ disp = DisplacementCellModule(
 )
 grid = GridCellModule(n_modules=${nModules}, cells_per_module=${cellsPerModule})
 
-code_a = grid.encode_position(neurons, torch.tensor([${ax.get()}, ${ay.get()}]))
-code_b = grid.encode_position(neurons, torch.tensor([${bx.get()}, ${by.get()}]))
+net = Network(behavior={1: TimeResolution(dt=1.0)}, dtype=torch.float32, device="cpu")
+grid_neurons = NeuronGroup(
+    net=net, size=${nModules} * ${cellsPerModule}, behavior={100: grid}, tag="grid",
+)
+disp_neurons = NeuronGroup(
+    net=net, size=${nCells.get()}, behavior={100: disp}, tag="disp",
+)
+net.initialize()
+
+code_a = grid.encode_position(grid_neurons, torch.tensor([${ax.get()}, ${ay.get()}]))
+code_b = grid.encode_position(grid_neurons, torch.tensor([${bx.get()}, ${by.get()}]))
 displacement_code = disp.compute_displacement(
-    neurons,
+    disp_neurons,
     torch.tensor([${ax.get()}, ${ay.get()}]),
     torch.tensor([${bx.get()}, ${by.get()}]),
 )
-decoded = disp.decode_displacement(neurons, displacement_code)
+decoded = disp.decode_displacement(disp_neurons, displacement_code)
 `);
 
   return { destroy() {} };

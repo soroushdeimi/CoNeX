@@ -12,34 +12,51 @@ export function mount(root, ui) {
 
   const sec = ui.section(controls, 'Wave');
 
-  function redraw() {
+  const DURATION = 100; // ms of model time the sine spans
+  let curT = 0; // current model time, so a parameter change continues in place
+
+  // Precompute the full sine once; the player reveals it over time.
+  function compute() {
     const N = 200;
     const x = [], y = [];
     for (let i = 0; i < N; i++) {
-      const t = (i / (N - 1)) * 100; // 0..100 ms
+      const t = (i / (N - 1)) * DURATION;
       x.push(t);
       y.push(amp.get() * Math.sin(2 * Math.PI * freq.get() * (t / 1000) + phase.get()));
     }
-    fig.draw([{ x, y, label: 'v(t)', color: 'c1', style: 'line' }]);
+    return { x, y };
+  }
+
+  function redraw(t) {
+    const { x, y } = compute();
+    fig.draw([{ x, y, label: 'v(t)', color: 'c1', style: 'line' }],
+      { revealX: t === undefined ? undefined : t });
   }
 
   const amp = ui.slider(sec, {
     key: 'amp', label: 'Amplitude', unit: 'a.u.',
-    min: 0.1, max: 3, step: 0.1, value: 1, onInput: redraw,
+    min: 0.1, max: 3, step: 0.1, value: 1, onInput: () => redraw(curT),
   });
   const freq = ui.slider(sec, {
     key: 'freq', label: 'Frequency', unit: 'Hz',
-    min: 0.1, max: 5, step: 0.1, value: 1, onInput: redraw,
+    min: 0.1, max: 5, step: 0.1, value: 1, onInput: () => redraw(curT),
   });
   const phase = ui.slider(sec, {
     key: 'phase', label: 'Phase', unit: 'rad',
-    min: 0, max: 6.28, step: 0.01, value: 0, onInput: redraw,
+    min: 0, max: 6.28, step: 0.01, value: 0, onInput: () => redraw(curT),
   });
 
   const fig = ui.plot(figures, {
     height: 260, xLabel: 'time', yLabel: 'v', xUnit: 'ms', yUnit: 'a.u.',
   });
-  redraw();
+
+  // The player reveals the precomputed sine; on a parameter change we recompute
+  // and continue from the current model time.
+  ui.player(sec, {
+    duration: DURATION, unit: 'ms', playSeconds: 5, loop: true,
+    onFrame: (t) => { curT = t; redraw(t); },
+  });
+  redraw(0);
 
   // 8x8 heatmap of a seeded random field
   const R = ui.rng(42);

@@ -40,6 +40,18 @@
       No plates yet. The area catalogs are being built; check back soon.
     </p>
 
+    <section id="rules-wrap" hidden>
+      <h2>All learning rules in CoNeX</h2>
+      <div class="card">
+        <table class="rules-table">
+          <thead>
+            <tr><th>Rule</th><th>Plates</th><th>Area</th></tr>
+          </thead>
+          <tbody id="rules-body"></tbody>
+        </table>
+      </div>
+    </section>
+
     <footer class="site-footer">
       CoNeX is developed by the CNRL lab &middot;
       <a href="https://github.com/cnrl/CoNeX">GitHub</a>
@@ -151,6 +163,44 @@
 
     search.addEventListener('input', render);
     render();
+
+    // "All learning rules in CoNeX": one row per rule name across all catalogs,
+    // with the plates that show it and the area. Hidden when no catalog lists
+    // any learning_rules yet.
+    const rulesWrap = document.getElementById('rules-wrap');
+    const rulesBody = document.getElementById('rules-body');
+    const rules = new Map(); // name -> { area, areaTitle, plates: [{id, title}] }
+    for (const c of catalogs) {
+      for (const p of c.plates) {
+        for (const name of p.learning_rules || []) {
+          let r = rules.get(name);
+          if (!r) { r = { area: c.area, areaTitle: c.title, plates: [] }; rules.set(name, r); }
+          r.plates.push({ id: p.id, title: p.title });
+        }
+      }
+    }
+    if (rules.size) {
+      rulesWrap.hidden = false;
+      const rows = [...rules.entries()].sort((a, b) =>
+        a[1].area.localeCompare(b[1].area) || a[0].localeCompare(b[0]));
+      for (const [name, r] of rows) {
+        const tr = document.createElement('tr');
+        const tdRule = document.createElement('td');
+        tdRule.textContent = name;
+        const tdPlates = document.createElement('td');
+        r.plates.forEach((p, i) => {
+          if (i) tdPlates.appendChild(document.createTextNode(', '));
+          const a = document.createElement('a');
+          a.href = `plate.html?id=${encodeURIComponent(p.id)}`;
+          a.textContent = p.title;
+          tdPlates.appendChild(a);
+        });
+        const tdArea = document.createElement('td');
+        tdArea.textContent = r.areaTitle;
+        tr.append(tdRule, tdPlates, tdArea);
+        rulesBody.appendChild(tr);
+      }
+    }
   </script>
 </body>
 </html>

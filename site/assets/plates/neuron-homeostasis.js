@@ -20,7 +20,7 @@ export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
   const sec = ui.section(controls, 'Neuron (LIF) parameters (CoNeX names)');
-  const cR = ui.slider(sec, { key: 'R', label: 'R', unit: 'GOhm', min: 0.1, max: 2, step: 0.05, value: 1.0 });
+  const cR = ui.slider(sec, { key: 'R', label: 'R', unit: 'GOhm', min: 0.1, max: 2, step: 0.05, value: P.R });
   const cTau = ui.slider(sec, { key: 'tau', label: 'tau', unit: 'ms', min: 1, max: 50, step: 0.5, value: P.tau });
   const cTh = ui.slider(sec, { key: 'threshold', label: 'threshold (init)', unit: 'mV', min: -80, max: 20, step: 0.5, value: -50.0 });
   const cReset = ui.slider(sec, { key: 'v_reset', label: 'v_reset', unit: 'mV', min: -80, max: -40, step: 0.5, value: P.v_reset });
@@ -30,7 +30,7 @@ export function mount(root, ui) {
   const secIn = ui.section(controls, 'Random input (seeded)');
   const cSeed = ui.number(secIn, { key: 'seed', label: 'seed', unit: '', value: 1 });
   const cIbase = ui.slider(secIn, { key: 'I_base', label: 'I_base', unit: 'pA', min: 0, max: 120, step: 1, value: 40.0 });
-  const cIamp = ui.slider(secIn, { key: 'I_amp', label: 'I_amp', unit: 'pA', min: 0, max: 80, step: 1, value: 10.0 });
+  const cIamp = ui.slider(secIn, { key: 'I_amp', label: 'I_amp', unit: 'pA', min: 0, max: 80, step: 1, value: 5.0 });
 
   const secH = ui.section(controls, 'Homeostasis');
   const cType = ui.select(secH, {
@@ -54,6 +54,9 @@ export function mount(root, ui) {
 
   const figRate = ui.plot(figures, { height: 220, xLabel: 't', yLabel: 'firing rate', xUnit: 'ms', yUnit: 'Hz' });
   const figCtrl = ui.plot(figures, { height: 200, xLabel: 't', yLabel: 'control variable', xUnit: 'ms', yUnit: 'mV' });
+  const caption = document.createElement('p');
+  caption.style.fontStyle = 'italic';
+  figures.appendChild(caption);
 
   ui.note(notes, `Homeostasis keeps a population near a target. <b>ActivityBaseHomeostasis</b> counts spikes in
   a sliding window and shifts each neuron's threshold up or down so its activity tracks the target
@@ -65,8 +68,11 @@ export function mount(root, ui) {
   ui.note(notes, `The top figure shows the group firing rate (Hz) over 5 s; the dashed line is the target
   rate. The bottom shows the control variable (mean threshold for activity-based, mean voltage for
   voltage-based) converging toward the value that produces the target. The defaults aim for a cortical
-  rate (~10 Hz): 1 spike per 100 ms window. ML analogy: this is like a learning-rate / weight-decay
-  loop that keeps activation levels in a healthy range; the analogy breaks because it is a slow, local,
+  rate (~10 Hz): 1 spike per 100 ms window. The input (I_base 40 pA, I_amp 5 pA) is chosen so the
+  starting rate is about 2× the target (~20 Hz); with R at the neuron default (0.5 GOhm) the threshold
+  then settles within a couple of mV of the initial −50 mV, so it stays physiological. The caption
+  reports the settled threshold. ML analogy: this is like a learning-rate / weight-decay loop that
+  keeps activation levels in a healthy range; the analogy breaks because it is a slow, local,
   activity-driven rule with no error signal or label.`);
   ui.code(notes, () => codeSnippet());
 
@@ -125,9 +131,14 @@ export function mount(root, ui) {
       { hlines: [{ y: targetHz, label: 'target' }], yRange: [0, Math.max(targetHz * 3, 50)] });
     if (type === 'activity') {
       figCtrl.draw([{ x: t, y: ctrl, label: 'mean threshold', color: 'c2', style: 'line' }], {});
+      const finalTh = thresholds.reduce((a, b) => a + b, 0) / SIZE;
+      caption.textContent = `settled mean threshold ${finalTh.toPrecision(4)} mV (start ${p.threshold} mV), ` +
+        `final rate ${rate[rate.length - 1].toPrecision(3)} Hz (target ${targetHz.toPrecision(3)} Hz)`;
     } else {
       figCtrl.draw([{ x: t, y: ctrl, label: 'mean v', color: 'c2', style: 'line' }],
         { hlines: [{ y: cTarget.get(), label: 'target_voltage' }] });
+      const finalV = vs.reduce((a, b) => a + b, 0) / SIZE;
+      caption.textContent = `settled mean voltage ${finalV.toPrecision(4)} mV (target ${cTarget.get()} mV)`;
     }
   }
 

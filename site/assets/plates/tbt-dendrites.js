@@ -196,7 +196,9 @@ export function mount(root, ui) {
   `);
 
   ui.code(notes, () => `
-from conex import DendriticSegment, DendriticSegmentConfig, ContextualPrediction
+import torch
+from pymonntorch import Network, NeuronGroup
+from conex import DendriticSegment, DendriticSegmentConfig, ContextualPrediction, TimeResolution
 
 config = DendriticSegmentConfig(
     n_synapses_per_segment=${nSyn.get()},
@@ -209,9 +211,22 @@ segments = DendriticSegment(
 )
 context = ContextualPrediction(depolarization_threshold=${depolThresh.get()})
 
+net = Network(behavior={1: TimeResolution(dt=1.0)}, dtype=torch.float32, device="cpu")
+neurons = NeuronGroup(
+    net=net, size=${nCells.get()}, behavior={100: segments, 250: context}, tag="segments",
+)
+net.initialize()
+
+# wire segment 0 to a few presynaptic cells, then present a context SDR
+for slot, target in enumerate([1, 2, 3]):
+    neurons.segment_targets[0, slot] = target
+    neurons.segment_permanences[0, slot] = 0.9
+presynaptic_activity = torch.zeros(${nCells.get()}, dtype=torch.bool)
+presynaptic_activity[[1, 2, 3]] = True
+
 segments.compute_segment_activation(neurons, presynaptic_activity)
 segments.compute_depolarization(neurons)
-context.update_predictions(neurons, context_input)
+context.update_predictions(neurons, neurons.depolarization)
 `);
 
   return { destroy() {} };

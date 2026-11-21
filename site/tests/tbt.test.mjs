@@ -702,3 +702,39 @@ test('voting hero: narration reports consensus state', () => {
   assert.equal(votingNarration({ step: 1, objs: [2, 2, -1], net: false }), 'step 1: columns are converging on object 2');
   assert.equal(votingNarration({ step: 0, objs: [-1, -1, -1], net: false }), 'step 0: no consensus yet');
 });
+
+// ---------------------------------------------------------------------------
+// tbt-predictive hero mappings
+// ---------------------------------------------------------------------------
+
+import {
+  particleRate,
+  precisionKnob,
+  predictiveNarration,
+} from '../assets/plates/tbt-predictive.js';
+
+test('predictive hero: particle rate is proportional to magnitude, clamped', () => {
+  assert.equal(particleRate(0, 1, 14), 0);
+  assert.equal(particleRate(1, 1, 14), 14);
+  assert.equal(particleRate(0.5, 1, 14), 7);
+  assert.equal(particleRate(2, 1, 14), 14); // clamped above
+  assert.equal(particleRate(0.5, 0, 14), 0); // zero max -> no particles
+});
+
+test('predictive hero: precision knob maps precision to [0,1]', () => {
+  assert.equal(precisionKnob(0, 0, 100), 0);
+  assert.equal(precisionKnob(100, 0, 100), 1);
+  assert.equal(precisionKnob(50, 0, 100), 0.5);
+  assert.equal(precisionKnob(200, 0, 100), 1); // clamped above
+  assert.equal(precisionKnob(-5, 0, 100), 0); // clamped below
+  assert.equal(precisionKnob(5, 1, 1), 0); // degenerate range
+});
+
+test('predictive hero: narration reports the error trend and values', () => {
+  const small = predictiveNarration({ meanAbs: 0.01, freeEnergy: 0.5, meanPrec: 2 });
+  assert.match(small, /error is small/);
+  assert.match(small, /mean \|error\| 0\.010 a\.u\./);
+  assert.match(small, /free energy 0\.500 a\.u\./);
+  const large = predictiveNarration({ meanAbs: 0.4, freeEnergy: 3.2, meanPrec: 1 });
+  assert.match(large, /error is large/);
+});

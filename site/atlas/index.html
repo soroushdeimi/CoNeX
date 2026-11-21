@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Atlas — CoNeX</title>
+  <link rel="stylesheet" href="../assets/css/site.css">
+</head>
+<body>
+  <div class="page">
+    <div class="topbar">
+      <span class="brand"><a href="../index.html">CoNeX</a></span>
+      <nav>
+        <a href="index.html">Atlas</a>
+        <a href="../index.html">Home</a>
+      </nav>
+      <span class="spacer"></span>
+      <button id="theme-toggle" class="ui-button" type="button">Dark</button>
+    </div>
+
+    <header>
+      <h1>The atlas</h1>
+      <p>
+        Interactive plates, grouped by area. Every plate mirrors a piece of the
+        CoNeX code and lets you adjust every parameter.
+      </p>
+    </header>
+
+    <input id="search" class="searchbox" type="search"
+           placeholder="Search by title, summary or CoNeX class…"
+           aria-label="Search plates">
+
+    <div id="start-path-wrap" class="card" hidden>
+      <h3>Start here</h3>
+      <div id="start-path" class="start-path"></div>
+    </div>
+
+    <div id="gallery"></div>
+    <p id="gallery-empty" hidden>
+      No plates yet. The area catalogs are being built; check back soon.
+    </p>
+
+    <footer class="site-footer">
+      CoNeX is developed by the CNRL lab &middot;
+      <a href="https://github.com/cnrl/CoNeX">GitHub</a>
+    </footer>
+  </div>
+
+  <script type="module">
+    import ui from '../assets/js/ui.js';
+    import { loadCatalogs } from '../assets/js/catalog.js';
+
+    const themeBtn = document.getElementById('theme-toggle');
+    function syncThemeBtn() {
+      themeBtn.textContent = ui.getTheme() === 'light' ? 'Dark' : 'Light';
+    }
+    themeBtn.addEventListener('click', () => {
+      ui.setTheme(ui.getTheme() === 'light' ? 'dark' : 'light');
+      syncThemeBtn();
+    });
+    syncThemeBtn();
+
+    const gallery = document.getElementById('gallery');
+    const search = document.getElementById('search');
+    const empty = document.getElementById('gallery-empty');
+    const startWrap = document.getElementById('start-path-wrap');
+    const startPath = document.getElementById('start-path');
+
+    const catalogs = await loadCatalogs();
+
+    // "Start here": first intro plate of each area, in area order.
+    const starters = catalogs
+      .map((c) => c.plates.find((p) => p.level === 'intro') || c.plates[0])
+      .filter(Boolean);
+    if (starters.length) {
+      startWrap.hidden = false;
+      starters.forEach((p, i) => {
+        if (i) {
+          const arrow = document.createElement('span');
+          arrow.className = 'arrow';
+          arrow.textContent = '→';
+          startPath.appendChild(arrow);
+        }
+        const step = document.createElement('a');
+        step.className = 'step';
+        step.href = `plate.html?id=${encodeURIComponent(p.id)}`;
+        step.textContent = p.title;
+        startPath.appendChild(step);
+      });
+    }
+
+    function matches(p, q) {
+      if (!q) return true;
+      const hay = [p.title, p.summary, ...(p.conex || [])].join(' ').toLowerCase();
+      return hay.includes(q);
+    }
+
+    function render() {
+      const q = search.value.trim().toLowerCase();
+      gallery.innerHTML = '';
+      let shown = 0;
+      for (const c of catalogs) {
+        const plates = c.plates.filter((p) => matches(p, q));
+        if (!plates.length) continue;
+        shown += plates.length;
+        const group = document.createElement('section');
+        group.className = 'gallery-group';
+        group.id = c.area;
+        const h = document.createElement('h2');
+        h.textContent = c.title;
+        group.appendChild(h);
+        const grid = document.createElement('div');
+        grid.className = 'gallery-grid';
+        for (const p of plates) {
+          const card = document.createElement('a');
+          card.className = 'plate-card';
+          card.href = `plate.html?id=${encodeURIComponent(p.id)}`;
+          const title = document.createElement('div');
+          title.className = 'title';
+          title.textContent = p.title;
+          const summary = document.createElement('div');
+          summary.className = 'summary';
+          summary.textContent = p.summary;
+          card.append(title, summary);
+          const badges = document.createElement('div');
+          const level = document.createElement('span');
+          level.className = `badge ${p.level}`;
+          level.textContent = p.level;
+          badges.appendChild(level);
+          card.appendChild(badges);
+          if (p.conex && p.conex.length) {
+            const cx = document.createElement('div');
+            cx.className = 'conex-classes';
+            // short class name (last dotted part); full path in the title
+            for (const [i, c] of p.conex.entries()) {
+              if (i) cx.appendChild(document.createTextNode(' · '));
+              const span = document.createElement('span');
+              span.textContent = c.split('.').pop();
+              span.title = c;
+              cx.appendChild(span);
+            }
+            card.appendChild(cx);
+          }
+          grid.appendChild(card);
+        }
+        group.appendChild(grid);
+        gallery.appendChild(group);
+      }
+      empty.hidden = shown !== 0;
+    }
+
+    search.addEventListener('input', render);
+    render();
+  </script>
+</body>
+</html>

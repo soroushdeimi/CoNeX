@@ -118,7 +118,6 @@ venv.bak/
 .ropeproject
 
 # mkdocs documentation
-/site
 
 # mypy
 .mypy_cache/
@@ -139,3 +138,5 @@ dmypy.json
 
 # STUPID APPLE. GO TO HEll
 .DS_Store
+
+site/tests/snippets/

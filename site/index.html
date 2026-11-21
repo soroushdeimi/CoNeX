@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CoNeX — Cortical network for everything</title>
+  <link rel="stylesheet" href="assets/css/site.css">
+</head>
+<body>
+  <div class="page">
+    <div class="topbar">
+      <span class="brand"><a href="index.html">CoNeX</a></span>
+      <nav>
+        <a href="atlas/index.html">Atlas</a>
+        <a href="https://github.com/cnrl/CoNeX">GitHub</a>
+      </nav>
+      <span class="spacer"></span>
+      <button id="theme-toggle" class="ui-button" type="button">Dark</button>
+    </div>
+
+    <section class="hero hero-grid">
+      <div class="hero-copy">
+        <h1>CoNeX</h1>
+        <p class="hero-tagline">
+          Cortical network for everything: spiking networks, cortical columns
+          and HTM in PyTorch.
+        </p>
+        <p class="install-line">pip install cnrl-conex</p>
+        <div class="hero-actions">
+          <a class="ui-button ui-button-primary" href="atlas/index.html">Open the atlas</a>
+          <a class="ui-button" href="atlas/plate.html?id=neuron-lif">Start here: LIF</a>
+        </div>
+      </div>
+      <figure class="ui-figure hero-figure">
+        <div class="hero-canvas-row">
+          <canvas id="hero-canvas" style="width:100%;height:220px;display:block;background:var(--card);border:1px solid var(--rule);border-radius:4px"></canvas>
+          <button id="hero-pause" class="ui-button ui-button-small hero-pause" type="button"
+                  aria-pressed="false" aria-label="Pause the neuron animation">Pause</button>
+        </div>
+        <figcaption>
+          A single leaky integrate-and-fire neuron: membrane voltage (teal) and
+          its spikes (coral), driven by a constant 65 pA input. Same parameters
+          as the LIF plate (τ 20 ms, R 0.5 GΩ, v<sub>rest</sub> −70 mV,
+          threshold −50 mV, reset −55 mV).
+        </figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2>What is CoNeX</h2>
+      <p>
+        CoNeX is a Python framework for building, simulating, and experimenting
+        with spiking neural networks, with a focus on modeling cortical
+        structures. Built on PyTorch and Pymonntorch, it provides a high-level
+        API to design network architectures inspired by the neocortex, such as
+        cortical layers and columns.
+      </p>
+      <p>
+        It is designed for researchers and developers in computational
+        neuroscience to create intricate models, define custom neuronal
+        behaviors, and apply learning rules such as Spike-Timing Dependent
+        Plasticity (STDP).
+      </p>
+    </section>
+
+    <section>
+      <h2>A short, real example</h2>
+      <p>
+        The example below is the HTM sequence-learning script that ships with
+        the library (<code>Example/numenta/htm_sequence_learning.py</code>).
+        Symbols are encoded as sparse distributed representations (SDRs), a
+        Spatial Pooler turns them into a stable set of active columns, and
+        Temporal Memory learns which element follows which. The anomaly score
+        starts at 1.0 (nothing is predicted yet) and falls to 0 once the
+        sequence <code>A B C D</code> is learned; an unexpected symbol
+        (<code>X</code>) spikes it back up.
+      </p>
+      <pre><code>import torch
+from pymonntorch import Network
+from conex import (
+    SDR, SpatialPooler,
+    SpatialPoolerConfig,
+    TemporalMemory,
+    TemporalMemoryConfig,
+    TimeResolution,
+)
+
+dt = TimeResolution(dt=1.0)
+net = Network(
+    behavior={1: dt},
+    dtype=torch.float32,
+    device="cpu",
+)
+# build a pooler + temporal memory,
+# then run 12 epochs of A B C D:
+net.initialize()
+net.simulate_iterations(12 * 4)</code></pre>
+      <p>
+        Run it with <code>python Example/numenta/htm_sequence_learning.py</code>.
+        The output we got (CoNeX 0.1.5, Python 3.15):
+      </p>
+      <pre><code>epoch  mean anomaly  bursting columns
+    0         1.000              10.0
+    4         0.275               2.8
+    7         0.000               0.0
+   11         0.000               0.0
+
+Now break the pattern: A B X D
+symbol  anomaly  bursting columns
+     A    0.000                 0
+     X    1.000                10
+     D    1.000                10</code></pre>
+    </section>
+
+    <section>
+      <h2>Core concepts</h2>
+      <p>
+        A CoNeX model is built from a small set of nested structures. The
+        <code>Neocortex</code> is the top-level network; it holds
+        <code>CorticalColumn</code>s, each of which groups
+        <code>Layer</code>s (e.g. a cortical layer with excitatory and
+        inhibitory populations). Layers hold <code>NeuronGroup</code>s, and
+        <code>SynapseGroup</code>s connect neuron groups to each other.
+        <code>Behavior</code>s are the classes that give a group its dynamics
+        (for example an LIF neuron model or an STDP learning rule).
+      </p>
+      <figure class="ui-figure">
+        <svg viewBox="0 0 640 300" role="img"
+             aria-label="Nesting diagram: Neocortex contains CorticalColumn, which contains Layer, which contains NeuronGroup; SynapseGroup connects NeuronGroups; Behavior is attached to a group.">
+          <style>
+            .box { fill: var(--card); stroke: var(--rule); stroke-width: 1.5; }
+            .lbl { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; fill: var(--ink); }
+            .sub { font: 11px system-ui, sans-serif; fill: var(--muted); }
+            .edge { stroke: var(--muted); stroke-width: 1.2; fill: none; }
+          </style>
+          <rect class="box" x="10" y="10" width="620" height="280" rx="6"/>
+          <text class="lbl" x="24" y="34">Neocortex</text>
+          <rect class="box" x="40" y="52" width="360" height="220" rx="6"/>
+          <text class="lbl" x="54" y="76">CorticalColumn</text>
+          <rect class="box" x="70" y="92" width="300" height="160" rx="6"/>
+          <text class="lbl" x="84" y="116">Layer</text>
+          <rect class="box" x="100" y="132" width="120" height="100" rx="6"/>
+          <text class="lbl" x="112" y="156">NeuronGroup</text>
+          <text class="sub" x="112" y="176">LIF, ELIF, AELIF</text>
+          <rect class="box" x="240" y="132" width="120" height="100" rx="6"/>
+          <text class="lbl" x="252" y="156">NeuronGroup</text>
+          <text class="sub" x="252" y="176">inhibitory</text>
+          <path class="edge" d="M 220 182 H 240" marker-end="url(#arr)"/>
+          <path class="edge" d="M 240 196 H 220" marker-end="url(#arr)"/>
+          <text class="sub" x="200" y="216" text-anchor="middle">SynapseGroup</text>
+          <rect class="box" x="430" y="132" width="180" height="100" rx="6"/>
+          <text class="lbl" x="444" y="156">Behavior</text>
+          <text class="sub" x="444" y="176">dynamics attached to a</text>
+          <text class="sub" x="444" y="192">group (LIF, STDP, ...)</text>
+          <path class="edge" d="M 430 182 H 222" marker-end="url(#arr)"/>
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5"
+                    markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)"/>
+            </marker>
+          </defs>
+        </svg>
+        <figcaption>How the structures nest: Neocortex &gt; CorticalColumn &gt; Layer &gt; NeuronGroup, with SynapseGroups between groups and Behaviors attached to them.</figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2>Explore the atlas</h2>
+      <p>
+        The atlas is a set of interactive plates, grouped into four areas.
+        Each plate mirrors a piece of the CoNeX code and lets you adjust every
+        parameter.
+      </p>
+      <div class="area-cards">
+        <a class="area-card" href="atlas/index.html#neurons">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M24 10 C15 10 13 20 18 26 C14 30 16 38 24 38 C32 38 34 30 30 26 C35 20 33 10 24 10 Z" fill="none" stroke="var(--c1)" stroke-width="2"/>
+            <path d="M24 14 V34 M18 24 H30" fill="none" stroke="var(--c1)" stroke-width="1.5"/>
+          </svg>
+          <div class="title">Neurons</div>
+          <div class="summary">Neuron models: LIF, ELIF, AELIF and their voltage dynamics.</div>
+        </a>
+        <a class="area-card" href="atlas/index.html#plasticity">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M8 34 C18 34 18 14 28 14 C34 14 36 20 40 20" fill="none" stroke="var(--c2)" stroke-width="2"/>
+            <circle cx="8" cy="34" r="3" fill="var(--c2)"/>
+            <circle cx="40" cy="20" r="3" fill="var(--c2)"/>
+          </svg>
+          <div class="title">Plasticity</div>
+          <div class="summary">Synaptic learning rules: STDP, RSTDP and iSTDP.</div>
+        </a>
+        <a class="area-card" href="atlas/index.html#htm">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <rect x="8" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
+            <rect x="20" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
+            <rect x="32" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
+            <path d="M12 30 V18 M24 30 V18 M36 30 V18 M12 18 H36" fill="none" stroke="var(--c4)" stroke-width="1.5"/>
+          </svg>
+          <div class="title">HTM</div>
+          <div class="summary">Hierarchical Temporal Memory: spatial pooler and temporal memory.</div>
+        </a>
+        <a class="area-card" href="atlas/index.html#tbt">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M10 38 L24 10 L38 38 Z" fill="none" stroke="var(--c5)" stroke-width="2"/>
+            <path d="M17 29 L31 29 M20 22 L28 22" fill="none" stroke="var(--c5)" stroke-width="1.5"/>
+          </svg>
+          <div class="title">Thousand Brains Theory</div>
+          <div class="summary">Grid cells, active dendrites, column voting and predictive coding.</div>
+        </a>
+      </div>
+    </section>
+
+    <section>
+      <h2>Links</h2>
+      <p>
+        <a href="https://github.com/cnrl/CoNeX">GitHub</a>
+        &middot;
+        <a href="https://pypi.org/project/cnrl-conex/">PyPI</a>
+        &middot;
+        <a href="https://github.com/cnrl/CoNeX/tree/main/docs">Documentation</a>
+      </p>
+      <p>
+        CoNeX is developed by the CNRL lab. Authors: Ashena Gorgan Mohammadi,
+        Ali Rahimi, Amir Hosein Ebrahimi, Saman Arzaghi, Amin Zeinali and
+        Amir Naderi.
+      </p>
+    </section>
+
+    <footer class="site-footer">
+      CoNeX is developed by the CNRL lab &middot;
+      <a href="https://github.com/cnrl/CoNeX">GitHub</a>
+    </footer>
+  </div>
+
+  <script type="module">
+    import ui from './assets/js/ui.js';
+    const themeBtn = document.getElementById('theme-toggle');
+    function syncThemeBtn() {
+      themeBtn.textContent = ui.getTheme() === 'light' ? 'Dark' : 'Light';
+    }
+    themeBtn.addEventListener('click', () => {
+      ui.setTheme(ui.getTheme() === 'light' ? 'dark' : 'light');
+      syncThemeBtn();
+    });
+    syncThemeBtn();
+
+    // Hero: a single LIF neuron, same parameters as the LIF plate.
+    const hero = document.getElementById('hero-canvas');
+    if (hero) {
+      const TAU = 20, R = 0.5, I = 65, V_REST = -70, THR = -50, V_RESET = -55;
+      const DT = 1; // ms
+      const RI = R * I; // 32.5 mV
+      const V_TOP = -48.5, V_BOT = -57; // trace-panel y range (mV)
+      const H = 220;
+      let v = V_REST, t = 0;
+      const trace = []; // [t, v]
+      const spikes = []; // [t]
+      let acc = 0;
+
+      // fixed window: 200 ms on wide screens, 100 ms on phones
+      const windowFor = (w) => (w >= 700 ? 200 : 100);
+
+      function step(modelMs) {
+        acc += modelMs;
+        while (acc >= DT) {
+          acc -= DT;
+          t += DT;
+          v += (DT / TAU) * (-(v - V_REST) + RI);
+          if (v >= THR) {
+            spikes.push(t);
+            v = V_RESET;
+          }
+          trace.push([t, v]);
+        }
+        // keep a little more than the widest window so resizes never gap
+        while (trace.length && trace[0][0] < t - 200) trace.shift();
+        while (spikes.length && spikes[0] < t - 200) spikes.shift();
+      }
+
+      function draw() {
+        const dpr = window.devicePixelRatio || 1;
+        const w = hero.clientWidth || 600;
+        hero.width = Math.round(w * dpr);
+        hero.height = Math.round(H * dpr);
+        const ctx = hero.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, w, H);
+        const pal = { c1: ui.color('c1'), c2: ui.color('c2'), muted: ui.color('muted') };
+        const win = windowFor(w);
+        const t0 = t - win;
+        const sx = (tt) => ((tt - t0) / win) * w;
+        // trace panel in the upper ~78%, raster in a thin strip at the bottom
+        const traceTop = 8, traceBot = H * 0.78;
+        const sy = (vv) => traceTop + ((V_TOP - vv) / (V_TOP - V_BOT)) * (traceBot - traceTop);
+        const rasterTop = H * 0.85, rasterBot = H - 6;
+
+        // threshold (dashed) and reset (dotted) reference lines
+        ctx.strokeStyle = pal.muted;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(0, sy(THR));
+        ctx.lineTo(w, sy(THR));
+        ctx.stroke();
+        ctx.setLineDash([1.5, 3]);
+        ctx.beginPath();
+        ctx.moveTo(0, sy(V_RESET));
+        ctx.lineTo(w, sy(V_RESET));
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = pal.muted;
+        ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+        ctx.textAlign = 'left';
+        // small tick labels at the left edge
+        ctx.textBaseline = 'middle';
+        ctx.fillText('-50', 2, sy(THR));
+        ctx.fillText('-55', 2, sy(V_RESET));
+        // line labels, offset right of the ticks so they do not collide
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('threshold -50 mV', 26, sy(THR) - 2);
+        ctx.textBaseline = 'top';
+        ctx.fillText('reset -55 mV', 26, sy(V_RESET) + 2);
+
+        // voltage trace
+        ctx.strokeStyle = pal.c1;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        let started = false;
+        for (const [tt, vv] of trace) {
+          if (tt < t0) continue;
+          const px = sx(tt), py = sy(vv);
+          if (!started) { ctx.moveTo(px, py); started = true; }
+          else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+
+        // raster of spikes
+        ctx.fillStyle = pal.c2;
+        for (const st of spikes) {
+          if (st < t0) continue;
+          ctx.fillRect(sx(st) - 0.75, rasterTop, 1.5, rasterBot - rasterTop);
+        }
+      }
+
+      // pre-simulate the whole window so the first frame is already full
+      step(windowFor(hero.clientWidth || 600));
+      draw();
+
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const pauseBtn = document.getElementById('hero-pause');
+      if (reduced && pauseBtn) pauseBtn.hidden = true; // static frame: nothing to pause
+      if (!reduced && pauseBtn) {
+        // scroll at ~50 ms of model time per real second
+        const anim = ui.animate((dtMs) => {
+          step(Math.min(dtMs, 50) * 0.05);
+          draw();
+        });
+        anim.start();
+        pauseBtn.addEventListener('click', () => {
+          const paused = anim.running();
+          if (paused) anim.stop();
+          else anim.start();
+          pauseBtn.textContent = paused ? 'Play' : 'Pause';
+          pauseBtn.setAttribute('aria-pressed', String(paused));
+          pauseBtn.setAttribute('aria-label', paused ? 'Play the neuron animation' : 'Pause the neuron animation');
+        });
+      }
+      window.addEventListener('resize', draw);
+      ui.onTheme(draw);
+    }
+  </script>
+</body>
+</html>

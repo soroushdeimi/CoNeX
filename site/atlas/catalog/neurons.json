@@ -1,0 +1,59 @@
+{
+  "area": "neurons",
+  "title": "Neurons",
+  "order": 1,
+  "plates": [
+    {
+      "id": "neuron-lif",
+      "title": "Leaky integrate-and-fire",
+      "summary": "A single LIF neuron's membrane voltage under a current input, with the rheobase marked.",
+      "level": "intro",
+      "conex": ["conex.behaviors.neurons.neuron_types.lif_neurons.LIF"]
+    },
+    {
+      "id": "neuron-elif",
+      "title": "Exponential integrate-and-fire",
+      "summary": "ELIF with the exponential spike-initiation term, its phase line, and a voltage trace.",
+      "level": "core",
+      "conex": ["conex.behaviors.neurons.neuron_types.lif_neurons.ELIF"]
+    },
+    {
+      "id": "neuron-aelif",
+      "title": "Adaptive exponential integrate-and-fire",
+      "summary": "AELIF with the adaptation current w, and how alpha and beta shape firing.",
+      "level": "core",
+      "conex": ["conex.behaviors.neurons.neuron_types.lif_neurons.AELIF"]
+    },
+    {
+      "id": "neuron-fi",
+      "title": "f-I curves",
+      "summary": "Firing rate versus input current for LIF, ELIF and AELIF, with the analytic LIF rate.",
+      "level": "core",
+      "conex": [
+        "conex.behaviors.neurons.neuron_types.lif_neurons.LIF",
+        "conex.behaviors.neurons.neuron_types.lif_neurons.ELIF",
+        "conex.behaviors.neurons.neuron_types.lif_neurons.AELIF"
+      ]
+    },
+    {
+      "id": "neuron-homeostasis",
+      "title": "Homeostatic threshold control",
+      "summary": "A small group under random input, with activity- or voltage-based homeostasis driving the threshold.",
+      "level": "advanced",
+      "conex": [
+        "conex.behaviors.neurons.homeostasis.ActivityBaseHomeostasis",
+        "conex.behaviors.neurons.homeostasis.VoltageBaseHomeostasis"
+      ]
+    },
+    {
+      "id": "neuron-kwta",
+      "title": "k-winners-take-all",
+      "summary": "A group with InherentNoise and KWTA: the raster before and after k-winners inhibition.",
+      "level": "advanced",
+      "conex": [
+        "conex.behaviors.neurons.specs.KWTA",
+        "conex.behaviors.neurons.specs.InherentNoise"
+      ]
+    }
+  ]
+}

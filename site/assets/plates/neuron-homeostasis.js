@@ -53,7 +53,14 @@ export function mount(root, ui) {
   const cEta = ui.slider(secH, { key: 'eta_ip', label: 'eta_ip', unit: 'mV', min: 0, max: 0.01, step: 0.0005, value: 0.001 });
 
   const figRate = ui.plot(figures, { height: 220, xLabel: 't', yLabel: 'firing rate', xUnit: 'ms', yUnit: 'Hz' });
-  const figCtrl = ui.plot(figures, { height: 200, xLabel: 't', yLabel: 'control variable', xUnit: 'ms', yUnit: 'mV' });
+  // Two control plots (one per mode) so the y-axis label is correct for each.
+  // Each is wrapped in a div we can hide; ui.plot appends its <figure> to the parent.
+  const wrapAct = document.createElement('div');
+  const wrapVolt = document.createElement('div');
+  figures.appendChild(wrapAct);
+  figures.appendChild(wrapVolt);
+  const figCtrlAct = ui.plot(wrapAct, { height: 200, xLabel: 't', yLabel: 'threshold', xUnit: 'ms', yUnit: 'mV' });
+  const figCtrlVolt = ui.plot(wrapVolt, { height: 200, xLabel: 't', yLabel: 'voltage', xUnit: 'ms', yUnit: 'mV' });
   const caption = document.createElement('p');
   caption.style.fontStyle = 'italic';
   figures.appendChild(caption);
@@ -129,16 +136,25 @@ export function mount(root, ui) {
     }
     figRate.draw([{ x: t, y: rate, label: 'firing rate', color: 'c1', style: 'line' }],
       { hlines: [{ y: targetHz, label: 'target' }], yRange: [0, Math.max(targetHz * 3, 50)] });
+
+    // Mean over the last 2 s (the per-window rate fluctuates, so a single window
+    // is not representative).
+    const tMax = t[t.length - 1];
+    const last2 = t.map((x, i) => ({ x, i })).filter((o) => o.x >= tMax - 2000);
+    const meanRate = last2.reduce((a, o) => a + rate[o.i], 0) / last2.length;
+    const meanCtrl = last2.reduce((a, o) => a + ctrl[o.i], 0) / last2.length;
+
+    // Show only the control plot whose y-axis label matches the mode.
+    wrapAct.style.display = type === 'activity' ? '' : 'none';
+    wrapVolt.style.display = type === 'voltage' ? '' : 'none';
     if (type === 'activity') {
-      figCtrl.draw([{ x: t, y: ctrl, label: 'mean threshold', color: 'c2', style: 'line' }], {});
-      const finalTh = thresholds.reduce((a, b) => a + b, 0) / SIZE;
-      caption.textContent = `settled mean threshold ${finalTh.toPrecision(4)} mV (start ${p.threshold} mV), ` +
-        `final rate ${rate[rate.length - 1].toPrecision(3)} Hz (target ${targetHz.toPrecision(3)} Hz)`;
+      figCtrlAct.draw([{ x: t, y: ctrl, label: 'mean threshold', color: 'c2', style: 'line' }], {});
+      caption.textContent = `mean over the last 2 s: rate ${meanRate.toPrecision(3)} Hz (target ${targetHz.toPrecision(3)} Hz), ` +
+        `threshold ${meanCtrl.toPrecision(4)} mV (start ${p.threshold} mV)`;
     } else {
-      figCtrl.draw([{ x: t, y: ctrl, label: 'mean v', color: 'c2', style: 'line' }],
+      figCtrlVolt.draw([{ x: t, y: ctrl, label: 'mean v', color: 'c2', style: 'line' }],
         { hlines: [{ y: cTarget.get(), label: 'target_voltage' }] });
-      const finalV = vs.reduce((a, b) => a + b, 0) / SIZE;
-      caption.textContent = `settled mean voltage ${finalV.toPrecision(4)} mV (target ${cTarget.get()} mV)`;
+      caption.textContent = `mean over the last 2 s: voltage ${meanCtrl.toPrecision(4)} mV (target ${cTarget.get()} mV)`;
     }
   }
 

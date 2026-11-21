@@ -17,6 +17,7 @@ import {
   TemporalMemory,
   TemporalMemoryDefaults,
 } from '../assets/js/models/htm.js';
+import { sdrHeroState } from '../assets/plates/htm-sdr.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const golden = JSON.parse(readFileSync(join(here, 'golden', 'htm.json'), 'utf8'));
@@ -408,4 +409,62 @@ test('temporal-memory: learning decrements permanence on inactive targets', () =
   // active target above it (incremented).
   assert.ok(permsByTarget[2] < 0.21, 'inactive target permanence should be decremented');
   assert.ok(permsByTarget[0] > 0.21, 'active target permanence should be incremented');
+});
+
+// --- Hero animation mapping (AMENDMENT 5) ----------------------------------
+
+// A tiny fixed run: n=4, two samples, fixed code a = {0,1}.
+function sdrRun() {
+  return {
+    n: 4,
+    m: 2,
+    w: 2,
+    theta: 2,
+    a: new SDR(4, [0, 1]),
+    bits: [[1, 1, 0, 0], [0, 1, 1, 0]], // sample 0 overlaps a in 2 bits, sample 1 in 1
+    ov: [2, 1],
+    pExp: 1.0,
+  };
+}
+
+test('sdr hero: at an integer step the sample is that sample, not a blend', () => {
+  const st = sdrHeroState(sdrRun(), 0);
+  assert.equal(st.idx, 0);
+  assert.equal(st.f, 0);
+  assert.deepEqual(st.sample, [1, 1, 0, 0]);
+  assert.equal(st.overlapBar, 2);
+});
+
+test('sdr hero: at the midpoint the sample is a 50/50 blend and the bar eases', () => {
+  const st = sdrHeroState(sdrRun(), 0.5);
+  assert.equal(st.idx, 0);
+  assert.equal(st.next, 1);
+  assert.equal(st.f, 0.5);
+  // bit 0: 1->0, bit 1: 1->1, bit 2: 0->1, bit 3: 0->0
+  assert.deepEqual(st.sample, [0.5, 1, 0.5, 0]);
+  // overlap bar eases between 2 and 1 at f=0.5 -> 1.5
+  assert.equal(st.overlapBar, 1.5);
+});
+
+test('sdr hero: the overlap mask marks only bits shared with the fixed code', () => {
+  const st = sdrHeroState(sdrRun(), 0);
+  // a = {0,1}; sample 0 = {0,1}; intersection = {0,1}
+  assert.deepEqual(st.overlapMask, [1, 1, 0, 0]);
+});
+
+test('sdr hero: narration names the sample, overlap and the match threshold', () => {
+  const st = sdrHeroState(sdrRun(), 0);
+  assert.match(st.narration, /sample 1\/2/);
+  assert.match(st.narration, /overlap 2 bits/);
+  assert.match(st.narration, /a match/);
+  const st1 = sdrHeroState(sdrRun(), 1);
+  assert.match(st1.narration, /overlap 1 bits/);
+  assert.doesNotMatch(st1.narration, /a match/);
+});
+
+test('sdr hero: time is clamped to the last sample at the end of the run', () => {
+  const st = sdrHeroState(sdrRun(), 99);
+  assert.equal(st.idx, 1);
+  assert.equal(st.next, 1);
+  assert.deepEqual(st.sample, [0, 1, 1, 0]);
 });

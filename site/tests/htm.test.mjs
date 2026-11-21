@@ -379,3 +379,33 @@ test('temporal-memory: empty input gives anomaly 0 and no active cells', () => {
   assert.equal(tm.anomaly_score, 0);
   assert.equal(tm.active_cells.filter(Boolean).length, 0);
 });
+
+test('temporal-memory: learning decrements permanence on inactive targets', () => {
+  const g = golden.tm_decrement;
+  const tm = new TemporalMemory({
+    n_columns: g.n_columns,
+    cells_per_column: g.cells_per_column,
+    activation_threshold: g.activation_threshold,
+    learning_threshold: g.learning_threshold,
+    max_new_synapses: g.max_new_synapses,
+    permanence_increment: g.permanence_increment,
+    permanence_decrement: g.permanence_decrement,
+  });
+  const P2 = [0, 1];
+  const P1 = [0];
+  const W = [2];
+  for (const step of [P2, W, P1, W]) tm.compute(step, true);
+
+  assert.equal(tm.segments.countSegments(g.winner_cell), g.n_segments);
+  const seg = tm.segments.segments[g.winner_cell][0];
+  // permanences keyed by target cell (order-independent)
+  const permsByTarget = {};
+  for (const s of seg) permsByTarget[s.target] = s.permanence;
+  for (const [target, expected] of Object.entries(g.perms_by_target)) {
+    close(permsByTarget[parseInt(target)], expected, 1e-5);
+  }
+  // The inactive target must be below initial permanence (decremented), the
+  // active target above it (incremented).
+  assert.ok(permsByTarget[2] < 0.21, 'inactive target permanence should be decremented');
+  assert.ok(permsByTarget[0] > 0.21, 'active target permanence should be incremented');
+});

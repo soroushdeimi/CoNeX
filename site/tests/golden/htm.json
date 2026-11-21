@@ -583,6 +583,21 @@
       "anomaly": 1.0
     }
   },
+  "tm_decrement": {
+    "n_columns": 3,
+    "cells_per_column": 2,
+    "activation_threshold": 1,
+    "learning_threshold": 1,
+    "max_new_synapses": 2,
+    "permanence_increment": 0.12,
+    "permanence_decrement": 0.04,
+    "winner_cell": 4,
+    "n_segments": 1,
+    "perms_by_target": {
+      "0": 0.32999998331069946,
+      "2": 0.16999998688697815
+    }
+  },
   "union": {
     "size": 64,
     "n_active_after_3": 20,

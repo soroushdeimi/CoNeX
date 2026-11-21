@@ -326,6 +326,61 @@ def tm_golden():
     }
 
 
+def tm_decrement_golden():
+    # A learning segment that has synapses to BOTH active and inactive cells,
+    # so adapt_segment must increment the active ones and decrement the
+    # inactive ones. 3 columns x 2 cells.
+    #   P2 = cols 0,1 ; P1 = col 0 ; W = col 2
+    # Sequence P2, W, P1, W. After the final W step, the winner cell in
+    # column 2 (cell 4) has one segment whose targets are the previous
+    # winners {cell 0 (active in P1), cell 2 (inactive in P1)}.
+    # target cell 0 -> incremented (0.21 + 0.12 = 0.33)
+    # target cell 2 -> decremented  (0.21 - 0.04 = 0.17)
+    n_columns, cells = 3, 2
+    config = TemporalMemoryConfig(
+        n_columns=n_columns,
+        cells_per_column=cells,
+        activation_threshold=1,
+        learning_threshold=1,
+        max_new_synapses=2,
+        permanence_increment=0.12,
+        permanence_decrement=0.04,
+    )
+    memory = make_group(n_columns * cells, TemporalMemory(config=config), tag="tmdec")
+    tm = memory.temporal_memory
+
+    def cols(*idx):
+        c = torch.zeros(n_columns, dtype=torch.bool)
+        c[list(idx)] = True
+        return c
+
+    P2 = cols(0, 1)
+    P1 = cols(0)
+    W = cols(2)
+    for step in [P2, W, P1, W]:
+        tm.compute(memory, step, learn=True)
+
+    # Record the winner cell's segment permanences keyed by target cell so the
+    # golden is independent of torch.randperm's ordering of the 2 candidates.
+    winner_cell = 4  # column 2, first cell
+    seg = memory.tm_segments.segments[(winner_cell, 0)]
+    perms_by_target = {
+        int(t): float(p) for t, p in zip(seg["targets"].tolist(), seg["permanences"].tolist())
+    }
+    return {
+        "n_columns": n_columns,
+        "cells_per_column": cells,
+        "activation_threshold": 1,
+        "learning_threshold": 1,
+        "max_new_synapses": 2,
+        "permanence_increment": 0.12,
+        "permanence_decrement": 0.04,
+        "winner_cell": winner_cell,
+        "n_segments": memory.tm_segments.count_segments(winner_cell),
+        "perms_by_target": perms_by_target,
+    }
+
+
 def union_golden():
     size = 64
     a = SDR(size=size, indices=torch.arange(0, 8))
@@ -359,6 +414,7 @@ def main():
         "classifier": classifier_golden(),
         "spatial_pooler": sp_golden(),
         "temporal_memory": tm_golden(),
+        "tm_decrement": tm_decrement_golden(),
         "union": union_golden(),
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)

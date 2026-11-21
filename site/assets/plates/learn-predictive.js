@@ -231,7 +231,7 @@ export function mount(root, ui) {
     ctx.textBaseline = 'alphabetic';
     ctx.fillText('source i →', ox, oy - 8);
     ctx.textAlign = 'center';
-    ctx.fillText('target j', ox + side / 2, oy + side + 24);
+    ctx.fillText('target j', ui.fitText(ctx, 'target j', ox + side / 2, width, 'center'), oy + side + 24);
 
     // error particles: radius shrinks as the mean |error| falls
     const err = s.meanAbsError + (sN.meanAbsError - s.meanAbsError) * e;

@@ -137,14 +137,14 @@ export function mount(root, ui) {
     // rho label above the scale, rate label below it, so the two never
     // collide with each other or the needle at 390px.
     ctx.fillStyle = c5; ctx.font = '10px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`rho = ${state.rho} Hz`, tx, my - 26);
+    ctx.fillText(`rho = ${state.rho} Hz`, ui.fitText(ctx, `rho = ${state.rho} Hz`, tx, W, 'center'), my - 26);
     // needle at the current rate
     const nx = mx0 + A.istdpMeterPos(last.rate, maxRate) * (mx1 - mx0);
     ctx.strokeStyle = c1; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(nx, my); ctx.lineTo(nx, my - 22); ctx.stroke();
     ctx.fillStyle = c1; ctx.beginPath(); ctx.arc(nx, my - 22, 4, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = ink; ctx.textBaseline = 'top';
-    ctx.fillText(`rate = ${last.rate.toFixed(1)} Hz`, nx, my + 16);
+    ctx.fillText(`rate = ${last.rate.toFixed(1)} Hz`, ui.fitText(ctx, `rate = ${last.rate.toFixed(1)} Hz`, nx, W, 'center'), my + 16);
   }
 
   function drawPlots() {

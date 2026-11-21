@@ -212,7 +212,8 @@ tryThis.style.fontStyle = 'italic';
     // the label (it would otherwise poke out of the fill in the small bucket).
     if (yBot - yWater >= 16) {
       ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText(`v = ${heroV.toFixed(1)} mV`, bx + 6, yWater + 4);
+      const vtxt = `v = ${heroV.toFixed(1)} mV`;
+      ctx.fillText(vtxt, ui.fitText(ctx, vtxt, bx + 6, W), yWater + 4);
     }
     ctx.fillStyle = pal.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillText('a real LIF at this I (slowed)', cx, yBot + 8);

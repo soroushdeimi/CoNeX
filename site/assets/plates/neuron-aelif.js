@@ -233,7 +233,7 @@ tryThis.style.fontStyle = 'italic';
     // so it is never cut at the right edge on a narrow canvas.
     ctx.fillStyle = pal.muted; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    ctx.fillText('w = 0 pA', tx + tw - 4, tMid);
+    ctx.fillText('w = 0 pA', ui.fitText(ctx, 'w = 0 pA', tx + tw - 4, W, 'right'), tMid);
     ctx.fillStyle = pal.adapt; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.fillText(`w = ${wNow.toFixed(2)} pA`, tcx, tTop - 6);
     ctx.fillStyle = pal.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'top';

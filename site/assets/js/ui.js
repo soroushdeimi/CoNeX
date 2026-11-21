@@ -706,6 +706,27 @@ export function canvas(parent, { height = 200 }) {
 
 // --- Text ------------------------------------------------------------------
 
+// Clamp a label's x so it stays inside the canvas [0, width] for the given
+// textAlign. Returns the adjusted x to draw at. A no-op when the label already
+// fits, so it is safe to wrap every hand-drawn label.
+export function fitText(ctx, text, x, width, align = 'left') {
+  const m = ctx.measureText(text);
+  const w = m && typeof m.width === 'number' ? m.width : 0;
+  if (align === 'right') {
+    if (x - w < 0) return w;
+    if (x > width) return width;
+    return x;
+  }
+  if (align === 'center') {
+    if (x - w / 2 < 0) return w / 2;
+    if (x + w / 2 > width) return width - w / 2;
+    return x;
+  }
+  if (x + w > width) return Math.max(0, width - w);
+  if (x < 0) return 0;
+  return x;
+}
+
 export function note(parent, html) {
   const p = document.createElement('p');
   p.className = 'ui-note';
@@ -1128,7 +1149,7 @@ export function narration(parent) {
 
 const ui = {
   layout, section, slider, number, select, toggle, button,
-  plot, raster, heatmap, canvas, hero, narration, tryThis,
+  plot, raster, heatmap, canvas, hero, narration, tryThis, fitText,
   note, equation, code,
   rng, color, onTheme, animate, player, live, ease,
   setTheme, getTheme, keyedParams,

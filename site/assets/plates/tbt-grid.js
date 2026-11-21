@@ -280,8 +280,8 @@ export function mount(root, ui) {
       ctx.fillStyle = ink;
       ctx.font = '10px ui-monospace, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(`module ${m}`, x0, y0 + side + 12);
-      ctx.fillText(`λ = ${module.scales[cell].toFixed(2)} a.u.`, x0, y0 + side + 24);
+      ctx.fillText(`module ${m}`, ui.fitText(ctx, `module ${m}`, x0, width), y0 + side + 12);
+      ctx.fillText(`λ = ${module.scales[cell].toFixed(2)} a.u.`, ui.fitText(ctx, `λ = ${module.scales[cell].toFixed(2)} a.u.`, x0, width), y0 + side + 24);
     }
   }
 

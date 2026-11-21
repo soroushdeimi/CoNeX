@@ -159,8 +159,10 @@ export function mount(root, ui) {
     ctx.textAlign = 'center';
     // Shorten the captions on narrow screens so the two halves do not overlap.
     const narrow = W < 600;
-    ctx.fillText(narrow ? 'post first: LTD' : 'post first (depression)', (wx0 + sx(0)) / 2, wy1 + 14);
-    ctx.fillText(narrow ? 'pre first: LTP' : 'pre first (potentiation)', (sx(0) + wx1) / 2, wy1 + 14);
+    const leftCap = narrow ? 'post first: LTD' : 'post first (depression)';
+    const rightCap = narrow ? 'pre first: LTP' : 'pre first (potentiation)';
+    ctx.fillText(leftCap, ui.fitText(ctx, leftCap, (wx0 + sx(0)) / 2, W, 'center'), wy1 + 14);
+    ctx.fillText(rightCap, ui.fitText(ctx, rightCap, (sx(0) + wx1) / 2, W, 'center'), wy1 + 14);
   }
 
   function drawPlots() {

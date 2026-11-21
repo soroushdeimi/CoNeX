@@ -203,6 +203,8 @@ function makeUi() {
     return h;
   };
 
+  ui.fitText = (ctx, text, x, width, align = 'left') => x;
+
   ui.tryThis = (parent, text) => {
     const e = makeEl('div');
     e.className = 'ui-trythis';

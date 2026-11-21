@@ -526,3 +526,34 @@ test('ui.tryThis works on an empty figures column', async () => {
   assert.equal(figures.children.length, 1);
   assert.equal(figures.children[0], line);
 });
+
+// A fake 2d context whose measureText reports a fixed width.
+function fakeCtx(width) {
+  return { measureText: () => ({ width }) };
+}
+
+test('ui.fitText leaves a fitting label alone', async () => {
+  const ui = await import('../assets/js/ui.js');
+  // label 40px wide at x=10 in a 200px canvas: fits, so x is unchanged
+  assert.equal(ui.fitText(fakeCtx(40), 'x', 10, 200, 'left'), 10);
+  assert.equal(ui.fitText(fakeCtx(40), 'x', 100, 200, 'center'), 100);
+  assert.equal(ui.fitText(fakeCtx(40), 'x', 190, 200, 'right'), 190);
+});
+
+test('ui.fitText clamps a label that would run off the right edge', async () => {
+  const ui = await import('../assets/js/ui.js');
+  // left-aligned 40px label at x=180 in a 200px canvas overflows -> x=160
+  assert.equal(ui.fitText(fakeCtx(40), 'x', 180, 200, 'left'), 160);
+  // right-aligned 40px label at x=10 overflows the left -> x=40
+  assert.equal(ui.fitText(fakeCtx(40), 'x', 10, 200, 'right'), 40);
+  // centred 40px label at x=195 overflows the right -> x=180
+  assert.equal(ui.fitText(fakeCtx(40), 'x', 195, 200, 'center'), 180);
+});
+
+test('ui.fitText never returns a negative x', async () => {
+  const ui = await import('../assets/js/ui.js');
+  // left-aligned 40px label at x=-5 -> clamped to 0
+  assert.equal(ui.fitText(fakeCtx(40), 'x', -5, 200, 'left'), 0);
+  // right-aligned 40px label at x=-50 -> clamped to 40 (not negative)
+  assert.equal(ui.fitText(fakeCtx(40), 'x', -50, 200, 'right'), 40);
+});

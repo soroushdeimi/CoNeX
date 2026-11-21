@@ -65,7 +65,7 @@ export function mount(root, ui) {
   const figI = ui.plot(figures, { height: 120, xLabel: 't', yLabel: 'I', xUnit: 'ms', yUnit: 'pA' });
   // Leaky-bucket picture of the LIF (the main figure; it replaces the old
   // membrane gauge), driven by the same run and the same t.
-  const bucket = ui.canvas(figures, { height: 420 });
+  const bucket = ui.canvas(figures, { height: 344 });
   const bucketCap = document.createElement('p');
   bucketCap.style.fontStyle = 'italic';
   bucketCap.style.color = 'var(--muted)';
@@ -145,7 +145,7 @@ export function mount(root, ui) {
     const bw = Math.min(240, Math.max(150, W * 0.42));
     const bx = (W - bw) / 2;
     const cx = bx + bw / 2;
-    const yRim = 92, yBot = 300;            // rim (threshold) and floor (v_rest)
+    const yRim = 90, yBot = 280;            // rim (threshold) and floor (v_rest)
     const yOf = (val) => yBot - ((val - p.v_rest) / (p.threshold - p.v_rest)) * (yBot - yRim);
 
     // Water fill from v_rest up to the current level (clipped to the bucket).
@@ -207,9 +207,11 @@ export function mount(root, ui) {
     ctx.moveTo(bx + bw - 2, holeY);
     ctx.quadraticCurveTo(bx + bw + jetLen * 0.5, holeY + 4, bx + bw + jetLen, holeY + jetLen * 0.5);
     ctx.stroke();
+    // Leak label: centred below the bucket floor (below the jet's end), so it
+    // never collides with the v_rest / v_reset / threshold marks on the right.
     ctx.fillStyle = pal.leak;
-    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillText(`leak (v − v_rest)/τ = ${leak.toFixed(2)} mV/ms`, bx + bw + 10, holeY + 26);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(`leak (v − v_rest)/τ = ${leak.toFixed(2)} mV/ms`, cx, yBot + 14);
 
     // v readout on the water surface (left of the tap stream, which falls at centre).
     ctx.fillStyle = pal.ink;
@@ -227,7 +229,7 @@ export function mount(root, ui) {
 
     // Spike strip: a tick at each real spike time up to t.
     const tMax = v.length * p.dt;
-    const sx0 = bx, sx1 = bx + bw, sy = 330, sh = 16;
+    const sx0 = bx, sx1 = bx + bw, sy = 328, sh = 16;
     ctx.strokeStyle = pal.rule;
     ctx.lineWidth = 1;
     ctx.strokeRect(sx0, sy, sx1 - sx0, sh);

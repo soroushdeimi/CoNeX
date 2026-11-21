@@ -32,10 +32,7 @@ export function mount(root, ui) {
   };
   const DT = 1; // ms of model time per step
 
-  const tryThis = document.createElement('p');
-  tryThis.className = 'ui-trythis';
-  tryThis.innerHTML = '<b>Try this:</b> change <b>post offset</b> and watch the weight rise (pre first) or fall (post first).';
-  figures.appendChild(tryThis);
+  ui.tryThis(figures, 'Try this: change post offset and watch the weight rise (pre first) or fall (post first).');
 
   const hero = ui.hero(figures, { height: 300 });
   const tracePlot = ui.plot(figures, { height: 200, xLabel: 'time', xUnit: 'ms', yLabel: 'trace / weight', yUnit: 'a.u.' });

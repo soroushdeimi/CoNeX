@@ -42,6 +42,11 @@ function makeEl(tag = 'div') {
       contains() { return false; },
     },
     appendChild(c) { e.children.push(c); return c; },
+    insertBefore(c, ref) {
+      const i = ref ? e.children.indexOf(ref) : -1;
+      if (i < 0) e.children.push(c); else e.children.splice(i, 0, c);
+      return c;
+    },
     removeChild(c) { e.children = e.children.filter((x) => x !== c); return c; },
     addEventListener() {},
     removeEventListener() {},
@@ -195,6 +200,14 @@ function makeUi() {
     const h = { _text: '', set(t) { h._text = t; }, get() { return h._text; } };
     ui._narrations.push(h);
     return h;
+  };
+
+  ui.tryThis = (parent, text) => {
+    const e = makeEl('div');
+    e.className = 'ui-trythis';
+    e.textContent = text;
+    parent.insertBefore(e, parent.firstChild);
+    return e;
   };
 
   ui.note = (parent, html) => {

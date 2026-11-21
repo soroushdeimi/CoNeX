@@ -24,10 +24,7 @@ export function mount(root, ui) {
   };
   const DT = state.dt;
 
-  const tryThis = document.createElement('p');
-  tryThis.className = 'ui-trythis';
-  tryThis.innerHTML = '<b>Try this:</b> raise <b>rho</b> and watch the inhibitory weight shrink so the post rate climbs to the new target.';
-  figures.appendChild(tryThis);
+  ui.tryThis(figures, 'Try this: raise rho and watch the inhibitory weight shrink so the post rate climbs to the new target.');
 
   const hero = ui.hero(figures, { height: 300 });
   const ratePlot = ui.plot(figures, { height: 200, xLabel: 'time', xUnit: 'ms', yLabel: 'post rate', yUnit: 'Hz' });

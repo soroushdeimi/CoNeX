@@ -89,10 +89,7 @@ export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
   const state = { type: 'dense', density: 0.5, kh: 3, kw: 3, stride: 1, pattern: 'checker', inhibitory: false, seed: 7 };
 
-  const tryThis = document.createElement('p');
-  tryThis.className = 'ui-trythis';
-  tryThis.innerHTML = '<b>Try this:</b> switch <b>type</b> to sparse and lower <b>density</b>; watch fewer connections carry the current.';
-  figures.appendChild(tryThis);
+  ui.tryThis(figures, 'Try this: switch type to sparse and lower density; watch fewer connections carry the current.');
 
   const hero = ui.hero(figures, { height: 300 });
   const inputHeat = ui.heatmap(figures, { rows: H, cols: W, label: 'input pattern (pre spikes)' });

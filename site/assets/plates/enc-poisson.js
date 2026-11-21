@@ -51,10 +51,7 @@ export function mount(root, ui) {
   const N = 256;
   const FLIGHT = 4; // model steps a spark takes to fly from the pixel to the raster
 
-  const tryThis = document.createElement('p');
-  tryThis.className = 'ui-trythis';
-  tryThis.innerHTML = '<b>Try this:</b> switch <b>encoder</b> to Intensity2Latency and watch bright pixels spike sooner.';
-  figures.appendChild(tryThis);
+  ui.tryThis(figures, 'Try this: switch encoder to Intensity2Latency and watch bright pixels spike sooner.');
 
   const hero = ui.hero(figures, { height: 300 });
   const raster = ui.raster(figures, { height: 220, xLabel: 'time', xUnit: 'steps' });

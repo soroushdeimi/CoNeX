@@ -96,13 +96,12 @@ export function hhSimulate(p, I, steps, dt, initV) {
 
 // --- Pure mapping functions for the hero animation (AMENDMENT 5) ---
 
-// Number of open subunits to draw for a gate with open probability `fraction`
-// (0..1) and `total` subunits. Deterministic: round to the nearest integer.
-export function openGates(fraction, total) {
-  if (fraction < 0 || fraction > 1) {
-    throw new RangeError(`gate fraction must be in [0,1], got ${fraction}`);
-  }
-  return Math.round(fraction * total);
+// Opening angle (degrees) of a gate flap from its gate variable (0 closed ..
+// 1 open). A fully open flap swings 50 degrees from the closed (blocking)
+// position.
+export function flapAngle(gate) {
+  if (gate < 0 || gate > 1) throw new RangeError(`gate must be in [0,1], got ${gate}`);
+  return 50 * gate;
 }
 
 // Particle spawn rate (particles per second of real time) from a real current
@@ -113,16 +112,19 @@ export function particleRate(current, scale = 1) {
   return Math.abs(current) * scale;
 }
 
-// Membrane tint fraction 0..1 from the voltage, for shading the cell interior.
-export function membraneTint(v, vMin, vMax) {
-  if (!(vMax > vMin)) throw new RangeError(`vMax must exceed vMin, got ${vMax} <= ${vMin}`);
-  return Math.max(0, Math.min(1, (v - vMin) / (vMax - vMin)));
+// Membrane polarity in [-1, 1] from the voltage: -1 = fully hyperpolarized
+// (indigo, at -90 mV), 0 = neutral (at -65 mV), +1 = fully depolarized (coral,
+// at +40 mV). The two sides use different spans (25 mV down, 105 mV up).
+export function membranePolarity(v) {
+  const p = v <= -65 ? (v + 65) / 25 : (v + 65) / 105; // -90 -> -1, -65 -> 0, +40 -> 1
+  return Math.max(-1, Math.min(1, p));
 }
 
 // One-line narration driven by the model state. i_Na < 0 is inward
 // (depolarizing); i_K > 0 is outward (hyperpolarizing).
 export function hhNarration({ v, v_rest, i_Na, i_K, h }) {
   if (v < v_rest - 2) return 'afterhyperpolarization: v below rest, K+ still flowing out';
+  if (i_Na < -50) return 'Na+ rushes in: strong inward current';
   if (i_K > 20) return 'K+ gates open: repolarization';
   if (i_Na < -20 && h < 0.4) return 'h closes: Na+ inactivates';
   if (i_Na < -20) return 'Na+ gates open: depolarization accelerates';

@@ -7,9 +7,9 @@ import {
   hhSteadyGates,
   hhStep,
   hhSimulate,
-  openGates,
+  flapAngle,
   particleRate,
-  membraneTint,
+  membranePolarity,
   hhNarration,
 } from '../assets/js/models/hh.js';
 
@@ -112,17 +112,16 @@ test('hhStep: no reset after a spike (v keeps rising past threshold)', () => {
 
 // --- Pure mapping functions (AMENDMENT 5) ---
 
-test('openGates: fraction -> open subunits (hand-computed)', () => {
-  assert.equal(openGates(0, 3), 0);
-  assert.equal(openGates(1, 3), 3);
-  assert.equal(openGates(0.5, 4), 2);
-  assert.equal(openGates(0.33, 3), 1); // 0.99 -> rounds to 1
-  assert.equal(openGates(0.67, 3), 2); // 2.01 -> rounds to 2
+test('flapAngle: gate variable -> opening angle (hand-computed)', () => {
+  assert.equal(flapAngle(0), 0);
+  assert.equal(flapAngle(1), 50);
+  assert.equal(flapAngle(0.5), 25);
+  assert.equal(flapAngle(0.2), 10);
 });
 
-test('openGates throws on a fraction outside [0,1]', () => {
-  assert.throws(() => openGates(1.2, 3), /gate fraction must be in \[0,1\]/);
-  assert.throws(() => openGates(-0.1, 4), /gate fraction must be in \[0,1\]/);
+test('flapAngle throws on a gate outside [0,1]', () => {
+  assert.throws(() => flapAngle(1.2), /gate must be in \[0,1\]/);
+  assert.throws(() => flapAngle(-0.1), /gate must be in \[0,1\]/);
 });
 
 test('particleRate: proportional to |current| (hand-computed)', () => {
@@ -132,23 +131,22 @@ test('particleRate: proportional to |current| (hand-computed)', () => {
   assert.equal(particleRate(10, 2), 20);  // scale
 });
 
-test('membraneTint: voltage -> 0..1 fraction, clamped (hand-computed)', () => {
-  close(membraneTint(-65, -80, 40), (15) / 120, 1e-12, 'mid'); // (-65+80)/(40+80)
-  close(membraneTint(-80, -80, 40), 0, 1e-12, 'floor');
-  close(membraneTint(40, -80, 40), 1, 1e-12, 'ceiling');
-  close(membraneTint(100, -80, 40), 1, 1e-12, 'clamped above');
-  close(membraneTint(-100, -80, 40), 0, 1e-12, 'clamped below');
-});
-
-test('membraneTint throws when vMax does not exceed vMin', () => {
-  assert.throws(() => membraneTint(0, 0, 0), /vMax must exceed vMin/);
+test('membranePolarity: voltage -> [-1,1] (hand-computed)', () => {
+  close(membranePolarity(-65), 0, 1e-12, 'neutral at rest');
+  close(membranePolarity(-90), -1, 1e-12, 'fully hyperpolarized');
+  close(membranePolarity(40), 1, 1e-12, 'fully depolarized');
+  close(membranePolarity(-77.5), -0.5, 1e-12, 'mid hyperpolarized'); // (-77.5+65)/25
+  close(membranePolarity(10), 75 / 105, 1e-12, 'mid depolarized');   // (10+65)/105
+  close(membranePolarity(-100), -1, 1e-12, 'clamped below');
+  close(membranePolarity(100), 1, 1e-12, 'clamped above');
 });
 
 test('hhNarration: driven by the model state (hand-computed)', () => {
   const base = { v_rest: -65, i_Na: 0, i_K: 0, h: 0.6 };
   assert.equal(hhNarration({ ...base, v: -75 }), 'afterhyperpolarization: v below rest, K+ still flowing out');
+  assert.equal(hhNarration({ ...base, v: 10, i_Na: -60, h: 0.6 }), 'Na+ rushes in: strong inward current');
   assert.equal(hhNarration({ ...base, v: -60, i_K: 30 }), 'K+ gates open: repolarization');
-  assert.equal(hhNarration({ ...base, v: 10, i_Na: -50, h: 0.3 }), 'h closes: Na+ inactivates');
-  assert.equal(hhNarration({ ...base, v: 10, i_Na: -50, h: 0.6 }), 'Na+ gates open: depolarization accelerates');
+  assert.equal(hhNarration({ ...base, v: 10, i_Na: -30, h: 0.3 }), 'h closes: Na+ inactivates');
+  assert.equal(hhNarration({ ...base, v: 10, i_Na: -30, h: 0.6 }), 'Na+ gates open: depolarization accelerates');
   assert.equal(hhNarration({ ...base, v: -65 }), 'at rest');
 });

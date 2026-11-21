@@ -47,6 +47,7 @@ export function mount(root, ui) {
 
   // --- figures ---
   const arena = ui.canvas(figures, { height: 320 });
+  const tiles = ui.canvas(figures, { height: 160 });
   const firing = ui.heatmap(figures, { rows: 40, cols: 40, label: 'firing map, module 0 cell 0' });
 
   const pos = [1.0, 1.0];
@@ -104,8 +105,59 @@ export function mount(root, ui) {
     ctx.stroke();
   }
 
+  // One tile per module: its scale, orientation, and phase offset.
+  function drawTiles() {
+    const { ctx, width, height } = tiles;
+    ctx.clearRect(0, 0, width, height);
+    const ink = ui.color('ink');
+    const muted = ui.color('muted');
+    const c1 = ui.color('c1');
+    const n = nModules;
+    const tw = width / n;
+    const th = height - 22;
+    for (let m = 0; m < n; m++) {
+      const scale = module.scales[m * cellsPerModule];
+      const orient = module.orientations[m * cellsPerModule];
+      const px = module.gridPhase[m * cellsPerModule * 2];
+      const py = module.gridPhase[m * cellsPerModule * 2 + 1];
+      const x0 = m * tw + 4;
+      const y0 = 4;
+      ctx.strokeStyle = muted;
+      ctx.strokeRect(x0, y0, tw - 8, th);
+      // mini grid: lines at the module's orientation, spaced by its scale
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x0, y0, tw - 8, th);
+      ctx.clip();
+      ctx.strokeStyle = c1;
+      ctx.globalAlpha = 0.5;
+      const spacing = Math.max(6, (scale / 2.0) * 22);
+      const ang = orient;
+      for (let o = -th; o < tw + th; o += spacing) {
+        ctx.beginPath();
+        ctx.moveTo(x0 + o, y0);
+        ctx.lineTo(x0 + o + th * Math.tan(ang), y0 + th);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
+      // phase marker
+      ctx.fillStyle = c1;
+      ctx.beginPath();
+      ctx.arc(x0 + (px / (2 * Math.PI)) * (tw - 8), y0 + (1 - py / (2 * Math.PI)) * th, 3, 0, 2 * Math.PI);
+      ctx.fill();
+      // labels
+      ctx.fillStyle = ink;
+      ctx.font = '10px ui-monospace, monospace';
+      ctx.fillText(`m${m}`, x0 + 2, y0 + 11);
+      ctx.fillStyle = muted;
+      ctx.fillText(`λ${scale.toFixed(1)} θ${orient.toFixed(1)}`, x0 + 2, y0 + th - 4);
+    }
+  }
+
   function render() {
     drawArena();
+    drawTiles();
   }
 
   const anim = ui.animate((dtMs) => {
@@ -159,6 +211,9 @@ export function mount(root, ui) {
     integrates velocity over time (dead reckoning). This is the allocentric
     reference frame the Thousand Brains Theory uses to let each column track
     where an object is.</p>
+    <p>The tiles show each module's own scale &lambda; and orientation &theta;
+    (the line spacing and angle in the mini-grid) plus its phase offset (the dot).
+    The large heatmap is the firing map of module 0's first cell over the arena.</p>
     <p><strong>Important:</strong> the hexagonal periodicity is <em>built into the
     model</em>. The wave vectors are fixed by the scale and orientation, so the
     lattice is imposed by construction &mdash; it is not learned from experience.

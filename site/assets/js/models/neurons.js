@@ -223,6 +223,17 @@ export function elifNarration({ v, p, I, splashing }) {
     : 'v below take-off: input and leak balance';
 }
 
+// AELIF hero narration, driven by the real quantities. While splashing it reports
+// the reset; otherwise it compares the adaptation current (R*w) to the input
+// (R*I): the net drive is R*(I - w), so when w exceeds I the adaptation pulls v
+// down and firing slows.
+export function aelifNarration({ v, omega, p, I, splashing }) {
+  if (splashing) return 'threshold crossed: spike, reset to v_reset';
+  return omega > I
+    ? 'adaptation w exceeds input: v is pulled down, firing slows'
+    : 'input beats adaptation: v rises toward threshold';
+}
+
 // Analytic LIF firing rate (Hz, in a.u. of time): f = 1 / (tau * ln((vss-v_reset)/(vss-threshold)))
 // where vss = v_rest + R*I. The formula is only valid in the normal firing regime
 // v_reset < threshold < vss; outside it (e.g. v_reset >= threshold, or I at/below the

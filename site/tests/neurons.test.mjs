@@ -17,6 +17,7 @@ import {
   dropletCount,
   elifExpTerm,
   elifNarration,
+  aelifNarration,
   fiCurve,
   kwta,
   inherentNoise,
@@ -210,6 +211,36 @@ test('aelifStep matches golden aelif_step trace (v and omega)', () => {
   traceClose(r.v, S.aelif_step.v);
   traceClose(r.omega, S.aelif_step.omega);
   assert.deepEqual(r.spikes, S.aelif_step.spikes);
+});
+
+test('aelifNarration: adaptation vs input, driven by the real quantities (hand-computed)', () => {
+  const p = { R: 0.5, tau: 20, v_rest: -70, threshold: 0 };
+  const I = 65;
+  // just spiked -> reset line
+  assert.equal(aelifNarration({ v: -55, omega: 5, p, I, splashing: true }), 'threshold crossed: spike, reset to v_reset');
+  // w below I -> input wins -> rises
+  assert.equal(aelifNarration({ v: -60, omega: 10, p, I, splashing: false }), 'input beats adaptation: v rises toward threshold');
+  // w above I -> adaptation wins -> pulled down
+  assert.equal(aelifNarration({ v: -60, omega: 80, p, I, splashing: false }), 'adaptation w exceeds input: v is pulled down, firing slows');
+});
+
+test('AELIF: N live steps equal the precomputed run bit-for-bit', () => {
+  const p = { R: 0.5, tau: 20, threshold: 0, v_reset: -55, v_rest: -70, delta: 2, theta_rh: -50, alpha: 0, beta: 60, w_tau: 30, dt: 0.1 };
+  const I = 65;
+  const N = 500;
+  const ref = simulate('aelif', p, I, N, p.dt, p.v_rest);
+  let state = { v: p.v_rest, omega: 0.0 };
+  const liveV = [], liveW = [], liveSpikes = [];
+  for (let i = 0; i < N; i++) {
+    const r = aelifStep(state, p, I, p.dt);
+    state = { v: r.v, omega: r.omega };
+    liveV.push(r.v);
+    liveW.push(r.omega);
+    liveSpikes.push(r.spike);
+  }
+  assert.deepEqual(liveV, ref.v, 'live v trace must match the precomputed run exactly');
+  assert.deepEqual(liveW, ref.omega, 'live w trace must match the precomputed run exactly');
+  assert.deepEqual(liveSpikes, ref.spikes, 'live spike flags must match exactly');
 });
 
 // --- f-I curves ---

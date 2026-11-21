@@ -181,6 +181,27 @@ export function splashActive(t, lastSpikeT, windowMs = 0.5) {
   return t >= lastSpikeT && t < lastSpikeT + windowMs;
 }
 
+// LIF hero narration: which of the three regimes the neuron is in, as a one-line
+// caption. While splashing (just spiked) it reports the reset; otherwise it
+// compares the two real flows from bucketFlows — if the input flow exceeds the
+// leak flow the voltage is rising, else it is settling back toward steady state.
+export function lifNarration({ v, p, I, splashing }) {
+  if (splashing) return 'threshold crossed: spike, reset to v_reset';
+  const { input, leak } = bucketFlows({ R: p.R, I, tau: p.tau, v_rest: p.v_rest }, v);
+  return input > leak ? 'input beats leak: v rises' : 'leak balances input: v settles below threshold';
+}
+
+// Decorative droplets for the bucket hero. The expected count is proportional to
+// the REAL flow (mV/ms) times the frame time; spawn the whole part plus one more
+// with probability equal to the fractional part (seeded rng). Capped. Pure.
+export function dropletCount(flow, frameSeconds, rng, rate = 30, cap = 40) {
+  if (!Number.isFinite(flow) || flow <= 0) return 0;
+  const expected = flow * frameSeconds * rate;
+  const whole = Math.floor(expected);
+  const extra = rng.next() < (expected - whole) ? 1 : 0;
+  return Math.min(cap, whole + extra);
+}
+
 // Analytic LIF firing rate (Hz, in a.u. of time): f = 1 / (tau * ln((vss-v_reset)/(vss-threshold)))
 // where vss = v_rest + R*I. The formula is only valid in the normal firing regime
 // v_reset < threshold < vss; outside it (e.g. v_reset >= threshold, or I at/below the

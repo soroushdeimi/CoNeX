@@ -13,6 +13,8 @@ import {
   bucketFlows,
   bucketLevel,
   splashActive,
+  lifNarration,
+  dropletCount,
   fiCurve,
   kwta,
   inherentNoise,
@@ -85,6 +87,50 @@ test('splashActive: 0.5 ms model-time window after a spike', () => {
   assert.equal(splashActive(0.6, 0, 0.5), false, '0.6 ms after -> inactive');
   assert.equal(splashActive(0.5, 0, 0.5), false, 'at the window edge -> inactive');
   assert.equal(splashActive(10, null, 0.5), false, 'no spike -> inactive');
+});
+
+test('lifNarration: three regimes driven by the real flows (hand-computed)', () => {
+  const p = { R: 0.5, tau: 20, v_rest: -70, threshold: -50 };
+  // just spiked -> reset line
+  assert.equal(lifNarration({ v: -55, p, I: 65, splashing: true }), 'threshold crossed: spike, reset to v_reset');
+  // v=-60: input = 0.5*65/20 = 1.625, leak = (-60+70)/20 = 0.5 -> input > leak -> rises
+  assert.equal(lifNarration({ v: -60, p, I: 65, splashing: false }), 'input beats leak: v rises');
+  // v=-52: input = 1.625, leak = (-52+70)/20 = 0.9 -> still rising
+  assert.equal(lifNarration({ v: -52, p, I: 65, splashing: false }), 'input beats leak: v rises');
+  // v=-40 (above steady state -37.5? no, vss=-37.5): leak = (-40+70)/20 = 1.5 < 1.625 -> rising
+  // use a low I so leak exceeds input: I=10 -> input=0.25; v=-50 -> leak=1.0 -> settles
+  assert.equal(lifNarration({ v: -50, p, I: 10, splashing: false }), 'leak balances input: v settles below threshold');
+});
+
+test('dropletCount: proportional to flow, zero at no flow, capped, seeded', () => {
+  const rng = { next: () => 0.99 }; // always rounds up the fractional part
+  assert.equal(dropletCount(0, 0.016, rng), 0, 'no flow -> no droplets');
+  assert.equal(dropletCount(-1, 0.016, rng), 0, 'negative flow -> no droplets');
+  // flow=10 mV/ms, frame 0.016 s, rate 30 -> expected 4.8 -> 4 + (0.99<0.8? no) = 4
+  assert.equal(dropletCount(10, 0.016, rng), 4, 'whole part, fraction not met');
+  // fraction met: expected 4.2 with rng 0.1 -> 4 + 1 = 5
+  assert.equal(dropletCount(10, 0.014, { next: () => 0.1 }), 5, 'fractional part met');
+  // capped at 40
+  assert.equal(dropletCount(1000, 1, rng), 40, 'capped');
+});
+
+test('LIF: N live steps equal the precomputed run bit-for-bit', () => {
+  // The plate's live step() calls lifStep once per dt with the current params.
+  // Stepping it N times must reproduce simulate() exactly (same order, same math).
+  const p = { R: 0.5, tau: 20, threshold: -50, v_reset: -55, v_rest: -70, dt: 0.1 };
+  const I = 65;
+  const N = 500;
+  const ref = simulate('lif', p, I, N, p.dt, p.v_rest);
+  let state = { v: p.v_rest };
+  const liveV = [], liveSpikes = [];
+  for (let i = 0; i < N; i++) {
+    const r = lifStep(state, p, I, p.dt);
+    state = { v: r.v };
+    liveV.push(r.v);
+    liveSpikes.push(r.spike);
+  }
+  assert.deepEqual(liveV, ref.v, 'live v trace must match the precomputed run exactly');
+  assert.deepEqual(liveSpikes, ref.spikes, 'live spike flags must match exactly');
 });
 
 test('LIF at rheobase never fires; just above it fires (golden)', () => {

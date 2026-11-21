@@ -130,7 +130,14 @@
           if (p.conex && p.conex.length) {
             const cx = document.createElement('div');
             cx.className = 'conex-classes';
-            cx.textContent = p.conex.join(' · ');
+            // short class name (last dotted part); full path in the title
+            for (const [i, c] of p.conex.entries()) {
+              if (i) cx.appendChild(document.createTextNode(' · '));
+              const span = document.createElement('span');
+              span.textContent = c.split('.').pop();
+              span.title = c;
+              cx.appendChild(span);
+            }
             card.appendChild(cx);
           }
           grid.appendChild(card);

@@ -29,6 +29,9 @@
     <input id="search" class="searchbox" type="search"
            placeholder="Search by title, summary or CoNeX class…"
            aria-label="Search plates">
+    <p id="rules-jump" class="rules-jump" hidden>
+      <a href="#rules">Jump to the learning-rules table ↓</a>
+    </p>
 
     <div id="start-path-wrap" class="card" hidden>
       <h3>Start here</h3>
@@ -41,7 +44,7 @@
     </p>
 
     <section id="rules-wrap" hidden>
-      <h2>All learning rules in CoNeX</h2>
+      <h2 id="rules">All learning rules in CoNeX</h2>
       <div class="card">
         <div class="rules-scroll">
           <table class="rules-table">
@@ -51,6 +54,7 @@
             <tbody id="rules-body"></tbody>
           </table>
         </div>
+        <div class="rules-cards" id="rules-cards"></div>
       </div>
     </section>
 
@@ -171,6 +175,8 @@
     // any learning_rules yet.
     const rulesWrap = document.getElementById('rules-wrap');
     const rulesBody = document.getElementById('rules-body');
+    const rulesCards = document.getElementById('rules-cards');
+    const rulesJump = document.getElementById('rules-jump');
     const rules = new Map(); // name -> { area, areaTitle, plates: [{id, title}] }
     for (const c of catalogs) {
       for (const p of c.plates) {
@@ -183,6 +189,7 @@
     }
     if (rules.size) {
       rulesWrap.hidden = false;
+      rulesJump.hidden = false;
       const rows = [...rules.entries()].sort((a, b) =>
         a[1].area.localeCompare(b[1].area) || a[0].localeCompare(b[0]));
       for (const [name, r] of rows) {
@@ -201,6 +208,27 @@
         tdArea.textContent = r.areaTitle;
         tr.append(tdRule, tdPlates, tdArea);
         rulesBody.appendChild(tr);
+
+        // mobile card: identifier intact on its own line, then plate links, then area
+        const card = document.createElement('div');
+        card.className = 'rule-card';
+        const idEl = document.createElement('div');
+        idEl.className = 'rule-card-id';
+        idEl.textContent = name;
+        const platesEl = document.createElement('div');
+        platesEl.className = 'rule-card-plates';
+        r.plates.forEach((p, i) => {
+          if (i) platesEl.appendChild(document.createTextNode(', '));
+          const a = document.createElement('a');
+          a.href = `plate.html?id=${encodeURIComponent(p.id)}`;
+          a.textContent = p.title;
+          platesEl.appendChild(a);
+        });
+        const areaEl = document.createElement('div');
+        areaEl.className = 'rule-card-area';
+        areaEl.textContent = r.areaTitle;
+        card.append(idEl, platesEl, areaEl);
+        rulesCards.appendChild(card);
       }
     }
   </script>

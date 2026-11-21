@@ -485,6 +485,51 @@ pre {
   font-size: 0.85rem;
 }
 
+/* jump link under the search box, shown once the table exists */
+.rules-jump {
+  margin: 0 0 0.8rem;
+  font-size: 0.85rem;
+}
+
+/* mobile: the table fragments long identifiers, so render each rule as a card */
+.rules-cards {
+  display: none;
+}
+@media (max-width: 600px) {
+  .rules-scroll {
+    display: none;
+  }
+  .rules-cards {
+    display: grid;
+    gap: 0.8rem;
+  }
+  .rule-card {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--c1);
+    border-radius: 4px;
+    background: var(--card);
+    padding: 0.7rem 0.9rem;
+  }
+  .rule-card-id {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85rem;
+    overflow-wrap: anywhere;
+  }
+  .rule-card-plates {
+    margin: 0.3rem 0;
+    font-size: 0.9rem;
+  }
+  .rule-card-area {
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+}
+
+/* keep the jump target clear of the topbar when the anchor is followed */
+#rules {
+  scroll-margin-top: 1rem;
+}
+
 .searchbox {
   width: 100%;
   max-width: 420px;

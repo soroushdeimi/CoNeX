@@ -66,6 +66,7 @@ export function mount(root, ui) {
   let layerBoxes = {}; // per layer: {x, y, w, h} in canvas px, for click hit-testing
   let selected = null;
   let currentCycle = 0;
+  let mobileMode = false;
 
   // The drawing is laid out in a fixed 760x460 space and scaled to the canvas.
   const VW = 760, VH = 460;
@@ -82,6 +83,60 @@ export function mount(root, ui) {
     'L6_to_L4': { x: BOX_X - 74, side: 'left' },
   };
 
+  // Mobile layout: full-width layer cards stacked, then the connections in
+  // CoNeX order below (the active one highlighted). 14 px labels.
+  function renderMobile(ctx, width, height, col) {
+    const { ink, muted, c1, c2, c3, c4, paper, layerColor, activeConn } = col;
+    mobileMode = true;
+    const pad = 12;
+    const cardW = width - 2 * pad;
+    const cardH = 46;
+    const gap = 10;
+    const topY = 8;
+    layerBoxes = {};
+    for (let i = 0; i < LAYER_ORDER.length; i++) {
+      const name = LAYER_ORDER[i];
+      const y = topY + i * (cardH + gap);
+      layerBoxes[name] = { x: pad, y, w: cardW, h: cardH };
+      const isSel = selected === name;
+      ctx.fillStyle = paper;
+      ctx.strokeStyle = layerColor[name];
+      ctx.lineWidth = isSel ? 3 : 2;
+      ctx.fillRect(pad, y, cardW, cardH);
+      ctx.strokeRect(pad, y, cardW, cardH);
+      ctx.fillStyle = ink;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = '16px ui-serif, Georgia, serif';
+      ctx.fillText(name === 'L23' ? 'L2/3' : name, pad + 12, y + cardH / 2);
+      ctx.fillStyle = muted;
+      ctx.font = '13px ui-monospace, monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${structure.layerSizes[name]} neurons`, pad + cardW - 12, y + cardH / 2);
+    }
+    // connections list below the cards
+    const listTop = topY + LAYER_ORDER.length * (cardH + gap) + 6;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = muted;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillText('connections (CoNeX order):', pad, listTop);
+    const connColor = { feedforward: c1, feedback: c4, lateral: c3 };
+    for (let i = 0; i < CONN_ORDER.length; i++) {
+      const key = CONN_ORDER[i];
+      const conn = structure.connections.find((c) => `${c.from}_to_${c.to}` === key);
+      const y = listTop + 18 + i * 18;
+      const active = key === activeConn;
+      ctx.fillStyle = active ? c2 : muted;
+      ctx.beginPath();
+      ctx.arc(pad + 5, y, active ? 4 : 2.5, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.fillStyle = active ? ink : muted;
+      ctx.font = active ? 'bold 13px system-ui, sans-serif' : '13px system-ui, sans-serif';
+      ctx.fillText(`${conn.from} → ${conn.to}  ${conn.label} (${conn.type})`, pad + 16, y);
+    }
+  }
+
   function render() {
     const { ctx, width, height } = hero;
     ctx.clearRect(0, 0, width, height);
@@ -93,6 +148,16 @@ export function mount(root, ui) {
     const c4 = ui.color('c4');
     const paper = ui.color('paper');
     const layerColor = { L23: c1, L4: c2, L5: c3, L6: c4 };
+    const { key: activeConn } = pulsePosition(currentCycle, CONN_ORDER);
+
+    // Mobile: the elbow diagram is too small to read, so stack the layer cards
+    // and list the connections (in CoNeX order) below, highlighting the pulse.
+    if (width < 520) {
+      renderMobile(ctx, width, height, { ink, muted, c1, c2, c3, c4, paper, layerColor, activeConn });
+      hero.narration(columnNarration({ conn: activeConn, connOrder: CONN_ORDER }));
+      return;
+    }
+    mobileMode = false;
 
     // scale the fixed drawing space uniformly to fit the canvas, centred
     const s = Math.min(width / VW, height / VH);
@@ -212,11 +277,18 @@ export function mount(root, ui) {
   const canvas = hero.canvas;
   canvas.addEventListener('click', (ev) => {
     const rect = canvas.getBoundingClientRect();
-    const s = Math.min(hero.width / VW, hero.height / VH);
-    const ox = (hero.width - VW * s) / 2;
-    const oy = (hero.height - VH * s) / 2;
-    const vx = (ev.clientX - rect.left - ox) / s;
-    const vy = (ev.clientY - rect.top - oy) / s;
+    let vx, vy;
+    if (mobileMode) {
+      // mobile boxes are in canvas pixels
+      vx = ev.clientX - rect.left;
+      vy = ev.clientY - rect.top;
+    } else {
+      const s = Math.min(hero.width / VW, hero.height / VH);
+      const ox = (hero.width - VW * s) / 2;
+      const oy = (hero.height - VH * s) / 2;
+      vx = (ev.clientX - rect.left - ox) / s;
+      vy = (ev.clientY - rect.top - oy) / s;
+    }
     for (const name of LAYER_ORDER) {
       const b = layerBoxes[name];
       if (b && vx >= b.x && vx <= b.x + b.w && vy >= b.y && vy <= b.y + b.h) {

@@ -1,0 +1,177 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import {
+  DEFAULTS,
+  lifStep,
+  elifStep,
+  aelifStep,
+  simulate,
+  lifRheobase,
+  lifRateAnalytic,
+  fiCurve,
+  kwta,
+  inherentNoise,
+  makeActivityHomeostasis,
+  makeVoltageHomeostasis,
+} from '../assets/js/models/neurons.js';
+
+const golden = JSON.parse(readFileSync(new URL('golden/neurons.json', import.meta.url), 'utf8'));
+const S = golden.scenarios;
+const TOL = 1e-4;
+
+function close(a, b, tol = TOL) {
+  assert.ok(Math.abs(a - b) <= tol, `expected ${a} to be within ${tol} of ${b}`);
+}
+
+function traceClose(got, want, tol = TOL) {
+  assert.equal(got.length, want.length, 'trace length mismatch');
+  for (let i = 0; i < want.length; i++) close(got[i], want[i], tol);
+}
+
+// --- LIF ---
+test('lifStep matches golden lif_step trace', () => {
+  const p = S.lif_step.params;
+  const r = simulate('lif', p, S.lif_step.current, S.lif_step.steps, S.lif_step.dt);
+  traceClose(r.v, S.lif_step.v);
+  assert.deepEqual(r.spikes, S.lif_step.spikes);
+});
+
+test('lifRheobase equals (threshold - v_rest)/R and matches golden', () => {
+  const p = S.lif_rheobase.params;
+  close(lifRheobase(p), S.lif_rheobase.i_rheo);
+});
+
+test('LIF at rheobase never fires; just above it fires (golden)', () => {
+  const p = S.lif_rheobase.params;
+  const at = simulate('lif', p, S.lif_rheobase.at_rheobase.current, S.lif_rheobase.at_rheobase.steps);
+  assert.equal(at.spikes.filter(Boolean).length, S.lif_rheobase.at_rheobase.spike_count);
+  close(at.v.at(-1), S.lif_rheobase.at_rheobase.v_final);
+  const above = simulate('lif', p, S.lif_rheobase.above_rheobase.current, S.lif_rheobase.above_rheobase.steps);
+  assert.equal(above.spikes.filter(Boolean).length, S.lif_rheobase.above_rheobase.spike_count);
+  assert.equal(above.spikes.indexOf(true), S.lif_rheobase.above_rheobase.first_spike_step);
+});
+
+test('lifRateAnalytic is 0 at/below rheobase and positive above', () => {
+  const p = S.lif_rheobase.params;
+  const ir = lifRheobase(p);
+  assert.equal(lifRateAnalytic(p, ir), 0.0);
+  assert.equal(lifRateAnalytic(p, ir - 0.1), 0.0);
+  assert.ok(lifRateAnalytic(p, ir + 0.1) > 0);
+});
+
+// --- ELIF ---
+test('elifStep matches golden elif_step trace', () => {
+  const p = S.elif_step.params;
+  const r = simulate('elif', p, S.elif_step.current, S.elif_step.steps, S.elif_step.dt);
+  traceClose(r.v, S.elif_step.v);
+  assert.deepEqual(r.spikes, S.elif_step.spikes);
+});
+
+// --- AELIF ---
+test('aelifStep matches golden aelif_step trace (v and omega)', () => {
+  const p = S.aelif_step.params;
+  const r = simulate('aelif', p, S.aelif_step.current, S.aelif_step.steps, S.aelif_step.dt);
+  traceClose(r.v, S.aelif_step.v);
+  traceClose(r.omega, S.aelif_step.omega);
+  assert.deepEqual(r.spikes, S.aelif_step.spikes);
+});
+
+// --- f-I curves ---
+test('fiCurve matches golden counts for lif, elif, aelif', () => {
+  const { currents, steps, dt } = S.fi_curves;
+  for (const model of ['lif', 'elif', 'aelif']) {
+    const p = model === 'lif' ? S.lif_step.params
+      : model === 'elif' ? S.elif_step.params
+      : S.aelif_step.params;
+    const got = fiCurve(model, p, currents, steps, dt);
+    assert.deepEqual(got, S.fi_curves.counts[model], `fiCurve mismatch for ${model}`);
+  }
+});
+
+// --- KWTA ---
+test('kwta matches golden cases (top-k keep v, losers reset)', () => {
+  const { threshold, v_reset } = S.kwta.params;
+  const k = S.kwta.kwta.k;
+  for (const c of S.kwta.cases) {
+    assert.deepEqual(kwta(c.v_in, threshold, v_reset, k), c.v_out, `kwta case ${JSON.stringify(c.v_in)}`);
+  }
+});
+
+test('kwta throws on non-integer k', () => {
+  assert.throws(() => kwta([1, 2], 0, 0, 1.5), /k must be a non-negative integer/);
+});
+
+// --- InherentNoise ---
+test('inherentNoise adds uniform[0,1)*scale+offset', () => {
+  // Deterministic rng: returns 0.5 each call.
+  const rng = { next: () => 0.5 };
+  assert.deepEqual(inherentNoise([0, 10], rng, 2.0, 1.0), [2.0, 12.0]);
+});
+
+// --- Activity homeostasis (group of 4 identical LIF, current 3.0) ---
+test('activity homeostasis matches golden threshold_trace and window_spikes', () => {
+  const p = S.homeostasis_activity.params;
+  const h = S.homeostasis_activity.homeostasis;
+  const size = S.homeostasis_activity.size;
+  const I = S.homeostasis_activity.current;
+  const dt = S.homeostasis_activity.dt;
+  const steps = S.homeostasis_activity.steps;
+
+  const hos = Array.from({ length: size }, () => makeActivityHomeostasis(h));
+  const vs = new Array(size).fill(0.0);
+  const thresholds = new Array(size).fill(p.threshold);
+  const thresholdTrace = [];
+  const windowSpikes = [];
+  let acc = 0;
+  for (let it = 1; it <= steps; it++) {
+    let groupSpikes = 0;
+    for (let j = 0; j < size; j++) {
+      const r = lifStep({ v: vs[j] }, p, I, dt);
+      vs[j] = r.v;
+      groupSpikes += r.spike ? 1 : 0;
+      thresholds[j] = hos[j].step(r.spike, thresholds[j], it);
+    }
+    acc += groupSpikes;
+    if (it % h.window_size === 0) {
+      thresholdTrace.push(thresholds[0]);
+      windowSpikes.push(acc);
+      acc = 0;
+    }
+  }
+  assert.equal(thresholdTrace.length, S.homeostasis_activity.threshold_trace.length);
+  for (let w = 0; w < thresholdTrace.length; w++) {
+    close(thresholdTrace[w], S.homeostasis_activity.threshold_trace[w][0]);
+  }
+  assert.deepEqual(windowSpikes, S.homeostasis_activity.window_spikes);
+});
+
+test('activity homeostasis throws when window_size <= activity_rate', () => {
+  assert.throws(
+    () => makeActivityHomeostasis({ activity_rate: 5, window_size: 5, updating_rate: 0.1 }),
+    /window_size must exceed activity_rate/
+  );
+});
+
+// --- Voltage homeostasis (single LIF, current 1.0, band at target 5.0) ---
+test('voltage homeostasis matches golden v and exhaustion traces', () => {
+  const p = S.homeostasis_voltage.params;
+  const h = S.homeostasis_voltage.homeostasis;
+  const I = S.homeostasis_voltage.current;
+  const dt = S.homeostasis_voltage.dt;
+  const steps = S.homeostasis_voltage.steps;
+
+  const ho = makeVoltageHomeostasis(h);
+  let v = 0.0;
+  const vTrace = [];
+  const exhTrace = [];
+  for (let it = 1; it <= steps; it++) {
+    const r = lifStep({ v }, p, I, dt);
+    v = r.v;
+    v = ho.step(v);
+    vTrace.push(v);
+    exhTrace.push(ho.exhaustion);
+  }
+  traceClose(vTrace, S.homeostasis_voltage.v);
+  traceClose(exhTrace, S.homeostasis_voltage.exhaustion);
+});

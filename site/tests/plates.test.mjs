@@ -104,6 +104,8 @@ function makeUi() {
     _canvasResizes: [], // onResize handlers, fired after mount (initial layout)
     _players: [], // player() handles created by the plate
     _lives: [], // live() handles created by the plate
+    _heroes: [], // hero() handles created by the plate
+    _narrations: [], // narration() handles created by the plate
     _animated: false, // set true when the plate calls ui.animate
   };
 
@@ -178,6 +180,23 @@ function makeUi() {
     return st;
   };
 
+  // AMENDMENT 5: hero canvas + narration line. The hero behaves like ui.canvas
+  // (onResize fired once after mount) plus a narration(text) method.
+  ui.hero = (parent, opts) => {
+    const st = ui.canvas(parent, opts);
+    st.narration = (text) => { st._narration = text; };
+    ui._heroes.push(st);
+    return st;
+  };
+
+  ui.narration = (parent) => {
+    const e = makeEl('p');
+    parent.appendChild(e);
+    const h = { _text: '', set(t) { h._text = t; }, get() { return h._text; } };
+    ui._narrations.push(h);
+    return h;
+  };
+
   ui.note = (parent, html) => {
     const e = makeEl('p');
     e.innerHTML = html;
@@ -216,6 +235,12 @@ function makeUi() {
 
   ui.color = () => '#000000';
   ui.onTheme = () => {};
+  // AMENDMENT 4: the same smoothstep the real ui.ease uses.
+  ui.ease = (f) => {
+    const x = Math.min(1, Math.max(0, f));
+    if (!Number.isFinite(x)) return 0;
+    return x * x * (3 - 2 * x);
+  };
   ui.animate = () => {
     ui._animated = true;
     let running = false;

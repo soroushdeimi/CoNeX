@@ -1,5 +1,5 @@
 // Shared UI + plotting API for the CoNeX site. See .worker/CONTRACT.md.
-import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime, playerSpeedFromPos, playerPosFromSpeed, liveSteps, LIVE_MAX_STEPS } from './core.js';
+import { encodeHash, decodeHash, rng, computeTicks, dataRange, fmtTick, formatValue, listenerList, clampTime, playerAdvance, playerInteger, playerShownTime, playerSpeedFromPos, playerPosFromSpeed, liveSteps, LIVE_MAX_STEPS, ease } from './core.js';
 
 const THEME_KEY = 'conex-theme';
 const SPEED_KEY = 'conex-speed';
@@ -1048,11 +1048,52 @@ export function live(parent, { dt, unit = 'ms', modelPerSecond, windowSize, step
   return { play, pause, playing: () => playing, reset: resetAll, t: () => t };
 }
 
+// AMENDMENT 5: the large hero canvas at the top of the figures column.
+// HiDPI like ui.canvas, and the plate is told to redraw on resize AND on
+// theme change (so it can pick up ui.color() again). A one-line narration
+// caption sits under the canvas.
+export function hero(parent, { height = 320 } = {}) {
+  const st = makeCanvas(parent, height);
+  const listeners = listenerList();
+  st.redraw = () => listeners.emit();
+  ui.onTheme(() => listeners.emit());
+  const cap = document.createElement('figcaption');
+  cap.className = 'ui-narration';
+  st.fig.appendChild(cap);
+  return {
+    get canvas() { return st.canvas; },
+    get ctx() { return st.ctx; },
+    get width() { return st.width; },
+    get height() { return st.height; },
+    onResize(fn) {
+      return listeners.add(fn);
+    },
+    narration(text) {
+      cap.textContent = text;
+    },
+  };
+}
+
+// AMENDMENT 5: a one-line narration caption, driven by the model state.
+export function narration(parent) {
+  const p = document.createElement('p');
+  p.className = 'ui-narration';
+  parent.appendChild(p);
+  return {
+    set(text) {
+      p.textContent = text;
+    },
+    get() {
+      return p.textContent;
+    },
+  };
+}
+
 const ui = {
   layout, section, slider, number, select, toggle, button,
-  plot, raster, heatmap, canvas,
+  plot, raster, heatmap, canvas, hero, narration,
   note, equation, code,
-  rng, color, onTheme, animate, player, live,
+  rng, color, onTheme, animate, player, live, ease,
   setTheme, getTheme, keyedParams,
 };
 export default ui;

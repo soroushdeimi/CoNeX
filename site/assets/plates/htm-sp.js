@@ -11,7 +11,9 @@ export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
   const inputSizeCtl = ui.number(controls, { key: 'input_size', label: 'input_size', unit: 'bits', value: 64, onInput: () => reset() });
-  const nColumnsCtl = ui.number(controls, { key: 'n_columns', label: 'n_columns', unit: 'columns', value: 32, onInput: () => reset() });
+  // 256 columns with the CoNeX default local_area_density 0.02 -> 5 active
+  // columns, so the student sees several winners rather than a single one.
+  const nColumnsCtl = ui.number(controls, { key: 'n_columns', label: 'n_columns', unit: 'columns', value: 256, onInput: () => reset() });
   const potentialPctCtl = ui.slider(controls, { key: 'potential_pct', label: 'potential_pct', unit: 'a.u.', min: 0.1, max: 1, step: 0.05, value: SpatialPoolerDefaults.potential_pct, onInput: () => reset() });
   const densityCtl = ui.slider(controls, { key: 'local_area_density', label: 'local_area_density', unit: 'a.u.', min: 0.01, max: 0.5, step: 0.01, value: SpatialPoolerDefaults.local_area_density, onInput: () => reset() });
   const connectedCtl = ui.slider(controls, { key: 'syn_perm_connected', label: 'syn_perm_connected', unit: 'a.u.', min: 0.05, max: 0.5, step: 0.01, value: SpatialPoolerDefaults.syn_perm_connected, onInput: () => reset() });
@@ -36,6 +38,7 @@ export function mount(root, ui) {
   let input = null;
   let history = []; // {step, nActive, activeSet}
   let stepCount = 0;
+  let booting = false;
 
   function rebuildFigures() {
     figBox.innerHTML = '';
@@ -44,8 +47,9 @@ export function mount(root, ui) {
       cols: sp.n_potential,
       label: 'permanence (rows=columns, cols=potential inputs)',
     });
-    usagePlot = ui.plot(figBox, { height: 200, xLabel: 'step', yLabel: 'active columns', xUnit: 'steps', yUnit: 'columns' });
+    usagePlot = ui.plot(figBox, { height: 200, xLabel: 'column', yLabel: 'usage', xUnit: 'index', yUnit: 'a.u.' });
     activeCanvas = ui.canvas(figBox, { height: 60 });
+    activeCanvas.onResize(drawActive);
   }
 
   function buildInput() {
@@ -90,7 +94,13 @@ export function mount(root, ui) {
     history = [];
     stepCount = 0;
     rebuildFigures();
-    redraw();
+    // Default learning run so the usage curve and heatmap show real content
+    // on load; Step/Play continue from here. booting suppresses the notes
+    // until the run finishes so they are not appended 20 times.
+    booting = true;
+    for (let i = 0; i < 20; i++) step(true);
+    booting = false;
+    updateNotes();
   }
 
   function step(learn) {
@@ -99,6 +109,22 @@ export function mount(root, ui) {
     stepCount += 1;
     history.push({ step: stepCount, nActive: active.length, activeSet: new Set(active) });
     redraw();
+  }
+
+  // Active columns this step. The canvas backing store resets on layout/
+  // resize, so this is registered via onResize and also called from redraw.
+  function drawActive() {
+    if (!sp || !activeCanvas) return;
+    const { ctx, width, height } = activeCanvas;
+    ctx.clearRect(0, 0, width, height);
+    const last = history[history.length - 1];
+    const n = sp.n_columns;
+    const pad = 4;
+    const bw = (width - 2 * pad) / n;
+    for (let c = 0; c < n; c++) {
+      ctx.fillStyle = last && last.activeSet.has(c) ? ui.color('c2') : ui.color('muted');
+      ctx.fillRect(pad + c * bw, pad, Math.max(1, bw - 1), height - 2 * pad);
+    }
   }
 
   function redraw() {
@@ -123,24 +149,14 @@ export function mount(root, ui) {
     }
 
     // Active columns this step.
-    if (activeCanvas) {
-      const { ctx, width } = activeCanvas;
-      ctx.clearRect(0, 0, width, activeCanvas.height);
-      const last = history[history.length - 1];
-      const n = sp.n_columns;
-      const pad = 4;
-      const bw = (width - 2 * pad) / n;
-      for (let c = 0; c < n; c++) {
-        ctx.fillStyle = last && last.activeSet.has(c) ? ui.color('c2') : ui.color('muted');
-        ctx.fillRect(pad + c * bw, pad, Math.max(1, bw - 1), activeCanvas.height - 2 * pad);
-      }
-    }
+    drawActive();
 
-    updateNotes();
+    if (!booting) updateNotes();
   }
 
   function updateNotes() {
     const n = sp.n_columns;
+    notes.innerHTML = '';
     const nActive = sp.n_active;
     const last = history[history.length - 1];
     ui.note(

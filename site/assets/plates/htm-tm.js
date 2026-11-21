@@ -40,6 +40,9 @@ export function mount(root, ui) {
 
   const gridCanvas = ui.canvas(figures, { height: 220 });
   const anomalyPlot = ui.plot(figures, { height: 180, xLabel: 'step', yLabel: 'anomaly score', xUnit: 'steps', yUnit: 'a.u.' });
+  // The canvas backing store resets on layout/resize, so register the draw via
+  // onResize (called after layout and on every resize) rather than once.
+  gridCanvas.onResize(drawGrid);
 
   let tm = null;
   let seq = [];
@@ -49,6 +52,7 @@ export function mount(root, ui) {
   let anomalyHistory = [];
   let lastSymbol = null;
   let accMs = 0;
+  let booting = false;
   const STEP_MS = 500; // ~2 symbols per second while playing
 
   function reset() {
@@ -67,7 +71,13 @@ export function mount(root, ui) {
     anomalyHistory = [];
     lastSymbol = null;
     accMs = 0;
-    redraw();
+    // Default learning run (8 epochs) so the anomaly curve and grid show real
+    // content on load; Step/Play continue from here. booting suppresses the
+    // notes until the run finishes so they are not appended every step.
+    booting = true;
+    for (let e = 0; e < 8; e++) for (let i = 0; i < seq.length; i++) stepOnce();
+    booting = false;
+    updateNotes();
   }
 
   function stepOnce() {
@@ -111,7 +121,7 @@ export function mount(root, ui) {
     if (!tm) return;
     drawGrid();
     drawAnomaly();
-    updateNotes();
+    if (!booting) updateNotes();
   }
 
   function drawGrid() {
@@ -153,16 +163,35 @@ export function mount(root, ui) {
     });
   }
 
+  // Dynamic notes (readout + code) live in their own box, cleared each update
+  // so they do not accumulate as the student steps through.
+  let dynNotes = null;
+
   function updateNotes() {
+    if (!dynNotes) return;
+    dynNotes.innerHTML = '';
     const nBurst = tm.bursting_columns.filter(Boolean).length;
     ui.note(
-      notes,
+      dynNotes,
       `<p>Temporal Memory learns sequences of column SDRs. Each column holds <b>${tm.cells_per_column}</b> cells; a cell is ` +
         `<b>predictive</b> when one of its dendritic segments has ≥ <b>activation_threshold = ${actThCtl.get()}</b> connected synapses ` +
         `on currently active cells. On the next step, a column activates only its predicted cells if any are predicted, otherwise it ` +
         `<b>bursts</b> (all cells fire). This step: symbol <b>${lastSymbol ?? '—'}</b>, <b>${nBurst}</b> bursting columns, anomaly ` +
         `<b>${tm.anomaly_score.toFixed(2)}</b> (fraction of active columns that burst).</p>`
     );
+    ui.code(dynNotes, () =>
+      `from conex import TemporalMemory, TemporalMemoryConfig\n` +
+      `cfg = TemporalMemoryConfig(n_columns=18, cells_per_column=${tm.cells_per_column},\n` +
+      `    activation_threshold=${actThCtl.get()}, learning_threshold=${learnThCtl.get()},\n` +
+      `    max_new_synapses=${maxNewCtl.get()}, permanence_increment=${incCtl.get()},\n` +
+      `    permanence_decrement=${decCtl.get()})\n` +
+      `tm = TemporalMemory(config=cfg)\n` +
+      `for active_columns in sequence:\n` +
+      `    tm.compute(neurons, active_columns, learn=${learnToggle.get()})`
+    );
+  }
+
+  function staticNotes() {
     ui.note(
       notes,
       `<p><b>The context story.</b> Learn <b>A-B-C-D</b> and <b>X-B-C-Y</b>. The symbol <b>C</b> is shared, so after A-B-C the memory ` +
@@ -181,18 +210,11 @@ export function mount(root, ui) {
         `bursts. <b>ML analogy:</b> a recurrent network / finite-state predictor. The analogy breaks because learning is local, ` +
         `Hebbian, and context is stored in which cell (not which column) wins — there is no global loss.</p>`
     );
-    ui.code(notes, () =>
-      `from conex import TemporalMemory, TemporalMemoryConfig\n` +
-      `cfg = TemporalMemoryConfig(n_columns=18, cells_per_column=${tm.cells_per_column},\n` +
-      `    activation_threshold=${actThCtl.get()}, learning_threshold=${learnThCtl.get()},\n` +
-      `    max_new_synapses=${maxNewCtl.get()}, permanence_increment=${incCtl.get()},\n` +
-      `    permanence_decrement=${decCtl.get()})\n` +
-      `tm = TemporalMemory(config=cfg)\n` +
-      `for active_columns in sequence:\n` +
-      `    tm.compute(neurons, active_columns, learn=${learnToggle.get()})`
-    );
+    dynNotes = document.createElement('div');
+    notes.appendChild(dynNotes);
   }
 
+  staticNotes();
   reset();
   ui.onTheme(redraw);
   return { destroy() { stopPlay(); } };

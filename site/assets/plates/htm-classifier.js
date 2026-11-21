@@ -18,7 +18,7 @@ export function mount(root, ui) {
   const trainBtn = ui.button(controls, { label: 'Train', onClick: () => train() });
   const resetBtn = ui.button(controls, { label: 'Reset', onClick: () => reset() });
 
-  const scoresPlot = ui.plot(figures, { height: 220, xLabel: 'class', yLabel: 'score', xUnit: 'class', yUnit: 'a.u.' });
+  const scoresPlot = ui.plot(figures, { height: 220, xLabel: 'class', yLabel: 'score', xUnit: 'index', yUnit: 'a.u.' });
   const bitsCanvas = ui.canvas(figures, { height: 90 });
 
   let clf = null;
@@ -39,13 +39,6 @@ export function mount(root, ui) {
     return patterns;
   }
 
-  function reset() {
-    clf = new SDRClassifier({ n_classes: nClassesCtl.get(), sdr_size: sdrSizeCtl.get(), learning_rate: lrCtl.get() });
-    patterns = buildPatterns();
-    lastResult = null;
-    redraw();
-  }
-
   function train() {
     if (!clf) return;
     const ex = examplesCtl.get();
@@ -57,11 +50,19 @@ export function mount(root, ui) {
     redraw();
   }
 
-  function redraw() {
-    if (!clf) return;
-    // Show the first class's code as bits.
-    const { ctx, width } = bitsCanvas;
-    ctx.clearRect(0, 0, width, bitsCanvas.height);
+  function reset() {
+    clf = new SDRClassifier({ n_classes: nClassesCtl.get(), sdr_size: sdrSizeCtl.get(), learning_rate: lrCtl.get() });
+    patterns = buildPatterns();
+    lastResult = null;
+    train(); // train on load so the figure and note show real content
+  }
+
+  // Canvas backing store resets on layout/resize, so register the draw via
+  // onResize (called after layout and on every resize) rather than once.
+  function drawBitsFig() {
+    if (!patterns.length) return;
+    const { ctx, width, height } = bitsCanvas;
+    ctx.clearRect(0, 0, width, height);
     const n = sdrSizeCtl.get();
     const dense = patterns[0].toDense();
     const pad = 8;
@@ -71,27 +72,52 @@ export function mount(root, ui) {
       ctx.fillStyle = dense[i] ? ui.color('c1') : ui.color('muted');
       ctx.fillRect(pad + i * (bw + gap), pad, bw, 18);
     }
+  }
+  bitsCanvas.onResize(drawBitsFig);
 
-    // Output distribution: scores per class.
+  function redraw() {
+    if (!clf) return;
+    drawBitsFig();
+
+    // Output distribution: scores per class. Bars start at 0.
     const scores = lastResult ? lastResult.scores : new Array(nClassesCtl.get()).fill(0);
     const xs = scores.map((_, c) => c);
+    const maxScore = Math.max(...scores, 1e-6);
     scoresPlot.draw([{ x: xs, y: scores, label: 'score', color: 'c1', style: 'bars' }], {
       xRange: [0, nClassesCtl.get()],
+      yRange: [0, maxScore * 1.1],
     });
 
     updateNotes();
   }
 
+  // Dynamic notes (readout + code) live in their own box, cleared each update
+  // so they do not accumulate as the student changes controls.
+  let dynNotes = null;
+
   function updateNotes() {
+    if (!dynNotes) return;
+    dynNotes.innerHTML = '';
     const k = nClassesCtl.get();
     const pred = lastResult ? lastResult.pred : null;
     ui.note(
-      notes,
+      dynNotes,
       `<p>The SDR classifier stores, for each class, a weight vector over the SDR bits. <b>learn()</b> adds ` +
         `<b>learning_rate = ${lrCtl.get()}</b> to the active bits of the labelled class; <b>infer()</b> scores each class as ` +
         `(weights · dense) / (count + 1e-6) and returns the argmax. After training on ${examplesCtl.get()} examples per class, ` +
         `the first code is classified as <b>${pred === null ? '—' : 'class ' + pred}</b>.</p>`
     );
+    ui.code(dynNotes, () =>
+      `from conex import SDRClassifier, SDR\n` +
+      `clf = SDRClassifier(n_classes=${k}, sdr_size=${sdrSizeCtl.get()}, learning_rate=${lrCtl.get()})\n` +
+      `for label, sdr in patterns:\n` +
+      `    for _ in range(${examplesCtl.get()}):\n` +
+      `        clf.learn(neurons, sdr, label)\n` +
+      `pred, scores = clf.infer(neurons, sdr)`
+    );
+  }
+
+  function staticNotes() {
     ui.note(
       notes,
       `<p><b>Background.</b> This is a minimal content-addressable readout: the SDR is the input, the class weights are the stored ` +
@@ -103,16 +129,11 @@ export function mount(root, ui) {
       `<div>score<sub>c</sub> = (<var>w</var><sub>c</sub> · <var>x</var>) / (count<sub>c</sub> + 1e-6), &nbsp; ` +
         `predict = arg<sub>c</sub> score<sub>c</sub></div>`
     );
-    ui.code(notes, () =>
-      `from conex import SDRClassifier, SDR\n` +
-      `clf = SDRClassifier(n_classes=${k}, sdr_size=${sdrSizeCtl.get()}, learning_rate=${lrCtl.get()})\n` +
-      `for label, sdr in patterns:\n` +
-      `    for _ in range(${examplesCtl.get()}):\n` +
-      `        clf.learn(neurons, sdr, label)\n` +
-      `pred, scores = clf.infer(neurons, sdr)`
-    );
+    dynNotes = document.createElement('div');
+    notes.appendChild(dynNotes);
   }
 
+  staticNotes();
   reset();
   ui.onTheme(redraw);
   return { destroy() {} };

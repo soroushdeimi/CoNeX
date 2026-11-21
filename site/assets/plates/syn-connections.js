@@ -89,6 +89,11 @@ export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
   const state = { type: 'dense', density: 0.5, kh: 3, kw: 3, stride: 1, pattern: 'checker', inhibitory: false, seed: 7 };
 
+  const tryThis = document.createElement('p');
+  tryThis.className = 'ui-trythis';
+  tryThis.innerHTML = '<b>Try this:</b> switch <b>type</b> to sparse and lower <b>density</b>; watch fewer connections carry the current.';
+  figures.appendChild(tryThis);
+
   const hero = ui.hero(figures, { height: 300 });
   const inputHeat = ui.heatmap(figures, { rows: H, cols: W, label: 'input pattern (pre spikes)' });
   const connHeat = ui.heatmap(figures, { rows: 16, cols: 16, label: 'connection pattern' });
@@ -153,6 +158,26 @@ export function mount(root, ui) {
       ctx.fillRect(bw >= 0 ? rightX : rightX - Math.abs(bw), py(d) - 4, Math.abs(bw), 8);
       ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(rightX - 6, py(d), 4, 0, Math.PI * 2); ctx.fill();
     }
+    // index labels: pre neurons (left), post neurons (right)
+    ctx.fillStyle = muted; ctx.font = '9px ui-monospace, monospace';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (let i = 0; i < N; i++) ctx.fillText(String(i), ix(i) - 6, iy(i));
+    ctx.textAlign = 'left';
+    for (let d = 0; d < nDst; d++) ctx.fillText(String(d), rightX + 8, py(d));
+    ctx.fillStyle = ink; ctx.font = '11px system-ui, sans-serif'; ctx.textBaseline = 'top';
+    ctx.textAlign = 'left'; ctx.fillText('pre', Wd * 0.02, Hh * 0.02);
+    ctx.textAlign = 'right'; ctx.fillText('post', Wd * 0.98, Hh * 0.02);
+    // weight colour bar (0..1) for the connection pattern
+    const bx = Wd * 0.9, by = Hh * 0.5, bw2 = 10, bh = Hh * 0.4;
+    const grad = typeof ctx.createLinearGradient === 'function' ? ctx.createLinearGradient(0, by + bh, 0, by) : null;
+    if (grad && typeof grad.addColorStop === 'function') {
+      grad.addColorStop(0, ui.color('paper')); grad.addColorStop(1, c1); ctx.fillStyle = grad;
+    } else ctx.fillStyle = c1;
+    ctx.fillRect(bx, by, bw2, bh);
+    ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.strokeRect(bx, by, bw2, bh);
+    ctx.fillStyle = muted; ctx.font = '9px ui-monospace, monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText('1', bx + bw2 + 3, by);
+    ctx.fillText('0', bx + bw2 + 3, by + bh);
   }
 
   function renderAt(t) {

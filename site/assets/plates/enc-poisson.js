@@ -51,6 +51,11 @@ export function mount(root, ui) {
   const N = 256;
   const FLIGHT = 4; // model steps a spark takes to fly from the pixel to the raster
 
+  const tryThis = document.createElement('p');
+  tryThis.className = 'ui-trythis';
+  tryThis.innerHTML = '<b>Try this:</b> switch <b>encoder</b> to Intensity2Latency and watch bright pixels spike sooner.';
+  figures.appendChild(tryThis);
+
   const hero = ui.hero(figures, { height: 300 });
   const raster = ui.raster(figures, { height: 220, xLabel: 'time', xUnit: 'steps' });
   const inCanvas = ui.canvas(figures, { height: 220 });
@@ -62,8 +67,8 @@ export function mount(root, ui) {
     cap.textContent = text;
     c.canvas.parentElement.appendChild(cap);
   };
-  caption(inCanvas, 'input image (intensity 0-1)');
-  caption(countCanvas, 'spike count in the last window');
+  caption(inCanvas, '1. Input intensity (0-1)');
+  caption(countCanvas, '2. Accumulated spike count (last window)');
 
   const state = { time_window: 30, ratio: 5 / 30, seed: 42, encoder: 'simple' };
   let data = null; // { spikes, T, maxCount }
@@ -167,6 +172,21 @@ export function mount(root, ui) {
       for (let i = 0; i < N; i++) if (spikeAt(tt, i)) counts[i]++;
     }
     drawGrid(countCanvas.ctx, counts, countCanvas.width, countCanvas.height, 0, data.maxCount, ui.color('c2'));
+    // numeric colour bar for the count (0 .. maxCount)
+    const ctx = countCanvas.ctx, Wc = countCanvas.width, Hc = countCanvas.height;
+    const bx = Wc - 18, by = Hc * 0.2, bh = Hc * 0.6, bw = 8;
+    const c2 = ui.color('c2');
+    const grad = typeof ctx.createLinearGradient === 'function' ? ctx.createLinearGradient(0, by + bh, 0, by) : null;
+    if (grad && typeof grad.addColorStop === 'function') {
+      grad.addColorStop(0, ui.color('paper')); grad.addColorStop(1, c2); ctx.fillStyle = grad;
+    } else ctx.fillStyle = c2;
+    ctx.globalAlpha = 1;
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = ui.color('ink'); ctx.lineWidth = 1; ctx.strokeRect(bx, by, bw, bh);
+    ctx.fillStyle = ui.color('muted'); ctx.font = '9px ui-monospace, monospace';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(data.maxCount), bx + bw + 2, by);
+    ctx.fillText('0', bx + bw + 2, by + bh);
   }
 
   function onFrame() {

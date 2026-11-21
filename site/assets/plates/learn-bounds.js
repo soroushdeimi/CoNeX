@@ -15,6 +15,11 @@ export const meta = {
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
+  const tryThis = document.createElement('p');
+  tryThis.className = 'ui-trythis';
+  tryThis.innerHTML = '<b>Try this:</b> raise <b>dw+</b> and watch the hard_bound bead stick at w_max while no_bound keeps climbing.';
+  figures.appendChild(tryThis);
+
   const hero = ui.hero(figures, { height: 300 });
 
   const state = {

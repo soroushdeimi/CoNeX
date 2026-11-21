@@ -275,6 +275,11 @@ function drawHeatmap(canvasObj, ui, matrix, rows, cols, { rowLabel, colLabel, ru
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
+  const tryThis = document.createElement('p');
+  tryThis.className = 'ui-trythis';
+  tryThis.innerHTML = '<b>Try this:</b> switch <b>Topology</b> to Conv2d and watch one shared kernel update across the whole input.';
+  figures.appendChild(tryThis);
+
   const hero = ui.hero(figures, { height: 300 });
 
   const state = {

@@ -22,6 +22,11 @@ export function mount(root, ui) {
   };
   const DT = 1; // ms per step
 
+  const tryThis = document.createElement('p');
+  tryThis.className = 'ui-trythis';
+  tryThis.innerHTML = '<b>Try this:</b> push <b>post delay after pre</b> past the <b>reward window</b> and watch the weight stop moving.';
+  figures.appendChild(tryThis);
+
   const hero = ui.hero(figures, { height: 300 });
   const weightPlot = ui.plot(figures, { height: 200, xLabel: 'time', xUnit: 'ms', yLabel: 'weight', yUnit: 'a.u.' });
   const dopPlot = ui.plot(figures, { height: 180, xLabel: 'time', xUnit: 'ms', yLabel: 'dopamine', yUnit: 'a.u.' });

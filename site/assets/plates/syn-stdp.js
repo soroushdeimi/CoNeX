@@ -32,6 +32,11 @@ export function mount(root, ui) {
   };
   const DT = 1; // ms of model time per step
 
+  const tryThis = document.createElement('p');
+  tryThis.className = 'ui-trythis';
+  tryThis.innerHTML = '<b>Try this:</b> change <b>post offset</b> and watch the weight rise (pre first) or fall (post first).';
+  figures.appendChild(tryThis);
+
   const hero = ui.hero(figures, { height: 300 });
   const tracePlot = ui.plot(figures, { height: 200, xLabel: 'time', xUnit: 'ms', yLabel: 'trace / weight', yUnit: 'a.u.' });
   const windowPlot = ui.plot(figures, { height: 200, xLabel: 'delta t', xUnit: 'ms', yLabel: 'dw', yUnit: 'a.u.' });
@@ -145,7 +150,10 @@ export function mount(root, ui) {
     }
     ctx.fillStyle = muted; ctx.font = '10px ui-monospace, monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillText('STDP window (dw vs delta t)', (wx0 + wx1) / 2, wy1 + 2);
+    ctx.fillText('STDP window: dw vs Δt = t_post − t_pre (ms)', (wx0 + wx1) / 2, wy1 + 2);
+    ctx.textAlign = 'center';
+    ctx.fillText('post first (depression)', (wx0 + sx(0)) / 2, wy1 + 14);
+    ctx.fillText('pre first (potentiation)', (sx(0) + wx1) / 2, wy1 + 14);
   }
 
   function drawPlots() {

@@ -24,6 +24,11 @@ export function mount(root, ui) {
   };
   const DT = state.dt;
 
+  const tryThis = document.createElement('p');
+  tryThis.className = 'ui-trythis';
+  tryThis.innerHTML = '<b>Try this:</b> raise <b>rho</b> and watch the inhibitory weight shrink so the post rate climbs to the new target.';
+  figures.appendChild(tryThis);
+
   const hero = ui.hero(figures, { height: 300 });
   const ratePlot = ui.plot(figures, { height: 200, xLabel: 'time', xUnit: 'ms', yLabel: 'post rate', yUnit: 'Hz' });
   const weightPlot = ui.plot(figures, { height: 200, xLabel: 'time', xUnit: 'ms', yLabel: 'inhibitory weight', yUnit: 'a.u.' });
@@ -85,12 +90,22 @@ export function mount(root, ui) {
     // --- converging inputs (left) ---
     const postX = W * 0.62, postY = H * 0.4, r = 20;
     const inX = W * 0.16, excY = H * 0.2, inhY = H * 0.6;
-    ctx.strokeStyle = muted; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(inX, excY); ctx.lineTo(postX - r, postY - 6); ctx.stroke();
+    const arrow = (x0, y0, x1, y1, color) => {
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      const a = Math.atan2(y1 - y0, x1 - x0);
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.moveTo(x1, y1);
+      ctx.lineTo(x1 - 9 * Math.cos(a - 0.4), y1 - 9 * Math.sin(a - 0.4));
+      ctx.lineTo(x1 - 9 * Math.cos(a + 0.4), y1 - 9 * Math.sin(a + 0.4));
+      ctx.closePath(); ctx.fill();
+    };
+    arrow(inX, excY, postX - r, postY - 6, c5);
     // inhibitory synapse: thickness = weight
     const sw = A.istdpSynapsePx(w, 1);
     ctx.strokeStyle = c2; ctx.lineWidth = sw;
     ctx.beginPath(); ctx.moveTo(inX, inhY); ctx.lineTo(postX - r, postY + 6); ctx.stroke();
+    arrow(inX, inhY, postX - r, postY + 6, c2);
     // input nodes flash on their real spikes
     const node = (x, y, color, on) => {
       ctx.save(); if (on) { ctx.shadowColor = color; ctx.shadowBlur = 14; }
@@ -104,10 +119,14 @@ export function mount(root, ui) {
     const over = A.clamp01(Math.max(0, last.rate - state.rho) / (maxRate - state.rho));
     ctx.save(); ctx.shadowColor = c1; ctx.shadowBlur = 6 + 24 * over;
     ctx.fillStyle = c1; ctx.beginPath(); ctx.arc(postX, postY, r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
-    ctx.fillStyle = ink; ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText('excitatory', inX, excY - 26);
-    ctx.fillText('inhibitory (w = ' + w.toFixed(3) + ')', inX, inhY + 14);
+    ctx.fillStyle = c5; ctx.fillText('excitatory (+)', inX, excY - 26);
+    ctx.fillStyle = c2; ctx.fillText('inhibitory (−)', inX, inhY + 14);
+    // weight badge on the inhibitory edge
+    ctx.fillStyle = c2; ctx.font = '11px ui-monospace, monospace';
+    ctx.fillText('w = ' + w.toFixed(3), (inX + postX) / 2, inhY + 10);
+    ctx.fillStyle = ink; ctx.font = '12px system-ui, sans-serif';
     ctx.fillText('post LIF', postX, postY + r + 4);
 
     // --- needle rate meter (bottom) ---

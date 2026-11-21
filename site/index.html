@@ -34,6 +34,16 @@
         Plasticity (STDP).
       </p>
       <p class="install-line">pip install cnrl-conex</p>
+
+      <figure class="ui-figure hero-figure">
+        <canvas id="hero-canvas" style="width:100%;height:200px;display:block;background:var(--card);border:1px solid var(--rule);border-radius:4px"></canvas>
+        <figcaption>
+          A single leaky integrate-and-fire neuron: membrane voltage (teal) and
+          its spikes (coral), driven by a constant 65 pA input. Same parameters
+          as the LIF plate (τ 20 ms, R 0.5 GΩ, v<sub>rest</sub> −70 mV,
+          threshold −50 mV, reset −55 mV).
+        </figcaption>
+      </figure>
     </section>
 
     <section>
@@ -145,19 +155,38 @@ symbol  anomaly  bursting columns
         parameter.
       </p>
       <div class="area-cards">
-        <a class="plate-card" href="atlas/index.html#neurons">
+        <a class="area-card" href="atlas/index.html#neurons">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M24 10 C15 10 13 20 18 26 C14 30 16 38 24 38 C32 38 34 30 30 26 C35 20 33 10 24 10 Z" fill="none" stroke="var(--c1)" stroke-width="2"/>
+            <path d="M24 14 V34 M18 24 H30" fill="none" stroke="var(--c1)" stroke-width="1.5"/>
+          </svg>
           <div class="title">Neurons</div>
           <div class="summary">Neuron models: LIF, ELIF, AELIF and their voltage dynamics.</div>
         </a>
-        <a class="plate-card" href="atlas/index.html#plasticity">
+        <a class="area-card" href="atlas/index.html#plasticity">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M8 34 C18 34 18 14 28 14 C34 14 36 20 40 20" fill="none" stroke="var(--c2)" stroke-width="2"/>
+            <circle cx="8" cy="34" r="3" fill="var(--c2)"/>
+            <circle cx="40" cy="20" r="3" fill="var(--c2)"/>
+          </svg>
           <div class="title">Plasticity</div>
           <div class="summary">Synaptic learning rules: STDP, RSTDP and iSTDP.</div>
         </a>
-        <a class="plate-card" href="atlas/index.html#htm">
+        <a class="area-card" href="atlas/index.html#htm">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <rect x="8" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
+            <rect x="20" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
+            <rect x="32" y="30" width="8" height="10" fill="none" stroke="var(--c4)" stroke-width="2"/>
+            <path d="M12 30 V18 M24 30 V18 M36 30 V18 M12 18 H36" fill="none" stroke="var(--c4)" stroke-width="1.5"/>
+          </svg>
           <div class="title">HTM</div>
           <div class="summary">Hierarchical Temporal Memory: spatial pooler and temporal memory.</div>
         </a>
-        <a class="plate-card" href="atlas/index.html#tbt">
+        <a class="area-card" href="atlas/index.html#tbt">
+          <svg class="area-icon" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M10 38 L24 10 L38 38 Z" fill="none" stroke="var(--c5)" stroke-width="2"/>
+            <path d="M17 29 L31 29 M20 22 L28 22" fill="none" stroke="var(--c5)" stroke-width="1.5"/>
+          </svg>
           <div class="title">Thousand Brains Theory</div>
           <div class="summary">Grid cells, active dendrites, column voting and predictive coding.</div>
         </a>
@@ -196,6 +225,92 @@ symbol  anomaly  bursting columns
       syncThemeBtn();
     });
     syncThemeBtn();
+
+    // Hero: a single LIF neuron, same parameters as the LIF plate.
+    const hero = document.getElementById('hero-canvas');
+    if (hero) {
+      const TAU = 20, R = 0.5, I = 65, V_REST = -70, THR = -50, V_RESET = -55;
+      const DT = 1; // ms
+      const RI = R * I; // 32.5 mV
+      const WINDOW = 1000; // ms of trace shown
+      let v = V_REST, t = 0;
+      const trace = []; // [t, v]
+      const spikes = []; // [t]
+      let acc = 0;
+
+      function step(ms) {
+        acc += ms;
+        while (acc >= DT) {
+          acc -= DT;
+          t += DT;
+          v += (DT / TAU) * (-(v - V_REST) + RI);
+          if (v >= THR) {
+            spikes.push(t);
+            v = V_RESET;
+          }
+          trace.push([t, v]);
+        }
+        while (trace.length && trace[0][0] < t - WINDOW) trace.shift();
+        while (spikes.length && spikes[0] < t - WINDOW) spikes.shift();
+      }
+
+      function draw() {
+        const dpr = window.devicePixelRatio || 1;
+        const w = hero.clientWidth || 600, h = 200;
+        hero.width = Math.round(w * dpr);
+        hero.height = Math.round(h * dpr);
+        const ctx = hero.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        const pal = { ink: ui.color('ink'), c1: ui.color('c1'), c2: ui.color('c2'), muted: ui.color('muted') };
+        const t0 = t - WINDOW;
+        const sx = (tt) => ((tt - t0) / WINDOW) * w;
+        const vTop = -30, vBot = -75;
+        const sy = (vv) => ((vTop - vv) / (vTop - vBot)) * (h - 30);
+        // threshold line
+        ctx.strokeStyle = pal.muted;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(0, sy(THR));
+        ctx.lineTo(w, sy(THR));
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // voltage trace
+        ctx.strokeStyle = pal.c1;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (let i = 0; i < trace.length; i++) {
+          const px = sx(trace[i][0]), py = sy(trace[i][1]);
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        // raster of spikes
+        for (const st of spikes) {
+          ctx.fillStyle = pal.c2;
+          ctx.fillRect(sx(st) - 0.75, h - 22, 1.5, 14);
+        }
+        ctx.fillStyle = pal.muted;
+        ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('v (mV)', 4, sy(THR) - 3);
+      }
+
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduced) {
+        step(WINDOW);
+        draw();
+        window.addEventListener('resize', draw);
+      } else {
+        const anim = ui.animate((dtMs) => {
+          step(Math.min(dtMs, 50));
+          draw();
+        });
+        anim.start();
+        window.addEventListener('resize', draw);
+        ui.onTheme(draw);
+      }
+    }
   </script>
 </body>
 </html>

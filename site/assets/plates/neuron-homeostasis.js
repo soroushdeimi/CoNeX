@@ -16,6 +16,21 @@ const P = { ...DEFAULTS };
 const SIZE = 8;
 const STEPS = 50000; // 5 s at dt = 0.1 ms, long enough to converge
 
+// Use ui.player when the shell provides it; otherwise fall back to a stub that
+// reveals the whole run once, so figures are never empty in the test mock.
+function makePlayer(ui, parent, onFrame) {
+  if (typeof ui.player === 'function') {
+    return ui.player(parent, { duration: 0, unit: 'ms', playSeconds: 5, loop: true, onFrame });
+  }
+  let t = 0;
+  return {
+    play() {}, pause() {},
+    seek(x) { t = x; }, // no player to animate; setDuration reveals the full run
+    playing() { return false; },
+    setDuration(d) { t = d; onFrame(d); },
+  };
+}
+
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
@@ -53,6 +68,9 @@ export function mount(root, ui) {
   const cEta = ui.slider(secH, { key: 'eta_ip', label: 'eta_ip', unit: 'mV', min: 0, max: 0.01, step: 0.0005, value: 0.001 });
 
   const figRate = ui.plot(figures, { height: 220, xLabel: 't', yLabel: 'firing rate', xUnit: 'ms', yUnit: 'Hz' });
+  // Raster of the group, revealed in sync with the player.
+  const figRaster = ui.raster(figures, { height: 160, xLabel: 't', xUnit: 'ms' });
+  const player = makePlayer(ui, figures, frame);
   // Two control plots (one per mode) so the y-axis label is correct for each.
   // Each is wrapped in a div we can hide; ui.plot appends its <figure> to the parent.
   const wrapAct = document.createElement('div');
@@ -90,6 +108,8 @@ export function mount(root, ui) {
     };
   }
 
+  let runData = null;
+
   function run() {
     const p = params();
     const rng = ui.rng(cSeed.get());
@@ -107,7 +127,7 @@ export function mount(root, ui) {
 
     const win = type === 'activity' ? cWin.get() : 1000;
     const targetHz = cARate.get() / (cWin.get() * p.dt / 1000);
-    const t = [], rate = [], ctrl = [];
+    const t = [], rate = [], ctrl = [], spikes = [];
     let acc = 0;
     for (let it = 1; it <= STEPS; it++) {
       let groupSpikes = 0;
@@ -117,7 +137,7 @@ export function mount(root, ui) {
         const pj = type === 'activity' ? { ...p, threshold: thresholds[j] } : p;
         const r = lifStep({ v: vs[j] }, pj, I, p.dt);
         vs[j] = r.v;
-        groupSpikes += r.spike ? 1 : 0;
+        if (r.spike) { groupSpikes++; spikes.push([it * p.dt, j]); }
         if (type === 'activity') {
           thresholds[j] = hos[j].step(r.spike, thresholds[j], it);
         } else {
@@ -134,8 +154,9 @@ export function mount(root, ui) {
         acc = 0;
       }
     }
-    figRate.draw([{ x: t, y: rate, label: 'firing rate', color: 'c1', style: 'line' }],
-      { hlines: [{ y: targetHz, label: 'target' }], yRange: [0, Math.max(targetHz * 3, 50)] });
+    runData = { t, rate, ctrl, spikes, targetHz, type };
+    player.setDuration(t[t.length - 1]);
+    player.seek(0); // reveals the first frame (also covers reduced-motion, which starts paused)
 
     // Mean over the last 2 s (the per-window rate fluctuates, so a single window
     // is not representative).
@@ -143,20 +164,28 @@ export function mount(root, ui) {
     const last2 = t.map((x, i) => ({ x, i })).filter((o) => o.x >= tMax - 2000);
     const meanRate = last2.reduce((a, o) => a + rate[o.i], 0) / last2.length;
     const meanCtrl = last2.reduce((a, o) => a + ctrl[o.i], 0) / last2.length;
-
-    // Draw BOTH control plots every run (the hidden one is stale-but-hidden and
-    // refreshes on the next run); show only the one whose y-axis label matches the mode.
-    wrapAct.style.display = type === 'activity' ? '' : 'none';
-    wrapVolt.style.display = type === 'voltage' ? '' : 'none';
-    figCtrlAct.draw([{ x: t, y: ctrl, label: 'mean threshold', color: 'c2', style: 'line' }], {});
-    figCtrlVolt.draw([{ x: t, y: ctrl, label: 'mean v', color: 'c2', style: 'line' }],
-      { hlines: [{ y: cTarget.get(), label: 'target_voltage' }] });
     if (type === 'activity') {
       caption.textContent = `mean over the last 2 s: rate ${meanRate.toPrecision(3)} Hz (target ${targetHz.toPrecision(3)} Hz), ` +
         `threshold ${meanCtrl.toPrecision(4)} mV (start ${p.threshold} mV)`;
     } else {
       caption.textContent = `mean over the last 2 s: voltage ${meanCtrl.toPrecision(4)} mV (target ${cTarget.get()} mV)`;
     }
+  }
+
+  // Reveal the rate, the control variable, and the group raster up to time t.
+  function frame(t) {
+    if (!runData) return;
+    const { t: tt, rate, ctrl, spikes, targetHz, type } = runData;
+    figRate.draw([{ x: tt, y: rate, label: 'firing rate', color: 'c1', style: 'line' }],
+      { revealX: t, hlines: [{ y: targetHz, label: 'target' }], yRange: [0, Math.max(targetHz * 3, 50)] });
+    // Draw BOTH control plots every frame (the hidden one is stale-but-hidden and
+    // refreshes on the next run); show only the one whose y-axis label matches the mode.
+    wrapAct.style.display = type === 'activity' ? '' : 'none';
+    wrapVolt.style.display = type === 'voltage' ? '' : 'none';
+    figCtrlAct.draw([{ x: tt, y: ctrl, label: 'mean threshold', color: 'c2', style: 'line' }], { revealX: t });
+    figCtrlVolt.draw([{ x: tt, y: ctrl, label: 'mean v', color: 'c2', style: 'line' }],
+      { revealX: t, hlines: [{ y: cTarget.get(), label: 'target_voltage' }] });
+    figRaster.draw(spikes, SIZE, tt[tt.length - 1], { revealT: t });
   }
 
   function codeSnippet() {

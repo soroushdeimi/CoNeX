@@ -8,23 +8,25 @@ export const meta = {
   source: 'conex/behaviors/neurons/numenta/spatial_pooler.py',
 };
 
-// Number of columns shown in the hero (a display window, not a model parameter).
-const HERO_COLS = 16;
-
-// Pure hero state for the Spatial Pooler plate. For each shown column it
-// eases the overlap count and every synapse permanence between step idx and
-// idx+1, and flags a synapse connected when its eased permanence crosses
-// syn_perm_connected (so lines appear/disappear as permanences morph).
-export function spHeroState(run, t, connectedPerm, heroN = HERO_COLS) {
+// Pure hero state for the Spatial Pooler plate. For every column it eases the
+// overlap count and each synapse permanence between step idx and idx+1, and
+// flags a synapse connected when its eased permanence crosses
+// syn_perm_connected. It also lists the connected synapses from the winning
+// columns to active input bits (capped), which the hero draws as the reason
+// those columns won.
+export function spHeroState(run, t, connectedPerm) {
   const N = run.steps.length;
   const idx = Math.max(0, Math.min(N - 1, Math.floor(t)));
   const next = Math.min(N - 1, idx + 1);
   const f = ease(t - idx);
   const nP = run.nPotential;
+  const n = run.n;
   const cols = [];
-  for (let c = 0; c < heroN; c++) {
+  let maxOverlap = 0;
+  for (let c = 0; c < n; c++) {
     const overlap = run.steps[idx].overlap[c] * (1 - f) + run.steps[next].overlap[c] * f;
     const winner = run.steps[idx].activeSet.has(c);
+    if (overlap > maxOverlap) maxOverlap = overlap;
     const syn = [];
     for (let p = 0; p < nP; p++) {
       const perm = run.steps[idx].perm[c * nP + p] * (1 - f) + run.steps[next].perm[c * nP + p] * f;
@@ -32,11 +34,36 @@ export function spHeroState(run, t, connectedPerm, heroN = HERO_COLS) {
     }
     cols.push({ c, overlap, winner, syn });
   }
+  // Connected synapses from winning columns to active input bits (capped).
+  const lines = [];
+  for (const col of cols) {
+    if (!col.winner) continue;
+    for (const s of col.syn) {
+      if (!s.connected) continue;
+      if (!run.input[s.input]) continue;
+      lines.push({ inputIdx: s.input, colIdx: col.c });
+      if (lines.length >= 80) break;
+    }
+    if (lines.length >= 80) break;
+  }
   const nWin = run.steps[idx].activeSet.size;
   const narration =
     `step ${idx + 1}/${N}: ${nWin} active columns; overlap = connected synapses on active inputs ` +
     `(connected when permanence ≥ ${connectedPerm})`;
-  return { idx, f, cols, input: run.input, narration };
+  return { idx, f, cols, maxOverlap, input: run.input, lines, narration };
+}
+
+// Blend two hex colors; t in [0,1] (t=0 -> a, t=1 -> b).
+function mixColor(a, b, t) {
+  const pa = hexRgb(a), pb = hexRgb(b);
+  const c = pa.map((v, i) => Math.round(v + (pb[i] - v) * t));
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+}
+function hexRgb(s) {
+  const m = String(s).match(/^#([0-9a-f]{6})$/i);
+  if (!m) return [128, 128, 128];
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
 export function mount(root, ui) {
@@ -103,66 +130,81 @@ export function mount(root, ui) {
     updateNotes(idx);
   }
 
-  // Hero: active input bits (left) connect via thin lines to the columns they
-  // feed (right); a line is drawn only for a connected synapse, so lines
-  // appear/disappear as permanences cross syn_perm_connected. Column bar
-  // height is the eased overlap count; winners pulse.
+  // Hero: the input as a square grid of cells (left), the columns as a square
+  // grid (right) whose fill is the eased overlap, and the connected synapses
+  // from the winning columns to active input bits as thin teal curves between.
   function drawHero() {
     const st = spHeroState(run, lastT, connectedCtl.get());
     const { ctx, width, height } = hero;
     ctx.clearRect(0, 0, width, height);
     const pad = 8;
     const nIn = run.input.length;
-    const leftW = Math.min(120, width * 0.28);
-    const rightX = pad + leftW + 24;
-    const rightW = width - rightX - pad;
-    const colW = rightW / HERO_COLS;
+    const nCols = run.n;
+    const inSide = Math.floor(Math.sqrt(nIn));
+    const colSide = Math.floor(Math.sqrt(nCols));
+    const gap = 2;
+    const gridH = height - 2 * pad;
+    const inCell = (gridH - gap * (inSide - 1)) / inSide;
+    const colCell = (gridH - gap * (colSide - 1)) / colSide;
+    const inX = pad;
+    const colX = width - pad - colSide * (colCell + gap) + gap;
     const c1 = ui.color('c1');
     const c2 = ui.color('c2');
     const c5 = ui.color('c5');
     const muted = ui.color('muted');
+    const paper = ui.color('paper');
 
-    // Input bits (left), active ones lit.
-    const inH = (height - 2 * pad) / nIn;
+    // Input grid (left): active bits filled green, inactive faint.
     for (let i = 0; i < nIn; i++) {
-      const y = pad + i * inH;
+      const r = Math.floor(i / inSide);
+      const c = i % inSide;
+      const x = inX + c * (inCell + gap);
+      const y = pad + r * (inCell + gap);
       ctx.fillStyle = run.input[i] ? c5 : muted;
-      ctx.fillRect(pad, y + 1, leftW, Math.max(1, inH - 2));
+      ctx.globalAlpha = run.input[i] ? 1 : 0.25;
+      ctx.fillRect(x, y, inCell, inCell);
+      ctx.globalAlpha = 1;
     }
 
-    // Synapse lines: from each active input to the columns it feeds, only for
-    // connected synapses.
+    // Column grid (right): fill = eased overlap / max overlap (teal ramp);
+    // winners get a coral ring.
+    const maxOv = Math.max(1, st.maxOverlap);
     for (const col of st.cols) {
-      const cx = rightX + col.c * colW + colW / 2;
-      for (const s of col.syn) {
-        if (!s.connected) continue;
-        if (!run.input[s.input]) continue;
-        const iy = pad + s.input * inH + inH / 2;
-        ctx.strokeStyle = c1;
-        ctx.globalAlpha = 0.35;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(pad + leftW, iy);
-        ctx.lineTo(cx, pad + (height - 2 * pad) / 2);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-      }
-    }
-
-    // Columns (right): bar height = eased overlap, winners outlined in coral.
-    const maxOv = Math.max(1, ...st.cols.map((c) => c.overlap));
-    const barArea = height - 2 * pad;
-    for (const col of st.cols) {
-      const x = rightX + col.c * colW;
-      const h = (col.overlap / maxOv) * barArea;
-      ctx.fillStyle = col.winner ? c2 : c1;
-      ctx.fillRect(x + 1, pad + barArea - h, colW - 2, h);
+      const r = Math.floor(col.c / colSide);
+      const c = col.c % colSide;
+      const x = colX + c * (colCell + gap);
+      const y = pad + r * (colCell + gap);
+      const frac = Math.max(0, Math.min(1, col.overlap / maxOv));
+      ctx.fillStyle = mixColor(paper, c1, frac);
+      ctx.fillRect(x, y, colCell, colCell);
       if (col.winner) {
         ctx.strokeStyle = c2;
         ctx.lineWidth = 2;
-        ctx.strokeRect(x + 1, pad + 1, colW - 2, barArea - 2);
+        ctx.strokeRect(x + 1, y + 1, colCell - 2, colCell - 2);
       }
     }
+
+    // Connected synapses from winning columns to active input bits (teal curves).
+    ctx.strokeStyle = c1;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.4;
+    for (const ln of st.lines) {
+      const ir = Math.floor(ln.inputIdx / inSide);
+      const ic = ln.inputIdx % inSide;
+      const cr = Math.floor(ln.colIdx / colSide);
+      const cc = ln.colIdx % colSide;
+      const x0 = inX + ic * (inCell + gap) + inCell;
+      const y0 = pad + ir * (inCell + gap) + inCell / 2;
+      const x1 = colX + cc * (colCell + gap);
+      const y1 = pad + cr * (colCell + gap) + colCell / 2;
+      const mx = (x0 + x1) / 2;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.quadraticCurveTo(mx, y0, mx, (y0 + y1) / 2);
+      ctx.quadraticCurveTo(mx, y1, x1, y1);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
     heroCap.set(st.narration);
   }
   hero.onResize(() => { if (run) drawHero(); });

@@ -524,7 +524,7 @@ function spRun() {
 }
 
 test('sp hero: at an integer step the overlap and permanences are that step', () => {
-  const st = spHeroState(spRun(), 0, 0.1, 2);
+  const st = spHeroState(spRun(), 0, 0.1);
   assert.equal(st.idx, 0);
   assert.equal(st.cols[0].overlap, 1);
   assert.equal(st.cols[0].winner, true);
@@ -534,7 +534,7 @@ test('sp hero: at an integer step the overlap and permanences are that step', ()
 });
 
 test('sp hero: at the midpoint the overlap and permanences ease between steps', () => {
-  const st = spHeroState(spRun(), 0.5, 0.1, 2);
+  const st = spHeroState(spRun(), 0.5, 0.1);
   assert.ok(Math.abs(st.cols[0].overlap - 1.5) < 1e-9); // (1+2)/2
   assert.ok(Math.abs(st.cols[0].syn[0].perm - 0.15) < 1e-9); // (0.1+0.2)/2
   assert.ok(Math.abs(st.cols[1].overlap - 0.5) < 1e-9); // (0+1)/2
@@ -542,61 +542,92 @@ test('sp hero: at the midpoint the overlap and permanences ease between steps', 
 
 test('sp hero: a synapse is connected when its eased permanence crosses the threshold', () => {
   // At step 0, col0 syn0 perm=0.1 is exactly at threshold 0.1 -> connected.
-  const at = spHeroState(spRun(), 0, 0.1, 2);
+  const at = spHeroState(spRun(), 0, 0.1);
   assert.equal(at.cols[0].syn[0].connected, true);
   // col1 syn0 perm=0.05 < 0.1 -> not connected.
   assert.equal(at.cols[1].syn[0].connected, false);
   // At the midpoint col1 syn0 perm=0.1 -> now connected (crossed the threshold).
-  const mid = spHeroState(spRun(), 0.5, 0.1, 2);
+  const mid = spHeroState(spRun(), 0.5, 0.1);
   assert.equal(mid.cols[1].syn[0].connected, true);
 });
 
+test('sp hero: the synapse lines are the connected winner synapses on active inputs', () => {
+  // Step 0: only col0 is a winner. Its connected synapses on active inputs:
+  // syn0 (input 0, active, perm 0.1 >= 0.1) and syn1 (input 1, inactive) ->
+  // only input 0 is active, so one line to col0.
+  const st = spHeroState(spRun(), 0, 0.1);
+  assert.deepEqual(st.lines, [{ inputIdx: 0, colIdx: 0 }]);
+  // Step 1: col0 and col1 are winners; both have a connected synapse on input 0.
+  const st1 = spHeroState(spRun(), 1, 0.1);
+  assert.equal(st1.lines.length, 2);
+  assert.ok(st1.lines.every((l) => l.inputIdx === 0));
+});
+
+test('sp hero: maxOverlap is the eased maximum column overlap', () => {
+  assert.equal(spHeroState(spRun(), 0, 0.1).maxOverlap, 1);
+  assert.equal(spHeroState(spRun(), 1, 0.1).maxOverlap, 2);
+});
+
 test('sp hero: narration names the step and the number of active columns', () => {
-  const st = spHeroState(spRun(), 0, 0.1, 2);
+  const st = spHeroState(spRun(), 0, 0.1);
   assert.match(st.narration, /step 1\/2/);
   assert.match(st.narration, /1 active columns/);
-  const st1 = spHeroState(spRun(), 1, 0.1, 2);
+  const st1 = spHeroState(spRun(), 1, 0.1);
   assert.match(st1.narration, /2 active columns/);
 });
 
-// TM hero: 4 cells (one column), 2 steps.
+// TM hero: the real 18-column layout (6 symbols x 3 columns), 2 cells each.
+// A = cols 0-2, B = cols 6-8. Step 0 predicts B (a cell in col 6), so step 1
+// shows that prediction.
 function tmRun() {
+  const nCells = 18 * 2;
+  const allFalse = new Array(nCells).fill(false);
+  const activeA = new Array(nCells).fill(false); // cols 0,1,2
+  for (const c of [0, 1, 2]) { activeA[c * 2] = true; activeA[c * 2 + 1] = true; }
+  const activeB = new Array(nCells).fill(false); // cols 6,7,8
+  for (const c of [6, 7, 8]) { activeB[c * 2] = true; activeB[c * 2 + 1] = true; }
+  const predB = new Array(nCells).fill(false); // one cell in col 6
+  predB[6 * 2] = true;
   return {
-    nCells: 4,
+    cells: 2,
+    nCells,
+    nCols: 18,
     steps: [
-      { symbol: 'A', active: [true, false, true, false], predictive: [false, false, false, false], bursting: [true], winners: [true, false, false, false], anomaly: 1.0 },
-      { symbol: 'B', active: [false, true, false, true], predictive: [true, false, true, false], bursting: [false], winners: [false, true, false, false], anomaly: 0.0 },
+      { symbol: 'A', active: activeA, predictive: predB.slice(), bursting: new Array(18).fill(false), anomaly: 0.0 },
+      { symbol: 'B', active: activeB, predictive: allFalse.slice(), bursting: new Array(18).fill(false), anomaly: 0.0 },
     ],
   };
 }
 
-test('tm hero: at the first step there is no prior prediction and no links', () => {
+test('tm hero: at the first step there is no prior prediction', () => {
   const st = tmHeroState(tmRun(), 0);
   assert.equal(st.idx, 0);
-  assert.deepEqual(st.prediction, [false, false, false, false]);
-  assert.deepEqual(st.links, []);
+  assert.deepEqual(st.prediction, new Array(36).fill(false));
+  assert.deepEqual(st.predSymbols, []);
   assert.match(st.narration, /step 1\/2 \(A\)/);
 });
 
 test('tm hero: the prediction shown is the previous step\'s prediction', () => {
   const st = tmHeroState(tmRun(), 1);
-  // step 1 shows step 0's predictive cells
-  assert.deepEqual(st.prediction, [false, false, false, false]);
+  // step 1 shows step 0's predictive cells (a cell in col 6)
+  assert.equal(st.prediction[6 * 2], true);
+  assert.equal(st.prediction.filter(Boolean).length, 1);
 });
 
-test('tm hero: segment links run from the current winners to the previous winners', () => {
-  const st = tmHeroState(tmRun(), 1);
-  // step1 winner = cell 1; step0 winner = cell 0 -> link [0, 1]
-  assert.deepEqual(st.links, [[0, 1]]);
+test('tm hero: the current and predicted symbols are derived from the columns', () => {
+  const st0 = tmHeroState(tmRun(), 0);
+  assert.equal(st0.currentSymbol, 'A');
+  const st1 = tmHeroState(tmRun(), 1);
+  assert.equal(st1.currentSymbol, 'B');
+  // step 1 shows step 0's prediction (col 6) -> predicts B
+  assert.deepEqual(st1.predSymbols, ['B']);
 });
 
 test('tm hero: narration names the step, symbol, burst count and anomaly', () => {
   const st = tmHeroState(tmRun(), 0);
-  assert.match(st.narration, /1 column? burst/);
-  assert.match(st.narration, /anomaly 1\.00/);
-  const st1 = tmHeroState(tmRun(), 1);
-  assert.match(st1.narration, /0 columns? burst/);
-  assert.match(st1.narration, /anomaly 0\.00/);
+  assert.match(st.narration, /step 1\/2 \(A\)/);
+  assert.match(st.narration, /0 columns? burst/);
+  assert.match(st.narration, /anomaly 0\.00/);
 });
 
 // Classifier hero: n=4, 2 classes, 1 example each, lr=0.1.

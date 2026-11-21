@@ -7,6 +7,33 @@ export const meta = {
   source: 'conex/behaviors/neurons/numenta/active_dendrites.py',
 };
 
+// --- Pure mappings (model state -> drawn quantity / narration) -------------
+// Exported so site/tests/tbt.test.mjs can test them by hand-computed values.
+
+// A segment gauge's fill (0..1) is its activation over the activation threshold.
+export function gaugeFill(activation, threshold) {
+  if (threshold <= 0) return 0;
+  return Math.max(0, Math.min(1, activation / threshold));
+}
+
+// Which colour a segment gauge uses: active, matching, or below.
+export function segmentState(activation, actThresh, learnThresh) {
+  if (activation >= actThresh) return 'active';
+  if (activation >= learnThresh) return 'matching';
+  return 'below';
+}
+
+// A cell is predictive when its depolarization crosses the threshold.
+export function isPredictive(depol, depolThresh) {
+  return depol >= depolThresh;
+}
+
+// One-line narration driven by the model state.
+export function dendriteNarration({ k, nActive, nPredictive }) {
+  if (k === 0) return 'no context yet: all segments are silent';
+  return `${k} of ${nActive} context bits arrived; ${nPredictive} cell${nPredictive === 1 ? '' : 's'} now predictive`;
+}
+
 export function mount(root, ui) {
   const { controls, figures, notes } = ui.layout(root);
 
@@ -41,7 +68,6 @@ export function mount(root, ui) {
   });
 
   let model = buildModel();
-  let lastActive = [];
   function buildModel() {
     const nc = nCells.get();
     const ns = nSegments.get();
@@ -69,25 +95,22 @@ export function mount(root, ui) {
     });
     return { seg, context, nc, ns, nS };
   }
-  const rebuild = () => { model = buildModel(); precompute(); currentFrame = frames[frames.length - 1]; render(); };
-  [nCells, nSegments, nSyn, actThresh, learnThresh, connPerm, seed, depolThresh].forEach((c) => c.onInput(rebuild));
-  ctxSparsity.onInput(rebuild);
 
-  // --- figures ---
-  const segCanvas = ui.canvas(figures, { height: 260 });
+  // --- figures: hero on top, depolarization plot below ---
+  const hero = ui.hero(figures, { height: 300 });
   const depolPlot = ui.plot(figures, {
     height: 200, xLabel: 'cell', xUnit: 'index', yLabel: 'depolarization', yUnit: 'a.u.',
   });
 
-  // The context SDR is drawn as a fixed ordered list of active cells; the
-  // player reveals them one by one. Precompute one frame per bit so the
+  // The context SDR is revealed bit by bit. Precompute one frame per bit so the
   // animation only indexes, never recomputes.
   let frames = [];
+  let order = [];
   function precompute() {
     const { seg, context, nc } = model;
     const rng = mulberry(seed.get() + 1000);
     const nActive = Math.max(1, Math.round(nc * ctxSparsity.get()));
-    const order = pickDistinct(rng, nc, nActive);
+    order = pickDistinct(rng, nc, nActive);
     frames = [];
     const active = new Array(nc).fill(false);
     for (let k = 0; k <= nActive; k++) {
@@ -105,73 +128,103 @@ export function mount(root, ui) {
   }
 
   let currentFrame = null;
-  function render() {
-    const { nc } = model;
-    const f = currentFrame;
-    lastActive = f ? f.active : new Array(nc).fill(false);
-    drawSegments();
-    depolPlot.draw(
-      [
-        { x: Array.from({ length: nc }, (_, i) => i), y: f ? Array.from(f.depol) : new Array(nc).fill(0), label: 'depolarization', color: 'c1' },
-      ],
-      { xRange: [0, nc - 1], yRange: [0, 1], hlines: [{ y: depolThresh.get(), label: 'predictive threshold' }] },
-    );
-  }
+  let currentK = 0;
 
-  function onFrame(t) {
-    const k = Math.max(0, Math.min(frames.length - 1, Math.round((t / 100) * (frames.length - 1))));
-    currentFrame = frames[k];
-    render();
-  }
-
-  function drawSegments() {
-    const active = lastActive;
-    const { ctx, width, height } = segCanvas;
+  function drawHero() {
+    const { ctx, width, height } = hero;
     ctx.clearRect(0, 0, width, height);
     const { seg, nc, ns } = model;
     const ink = ui.color('ink');
     const muted = ui.color('muted');
     const c1 = ui.color('c1');
-    const c2 = ui.color('c2');
     const c3 = ui.color('c3');
-    const c5 = ui.color('c5');
-    const cols = Math.min(ns, 6);
+    const f = currentFrame;
+    const actArr = f ? f.activation : seg.segmentActivation;
+    const predArr = f ? f.predictive : null;
+    const activeArr = f ? f.active : new Array(nc).fill(false);
+
     const cellW = width / nc;
-    const rowH = (height - 30) / ns;
-    const actArr = currentFrame ? currentFrame.activation : seg.segmentActivation;
-    const predArr = currentFrame ? currentFrame.predictive : null;
+    const topY = 22; // context row
+    const gridTop = 48;
+    const rowH = (height - gridTop - 34) / ns;
+
+    // context row: one dot per presynaptic cell, lit when active
+    for (let c = 0; c < nc; c++) {
+      const cx = c * cellW + cellW / 2;
+      ctx.fillStyle = activeArr[c] ? c1 : muted;
+      ctx.globalAlpha = activeArr[c] ? 1 : 0.4;
+      ctx.beginPath(); ctx.arc(cx, topY, 4, 0, 2 * Math.PI); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = muted;
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.fillText('context', 4, topY - 8);
+
+    // segment gauges: one bar per (cell, segment), fill = activation/threshold
     for (let c = 0; c < nc; c++) {
       for (let s = 0; s < ns; s++) {
         const idx = c * ns + s;
         const act = actArr[idx];
         const x = c * cellW + 3;
-        const y = 24 + s * rowH;
+        const y = gridTop + s * rowH;
         const w = cellW - 6;
         const h = rowH - 4;
-        // fill by activation level
-        const frac = Math.min(1, act / Math.max(1, actThresh.get()));
+        const frac = gaugeFill(act, actThresh.get());
+        const state = segmentState(act, actThresh.get(), learnThresh.get());
         ctx.globalAlpha = 0.25 + 0.75 * frac;
-        ctx.fillStyle = act >= actThresh.get() ? c1 : act >= learnThresh.get() ? c3 : muted;
+        ctx.fillStyle = state === 'active' ? c1 : state === 'matching' ? c3 : muted;
         ctx.fillRect(x, y, w, h);
         ctx.globalAlpha = 1;
         ctx.strokeStyle = muted;
         ctx.strokeRect(x, y, w, h);
-        // count label
         ctx.fillStyle = ink;
         ctx.font = '11px ui-monospace, monospace';
         ctx.fillText(String(act), x + w / 2 - 4, y + h / 2 + 4);
       }
-      // cell index, with a dot when the cell is predictive
+      // cell index, with a predictive glow when depolarization crosses the threshold
       ctx.fillStyle = muted;
       ctx.font = '11px ui-monospace, monospace';
-      ctx.fillText(String(c), c * cellW + cellW / 2 - 3, 14);
+      ctx.fillText(String(c), c * cellW + cellW / 2 - 3, gridTop - 6);
       if (predArr && predArr[c]) {
         ctx.fillStyle = c1;
         ctx.beginPath();
-        ctx.arc(c * cellW + cellW / 2 + 8, 11, 3, 0, 2 * Math.PI);
+        ctx.arc(c * cellW + cellW / 2 + 8, gridTop - 9, 3, 0, 2 * Math.PI);
         ctx.fill();
       }
     }
+
+    // particles: the arriving context bit travels down to the segments that
+    // synapse onto it (decorative; does not change any shown number)
+    const b = currentK; // 0..nActive, fractional
+    const k = Math.floor(b);
+    const frac = b - k;
+    if (k < order.length && frac > 0 && frac < 1) {
+      const src = order[k]; // the presynaptic cell arriving now
+      const srcX = src * cellW + cellW / 2;
+      const nP = 3; // particles per arriving bit
+      for (let s = 0; s < ns; s++) {
+        for (let c = 0; c < nc; c++) {
+          const segIdx = c * ns + s;
+          let hits = 0;
+          for (let j = 0; j < model.nS; j++) {
+            if (seg.segmentTargets[segIdx * model.nS + j] === src) hits++;
+          }
+          if (!hits) continue;
+          const tx = c * cellW + cellW / 2;
+          const ty = gridTop + s * rowH + (rowH - 4) / 2;
+          for (let p = 0; p < nP; p++) {
+            const pf = Math.max(0, Math.min(1, frac * 1.2 - p * 0.15));
+            const px = srcX + (tx - srcX) * pf;
+            const py = topY + (ty - topY) * pf;
+            ctx.globalAlpha = 0.8 * (1 - pf * 0.5);
+            ctx.fillStyle = c1;
+            ctx.beginPath(); ctx.arc(px, py, 2.5, 0, 2 * Math.PI); ctx.fill();
+          }
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+
     // legend
     ctx.font = '11px system-ui, sans-serif';
     let lx = 4;
@@ -188,15 +241,42 @@ export function mount(root, ui) {
       ctx.fillText(label, lx + 14, height - 5);
       lx += 14 + label.length * 6.5 + 16;
     }
-    void active;
-    void c2; void c5;
+
+    const nPred = predArr ? Array.from(predArr).reduce((a, b) => a + b, 0) : 0;
+    hero.narration(dendriteNarration({ k: currentK, nActive: order.length, nPredictive: nPred }));
   }
 
-  // The segment canvas must draw inside onResize (called after layout and on
+  function render() {
+    drawHero();
+    const { nc } = model;
+    const f = currentFrame;
+    depolPlot.draw(
+      [
+        { x: Array.from({ length: nc }, (_, i) => i), y: f ? Array.from(f.depol) : new Array(nc).fill(0), label: 'depolarization', color: 'c1' },
+      ],
+      { xRange: [0, nc - 1], yRange: [0, 1], hlines: [{ y: depolThresh.get(), label: 'predictive threshold' }] },
+    );
+  }
+
+  const rebuild = () => { model = buildModel(); precompute(); currentFrame = frames[frames.length - 1]; currentK = frames.length - 1; render(); };
+  [nCells, nSegments, nSyn, actThresh, learnThresh, connPerm, seed, depolThresh, ctxSparsity].forEach((c) => c.onInput(rebuild));
+
+  // The player time is the bit index (0..nActive); the fractional part drives
+  // the arriving-bit particles. Gauges show the real value of the completed frame.
+  function onFrame(t) {
+    const nActive = order.length;
+    const b = Math.max(0, Math.min(nActive, (t / 100) * nActive));
+    currentK = b;
+    currentFrame = frames[Math.floor(b)];
+    render();
+  }
+
+  // The hero canvas must draw inside onResize (called after layout and on
   // every resize); drawing once at mount with a 0 width would leave it empty.
-  segCanvas.onResize(drawSegments);
+  hero.onResize(render);
   precompute();
   currentFrame = frames[frames.length - 1]; // start with the full context shown
+  currentK = frames.length - 1;
   render();
   ui.onTheme(render);
   ui.player(figures, {
@@ -221,11 +301,9 @@ export function mount(root, ui) {
     its depolarization crosses <code>depolarization_threshold</code> &mdash; it is
     depolarised by context but not yet firing. In the Thousand Brains Theory this
     is how a neuron "expects" to fire: the matching distal segment primes it.</p>
-    <p>Drag the context sparsity up to see more segments match; change the seed to
-    draw a different context SDR and wiring.</p>
-    <p>The player reveals the context SDR <em>bit by bit</em>. As each presynaptic
-    cell fires, the segments that synapse onto it gain one active synapse; a segment
-    lights up (teal) the moment its count crosses
+    <p>The hero reveals the context SDR <em>bit by bit</em>. Each arriving context
+    bit travels down as particles to the segments that synapse onto it; a segment's
+    gauge fills as its count rises, lights up (teal) the moment it crosses
     <code>activation_threshold</code>, and the cell it belongs to becomes
     <strong>predictive</strong> (the dot above its column) once its depolarization
     crosses <code>depolarization_threshold</code>. Every count and depolarization

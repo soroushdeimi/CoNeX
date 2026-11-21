@@ -619,3 +619,48 @@ test('displacement hero: narration reports distance and decoded vector', () => {
   assert.match(line, /max 10\.0 a\.u\./);
 });
 
+
+// ---------------------------------------------------------------------------
+// tbt-dendrites hero mappings
+// ---------------------------------------------------------------------------
+
+import {
+  gaugeFill,
+  segmentState,
+  isPredictive,
+  dendriteNarration,
+} from '../assets/plates/tbt-dendrites.js';
+
+test('dendrites hero: gauge fill is activation over threshold, clamped', () => {
+  assert.equal(gaugeFill(0, 6), 0);
+  assert.equal(gaugeFill(6, 6), 1);
+  assert.equal(gaugeFill(3, 6), 0.5);
+  assert.equal(gaugeFill(12, 6), 1); // clamped above
+  assert.equal(gaugeFill(3, 0), 0); // zero threshold -> no fill
+});
+
+test('dendrites hero: segment state is active / matching / below', () => {
+  assert.equal(segmentState(6, 6, 4), 'active');
+  assert.equal(segmentState(5, 6, 4), 'matching');
+  assert.equal(segmentState(3, 6, 4), 'below');
+  // boundary: exactly at the learning threshold is matching
+  assert.equal(segmentState(4, 6, 4), 'matching');
+  // boundary: exactly at the activation threshold is active
+  assert.equal(segmentState(6, 6, 4), 'active');
+});
+
+test('dendrites hero: a cell is predictive at and above the threshold', () => {
+  assert.equal(isPredictive(0.5, 0.5), true);
+  assert.equal(isPredictive(0.9, 0.5), true);
+  assert.equal(isPredictive(0.4, 0.5), false);
+});
+
+test('dendrites hero: narration reports bits arrived and predictive count', () => {
+  assert.equal(dendriteNarration({ k: 0, nActive: 6, nPredictive: 0 }), 'no context yet: all segments are silent');
+  const one = dendriteNarration({ k: 1, nActive: 6, nPredictive: 1 });
+  assert.match(one, /1 of 6 context bits arrived/);
+  assert.match(one, /1 cell now predictive/);
+  const many = dendriteNarration({ k: 4, nActive: 6, nPredictive: 3 });
+  assert.match(many, /4 of 6 context bits arrived/);
+  assert.match(many, /3 cells now predictive/);
+});

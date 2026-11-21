@@ -593,17 +593,11 @@ pre {
   filter: brightness(1.08);
 }
 
-/* pause toggle floats in the bottom-right, clear of the threshold line/label */
-.hero-canvas-row {
-  position: relative;
-}
-.hero-pause {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-}
-/* small, unobtrusive speed control under the hero figure */
+/* pause toggle and speed control sit in a row under the hero canvas */
 .hero-speed-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   margin-top: 0.4rem;
 }
 .hero-speed {

@@ -50,7 +50,9 @@ export function mount(root, ui) {
     drawBits(ctx, last.union.toDense(), pad, pad + 2 * (rowH + 6), width - 2 * pad, rowH, c3, muted);
     drawBits(ctx, last.inter.toDense(), pad, pad + 3 * (rowH + 6), width - 2 * pad, rowH, ui.color('ink'), muted);
   }
-  bitsCanvas.onResize(drawBitsFig);
+  // Register the redraw on resize when the ui supports it (the real ui.js does);
+  // the direct drawBitsFig() call in redraw() covers the no-onResize case.
+  if (typeof bitsCanvas.onResize === 'function') bitsCanvas.onResize(drawBitsFig);
 
   function redraw() {
     const n = sizeCtl.get();
@@ -131,12 +133,13 @@ export function mount(root, ui) {
         `All quantities are dimensionless counts (a.u.).</p>`
     );
     ui.code(dynNotes, () =>
+      `import torch\n` +
       `from conex import SDR\n` +
-      `a = SDR(size=${n}, indices=...)   # ${w} active bits\n` +
-      `b = SDR(size=${n}, indices=...)\n` +
-      `a.overlap(b)          # ${overlap} bits\n` +
-      `a.union(b).n_active   # ${unionN} bits\n` +
-      `a.intersection(b).n_active  # ${interN} bits\n` +
+      `a = SDR(size=${n}, indices=torch.tensor([0, 1, 2, 3, 4, 5, 6, 7]))\n` +
+      `b = SDR(size=${n}, indices=torch.tensor([4, 5, 6, 7, 8, 9, 10, 11]))\n` +
+      `a.overlap(b)                    # ${overlap} bits\n` +
+      `a.union(b).n_active             # ${unionN} bits\n` +
+      `a.intersection(b).n_active      # ${interN} bits\n` +
       `a.match_threshold(b, theta=${theta})`
     );
   }

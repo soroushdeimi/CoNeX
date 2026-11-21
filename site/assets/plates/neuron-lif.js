@@ -3,6 +3,8 @@ import {
   lifStep,
   lifRheobase,
   bucketFlows,
+  bucketLevel,
+  splashActive,
 } from '../js/models/neurons.js';
 
 export const meta = {
@@ -113,24 +115,22 @@ export function mount(root, ui) {
     drawBucket(t);
   }
 
-  // Leaky-bucket picture — the main figure. Water level = v(t); tap inflow =
-  // R*I/tau; hole outflow = (v - v_rest)/tau. Both flow rates come from the model
-  // (bucketFlows). On a spike the water splashes over the rim for ~150 ms of model
-  // time, then drops to v_reset; a tick lands on the strip at each real spike time.
+  // Leaky-bucket picture — the main figure. Water level = the REAL v(t) at the
+  // player time, always (it drops to v_reset at the spike step, which is the real
+  // reset). Tap inflow = R*I/tau; hole outflow = (v - v_rest)/tau (bucketFlows).
+  // A spike adds only a brief coral tint + droplets over the rim for 0.5 ms of
+  // model time (splashActive); it never holds the level at the rim.
   function drawBucket(t) {
     const { p, I, v, spikeTimes } = runData;
     const idx = Math.min(v.length - 1, Math.max(0, Math.round(t / p.dt)));
     const vNow = v[idx];
     const { input, leak } = bucketFlows({ R: p.R, I, tau: p.tau, v_rest: p.v_rest }, vNow);
 
-    // Splash: for ~150 ms of model time after a spike the water is shown at the
-    // rim (spilling over); after that it has dropped to v_reset.
-    const SPLASH_MS = 150;
-    let splashing = false;
-    for (const st of spikeTimes) {
-      if (t >= st && t < st + SPLASH_MS) { splashing = true; break; }
-    }
-    const vShown = splashing ? p.threshold : vNow;
+    // Splash: only a brief tint + droplets within 0.5 ms of model time after the
+    // most recent spike. The level itself is always the real v(t).
+    let lastSpikeT = null;
+    for (const st of spikeTimes) if (st <= t) lastSpikeT = st;
+    const splashing = splashActive(t, lastSpikeT, 0.5);
 
     const ctx = bucket.ctx;
     const W = bucket.width, H = bucket.height;
@@ -149,9 +149,9 @@ export function mount(root, ui) {
     const yRim = 90, yBot = 280;            // rim (threshold) and floor (v_rest)
     const yOf = (val) => yBot - ((val - p.v_rest) / (p.threshold - p.v_rest)) * (yBot - yRim);
 
-    // Water fill from v_rest up to the current level (clipped to the bucket).
-    const vClamped = Math.max(p.v_rest, Math.min(p.threshold, vShown));
-    const yWater = yOf(vClamped);
+    // Water fill from v_rest up to the REAL current level (bucketLevel of v(t)).
+    const level = bucketLevel(vNow, p);
+    const yWater = yBot - level * (yBot - yRim);
     ctx.fillStyle = splashing ? pal.coral : pal.water;
     ctx.globalAlpha = 0.82;
     ctx.fillRect(bx + 2, yWater, bw - 4, yBot - yWater);
